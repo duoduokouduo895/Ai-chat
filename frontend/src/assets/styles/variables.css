@@ -1,0 +1,102 @@
+/* CSS变量定义 - 提取公共样式避免重复 */
+:root {
+  /* 主要颜色 */
+  --primary-color: #1890ff;
+  --primary-hover: #40a9ff;
+  --success-color: #28a745;
+  --success-hover: #218838;
+  --danger-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
+  
+  /* 状态颜色 - 背景和文本 */
+  --success-bg: #d4edda;
+  --success-text: #155724;
+  --warning-bg: #fff3cd;
+  --warning-text: #856404;
+  --danger-bg: #f8d7da;
+  --danger-text: #721c24;
+  --info-bg: #d1ecf1;
+  --info-text: #0c5460;
+  
+  /* 文本颜色 */
+  --text-primary: #343a40;
+  --text-secondary: #6c757d;
+  --text-muted: #adb5bd;
+  --text-white: #ffffff;
+  --text-white-muted: rgba(255, 255, 255, 0.8);
+  
+  /* 背景颜色 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #e9ecef;
+  --bg-dark: #202123;
+  --bg-darker: #343541;
+  --bg-sidebar: #202123;
+  --bg-glass: rgba(255, 255, 255, 0.15);
+  --bg-glass-hover: rgba(255, 255, 255, 0.25);
+  
+  /* 边框颜色 */
+  --border-light: #dee2e6;
+  --border-medium: #e9ecef;
+  --border-dark: #444654;
+  --border-focus: #1890ff;
+  --border-glass: rgba(255, 255, 255, 0.1);
+  
+  /* 阴影 */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 25px rgba(0, 0, 0, 0.15);
+  --shadow-primary: 0 2px 4px rgba(24, 144, 255, 0.2);
+  --shadow-success: 0 2px 4px rgba(40, 167, 69, 0.2);
+  
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+  
+  /* 字体 */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  
+  /* 圆角 */
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 18px;
+  --border-radius-full: 50%;
+  
+  /* 过渡动画 */
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+  --transition-slow: 0.5s ease;
+  
+  /* 布局尺寸 */
+  --sidebar-width: 300px;
+  --header-height: 60px;
+  --chat-input-height: 140px;
+  
+  /* Z-index层级 */
+  --z-dropdown: 1000;
+  --z-modal: 1050;
+  --z-tooltip: 1060;
+}
+
+/* 深色主题变量 */
+[data-theme="dark"] {
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.8);
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --border-light: #404040;
+  --border-medium: #505050;
+}

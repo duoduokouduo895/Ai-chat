@@ -1,0 +1,65 @@
+package org.example.ai_agent.config.database;
+
+import io.asyncer.r2dbc.mysql.MySqlConnectionConfiguration;
+import io.asyncer.r2dbc.mysql.MySqlConnectionFactory;
+import io.r2dbc.pool.ConnectionPool;
+import io.r2dbc.pool.ConnectionPoolConfiguration;
+import io.r2dbc.spi.ConnectionFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
+import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
+import org.springframework.data.r2dbc.dialect.MySqlDialect;
+import org.springframework.r2dbc.core.DatabaseClient;
+
+import java.time.Duration;
+
+@Configuration
+@EnableR2dbcRepositories(basePackages = "org.example.ai_agent.repository")
+public class R2dbcConfig extends AbstractR2dbcConfiguration {
+
+    @Value("${spring.r2dbc.username}")
+    private String username;
+
+    @Value("${spring.r2dbc.password}")
+    private String password;
+
+    @Value("${spring.r2dbc.host:113.45.11.64}")
+    private String host;
+
+    @Value("${spring.r2dbc.port:3306}")
+    private int port;
+
+    @Value("${spring.r2dbc.database:ai_agent_db}")
+    private String database;
+
+    @Override
+    @Bean
+    public ConnectionFactory connectionFactory() {
+        MySqlConnectionConfiguration configuration = MySqlConnectionConfiguration.builder()
+                .host(host)
+                .port(port)
+                .username(username)
+                .password(password)
+                .database(database)
+                .build();
+
+        MySqlConnectionFactory connectionFactory = MySqlConnectionFactory.from(configuration);
+
+        // 配置连接池
+        ConnectionPoolConfiguration poolConfiguration = ConnectionPoolConfiguration.builder(connectionFactory)
+                .maxIdleTime(Duration.ofMinutes(30))
+                .maxLifeTime(Duration.ofMinutes(60))
+                .maxAcquireTime(Duration.ofSeconds(60))
+                .maxCreateConnectionTime(Duration.ofSeconds(60))
+                .initialSize(10)
+                .maxSize(50)
+                .validationQuery("SELECT 1")
+                .build();
+
+        return new ConnectionPool(poolConfiguration);
+    }
+
+}

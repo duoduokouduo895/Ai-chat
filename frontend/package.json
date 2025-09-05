@@ -1,0 +1,31 @@
+{
+  "name": "your-project-name",
+  "version": "1.0.0",
+  "description": "A description of your project",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.5.2",
+    "@fortawesome/free-regular-svg-icons": "^6.5.2",
+    "@fortawesome/free-solid-svg-icons": "^6.5.2",
+    "@fortawesome/vue-fontawesome": "^3.0.8",
+    "axios": "^1.11.0",
+    "element-plus": "^2.7.6",
+    "highlight.js": "^11.11.1",
+    "marked": "^16.2.1",
+    "vue": "^3.0.0",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^1.10.2",
+    "rollup-plugin-visualizer": "^6.0.3",
+    "vite": "^2.0.0",
+    "vite-plugin-compression": "^0.5.1"
+  },
+  "author": "Your Name",
+  "license": "MIT"
+}

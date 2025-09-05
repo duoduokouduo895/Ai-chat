@@ -1,0 +1,286 @@
+{
+  "framework": {
+    "name": "LangChain4j",
+    "version": "1.0.1",
+    "description": "Java AI应用开发框架，支持多模型集成、流式处理、会话记忆等功能",
+    "language": "Java",
+    "minimumJavaVersion": "17"
+  },
+  "coreComponents": {
+    "ChatModel": {
+      "description": "聊天模型基础接口，支持同步聊天",
+      "keyMethods": ["chat(String)", "chat(List<ChatMessage>)"],
+      "implementations": ["OpenAiChatModel", "AzureOpenAiChatModel", "OllamaChatModel"]
+    },
+    "StreamingChatModel": {
+      "description": "流式聊天模型接口，支持实时token流",
+      "keyMethods": ["generate(List<ChatMessage>, StreamingResponseHandler)"],
+      "implementations": ["OpenAiStreamingChatModel", "AzureOpenAiStreamingChatModel"]
+    },
+    "ChatMemory": {
+      "description": "会话记忆接口，管理对话历史",
+      "keyMethods": ["add(ChatMessage)", "messages()", "clear()"],
+      "implementations": ["MessageWindowChatMemory", "TokenWindowChatMemory"]
+    },
+    "ChatMemoryStore": {
+      "description": "记忆存储接口，支持持久化",
+      "keyMethods": ["getMessages(Object)", "updateMessages(Object, List<ChatMessage>)"],
+      "implementations": ["InMemoryChatMemoryStore", "RedisChatMemoryStore"]
+    }
+  },
+  "modelProviders": {
+    "OpenAI": {
+      "module": "langchain4j-open-ai",
+      "models": ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"],
+      "configuration": {
+        "required": ["apiKey", "modelName"],
+        "optional": ["temperature", "maxTokens", "timeout", "baseUrl"]
+      },
+      "example": {
+        "builder": "OpenAiChatModel.builder()",
+        "requiredParams": {
+          "apiKey": "sk-...",
+          "modelName": "gpt-4"
+        },
+        "optionalParams": {
+          "temperature": 0.7,
+          "maxTokens": 2000,
+          "timeout": "Duration.ofSeconds(30)"
+        }
+      }
+    },
+    "Azure OpenAI": {
+      "module": "langchain4j-azure-open-ai",
+      "models": ["gpt-4", "gpt-3.5-turbo"],
+      "configuration": {
+        "required": ["endpoint", "apiKey", "deploymentName"],
+        "optional": ["serviceVersion", "temperature", "maxTokens"]
+      },
+      "example": {
+        "builder": "AzureOpenAiChatModel.builder()",
+        "requiredParams": {
+          "endpoint": "https://your-resource.openai.azure.com/",
+          "apiKey": "azure-key",
+          "deploymentName": "gpt-4"
+        }
+      }
+    },
+    "Ollama": {
+      "module": "langchain4j-ollama",
+      "models": ["llama2", "mistral", "codellama"],
+      "configuration": {
+        "required": ["baseUrl", "modelName"],
+        "optional": ["temperature", "topP", "topK"]
+      },
+      "example": {
+        "builder": "OllamaChatModel.builder()",
+        "requiredParams": {
+          "baseUrl": "http://localhost:11434",
+          "modelName": "llama2"
+        }
+      }
+    },
+    "Anthropic Claude": {
+      "module": "langchain4j-anthropic",
+      "models": ["claude-3-sonnet", "claude-3-haiku", "claude-3-opus"],
+      "configuration": {
+        "required": ["apiKey", "modelName"],
+        "optional": ["temperature", "maxTokens"]
+      }
+    }
+  },
+  "memoryStrategies": {
+    "MessageWindowChatMemory": {
+      "description": "保留最近N条消息的记忆策略",
+      "configuration": {
+        "maxMessages": "int (默认20)",
+        "chatMemoryStore": "ChatMemoryStore (可选)"
+      },
+      "example": "MessageWindowChatMemory.withMaxMessages(20)"
+    },
+    "TokenWindowChatMemory": {
+      "description": "保留最近N个token的记忆策略",
+      "configuration": {
+        "maxTokens": "int",
+        "tokenizer": "Tokenizer (必需)",
+        "chatMemoryStore": "ChatMemoryStore (可选)"
+      },
+      "example": "TokenWindowChatMemory.builder().maxTokens(1000, new OpenAiTokenizer()).build()"
+    }
+  },
+  "streamingImplementation": {
+    "StreamingResponseHandler": {
+      "description": "流式响应处理器接口",
+      "methods": {
+        "onNext(String token)": "处理每个token",
+        "onComplete(AiMessage response)": "处理完成响应",
+        "onError(Throwable error)": "处理错误"
+      },
+      "example": {
+        "implementation": "new StreamingResponseHandler<AiMessage>() { ... }",
+        "usage": "streamingModel.generate(messages, handler)"
+      }
+    },
+    "WebFluxIntegration": {
+      "description": "与Spring WebFlux集成",
+      "pattern": "Flux.create(sink -> { ... })",
+      "example": {
+        "return": "Flux<String>",
+        "sink.next(token)": "发送token",
+        "sink.complete()": "完成流",
+        "sink.error(error)": "发送错误"
+      }
+    }
+  },
+  "configurationManagement": {
+    "NacosIntegration": {
+      "description": "使用Nacos配置中心管理AI模型配置",
+      "properties": {
+        "prefix": "langchain4j.open-ai.chat-model",
+        "refresh": "@RefreshScope",
+        "dynamic": "支持热更新"
+      },
+      "example": {
+        "propertiesFile": "langchain4j-config.properties",
+        "structure": {
+          "api-key": "sk-...",
+          "base-url": "https://api.openai.com/v1",
+          "models": {
+            "gpt-4": {
+              "model-name": "gpt-4",
+              "temperature": "0.7",
+              "max-tokens": "2000"
+            }
+          }
+        }
+      }
+    },
+    "DynamicModelRegistry": {
+      "description": "动态模型注册中心",
+      "responsibilities": [
+        "从配置读取模型参数",
+        "动态创建模型实例",
+        "提供模型查找服务"
+      ],
+      "pattern": "Map<String, ChatModel> + @PostConstruct"
+    }
+  },
+  "redisIntegration": {
+    "ChatMemoryStore": {
+      "description": "Redis实现的聊天记忆存储",
+      "implementation": "RedisChatMemoryStore",
+      "keyFeatures": [
+        "序列化/反序列化ChatMessage",
+        "设置过期时间",
+        "支持多用户隔离"
+      ],
+      "configuration": {
+        "template": "StringRedisTemplate",
+        "serializer": "ChatMessageSerializer",
+        "deserializer": "ChatMessageDeserializer"
+      }
+    },
+    "configuration": {
+      "host": "localhost",
+      "port": 6379,
+      "database": 0,
+      "timeout": "2000ms"
+    }
+  },
+  "usagePatterns": {
+    "basicChat": {
+      "description": "基础聊天功能",
+      "steps": [
+        "创建ChatModel实例",
+        "调用chat()方法",
+        "处理响应"
+      ],
+      "code": "chatModel.chat(\"Hello\")"
+    },
+    "streamingChat": {
+      "description": "流式聊天功能",
+      "steps": [
+        "创建StreamingChatModel实例",
+        "实现StreamingResponseHandler",
+        "调用generate()方法",
+        "处理流式响应"
+      ]
+    },
+    "memoryEnabledChat": {
+      "description": "带记忆的聊天功能",
+      "steps": [
+        "创建ChatMemory实例",
+        "添加用户消息到记忆",
+        "获取完整对话历史",
+        "调用AI模型",
+        "添加AI响应到记忆"
+      ]
+    },
+    "multiUserChat": {
+      "description": "多用户聊天功能",
+      "steps": [
+        "使用ChatMemoryProvider",
+        "为每个用户创建独立记忆",
+        "实现用户隔离"
+      ]
+    }
+  },
+  "bestPractices": {
+    "modelManagement": [
+      "使用模型注册中心统一管理",
+      "支持动态配置和热更新",
+      "实现模型健康检查"
+    ],
+    "memoryStrategy": [
+      "根据业务需求选择记忆策略",
+      "使用外部存储实现持久化",
+      "实现记忆清理和过期策略"
+    ],
+    "errorHandling": [
+      "实现完善的错误处理",
+      "使用重试机制",
+      "记录详细日志"
+    ],
+    "performance": [
+      "使用连接池",
+      "实现合理缓存",
+      "支持异步处理"
+    ],
+    "security": [
+      "不在代码中硬编码密钥",
+      "使用配置中心管理敏感信息",
+      "实现访问频率限制"
+    ]
+  },
+  "commonUseCases": {
+    "chatbot": {
+      "description": "聊天机器人应用",
+      "components": ["ChatModel", "ChatMemory", "StreamingResponseHandler"],
+      "features": ["对话记忆", "流式响应", "多轮对话"]
+    },
+    "aiAssistant": {
+      "description": "AI助手应用",
+      "components": ["StreamingChatModel", "TokenWindowChatMemory", "RedisChatMemoryStore"],
+      "features": ["长对话支持", "持久化记忆", "实时响应"]
+    },
+    "multiModelPlatform": {
+      "description": "多模型平台",
+      "components": ["AiModelRegistry", "DynamicModelRegistry", "ModelProvider"],
+      "features": ["模型切换", "动态配置", "负载均衡"]
+    }
+  },
+  "dependencies": {
+    "core": "langchain4j-core",
+    "openai": "langchain4j-open-ai",
+    "azure": "langchain4j-azure-open-ai",
+    "ollama": "langchain4j-ollama",
+    "anthropic": "langchain4j-anthropic",
+    "http": "langchain4j-http-client"
+  },
+  "springBootIntegration": {
+    "autoConfiguration": "支持Spring Boot自动配置",
+    "properties": "支持@ConfigurationProperties",
+    "refreshScope": "支持@RefreshScope热更新",
+    "beanManagement": "支持Spring Bean生命周期管理"
+  }
+} 

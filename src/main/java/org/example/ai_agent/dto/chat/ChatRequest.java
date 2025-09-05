@@ -1,0 +1,185 @@
+package org.example.ai_agent.dto.chat;
+
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+
+// import javax.validation.constraints.NotBlank;
+// import javax.validation.constraints.NotNull;
+
+/**
+ * AI聊天请求DTO
+ * <p>
+ * 用于封装前端发送的聊天请求数据，包括用户信息、会话信息和消息内容。
+ * </p>
+ * 
+ * @author AI Agent
+ * @version 1.0
+ * @since 2024
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ChatRequest {
+    
+    /**
+     * 用户ID
+     * 必填字段，用于标识发送消息的用户
+     */
+    // @NotNull(message = "用户ID不能为空")
+    private Long userId;
+    
+    /**
+     * 会话ID
+     * 可选字段，如果为空则创建新会话
+     */
+    private Long conversationId;
+    
+    /**
+     * 用户消息内容
+     * 必填字段，不能为空或空白字符串
+     * 前端字段名：prompt
+     */
+    // @NotBlank(message = "消息内容不能为空")
+    private String prompt;
+    
+    /**
+     * AI模型ID
+     * 可选字段，如果为空则使用默认模型
+     * 前端字段名：model
+     */
+    private String model;
+    
+    /**
+     * 用户消息内容（兼容性字段）
+     * 获取prompt字段的值
+     */
+    public String getMessage() {
+        return prompt;
+    }
+    
+    /**
+     * 设置用户消息内容（兼容性方法）
+     */
+    public void setMessage(String message) {
+        this.prompt = message;
+    }
+    
+    /**
+     * AI模型ID（兼容性字段）
+     * 获取model字段的值
+     */
+    public String getModelId() {
+        return model;
+    }
+    
+    /**
+     * 设置AI模型ID（兼容性方法）
+     */
+    public void setModelId(String modelId) {
+        this.model = modelId;
+    }
+    
+    /**
+     * 会话标题
+     * 可选字段，用于创建新会话时设置标题
+     */
+    private String title;
+    
+    /**
+     * 是否保存消息到数据库
+     * 默认为true，设置为false时仅进行临时对话
+     */
+    @Builder.Default
+    private Boolean saveMessage = true;
+    
+    /**
+     * 流式响应配置
+     * 默认为true，设置为false时返回完整响应
+     */
+    @Builder.Default
+    private Boolean streaming = true;
+    
+    /**
+     * 知识库ID列表
+     * 可选字段，如果提供则使用RAG模式进行对话
+     */
+    private java.util.List<Long> knowledgeBaseIds;
+    
+    /**
+     * 最大检索文档数
+     * RAG模式下的参数，默认为5
+     */
+    @Builder.Default
+    private Integer maxRetrievedDocs = 5;
+    
+    /**
+     * 最小相似度
+     * RAG模式下的参数，默认为0.7
+     */
+    @Builder.Default
+    private Double minSimilarity = 0.7;
+    
+    /**
+     * 验证请求参数的有效性
+     * 
+     * @return 如果参数有效返回true，否则返回false
+     */
+    public boolean isValid() {
+        return userId != null && prompt != null && !prompt.trim().isEmpty();
+    }
+    
+    /**
+     * 获取处理后的消息内容（去除首尾空白字符）
+     * 
+     * @return 处理后的消息内容
+     */
+    public String getTrimmedMessage() {
+        return prompt != null ? prompt.trim() : "";
+    }
+    
+    /**
+     * 检查是否需要创建新会话
+     * 
+     * @return 如果会话ID为空返回true，否则返回false
+     */
+    public boolean needsNewConversation() {
+        return conversationId == null;
+    }
+    
+    /**
+     * 获取有效的模型ID（如果为空则返回默认值）
+     * 
+     * @return 模型ID或默认值
+     */
+    public String getEffectiveModelId() {
+        return model != null && !model.trim().isEmpty() ? model.trim() : "default";
+    }
+    
+    /**
+     * 检查是否为RAG模式
+     * 
+     * @return 如果提供了知识库ID则返回true
+     */
+    public boolean isRagMode() {
+        return knowledgeBaseIds != null && !knowledgeBaseIds.isEmpty();
+    }
+    
+    /**
+     * 转换为RagChatDto
+     * 
+     * @return RAG对话请求DTO
+     */
+    public RagChatDto toRagChatDto() {
+        RagChatDto ragDto = new RagChatDto();
+        ragDto.setQuestion(this.getTrimmedMessage());
+        ragDto.setKnowledgeBaseIds(this.knowledgeBaseIds);
+        ragDto.setModelId(this.getEffectiveModelId());
+        ragDto.setConversationId(this.conversationId);
+        ragDto.setMaxRetrievedDocs(this.maxRetrievedDocs);
+        ragDto.setMinSimilarity(this.minSimilarity);
+        return ragDto;
+    }
+}
