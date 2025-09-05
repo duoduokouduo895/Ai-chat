@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RabbitMQ问题排查工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            color: #333;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .toolbar {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+            color: white;
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #ffa726 0%, #ffcc02 100%);
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .status-card.error {
+            border-left-color: #ff6b6b;
+            background: #fff5f5;
+        }
+        
+        .status-card.warning {
+            border-left-color: #ffa726;
+            background: #fffaf0;
+        }
+        
+        .status-card.success {
+            border-left-color: #4caf50;
+            background: #f3fdf3;
+        }
+        
+        .status-card h3 {
+            margin-bottom: 10px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-details {
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        .log-section {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .diagnostic-steps {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .diagnostic-steps h3 {
+            color: #2e7d32;
+            margin-bottom: 15px;
+        }
+        
+        .diagnostic-steps ol {
+            color: #388e3c;
+            padding-left: 20px;
+        }
+        
+        .diagnostic-steps li {
+            margin-bottom: 8px;
+        }
+        
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            font-weight: 600;
+            color: #333;
+            min-width: 80px;
+        }
+        
+        .input-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            width: 120px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐰 RabbitMQ问题排查工具</h1>
+            <p>专门解决文档处理"待解析"状态的MQ问题排查</p>
+        </div>
+        
+        <div class="toolbar">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="checkRabbitMQConnection()">
+                    🔗 检查MQ连接
+                </button>
+                <button class="btn btn-warning" onclick="checkQueueStatus()">
+                    📊 检查队列状态
+                </button>
+                <button class="btn btn-success" onclick="testDocumentProcessing()">
+                    🧪 测试文档处理
+                </button>
+                <button class="btn btn-danger" onclick="clearAllQueues()">
+                    🗑️ 清理所有队列
+                </button>
+            </div>
+            
+            <div class="input-group">
+                <label for="documentId">文档ID:</label>
+                <input type="number" id="documentId" value="1" placeholder="输入文档ID">
+                <button class="btn btn-success" onclick="retryDocumentProcessing()">
+                    🔄 重试处理
+                </button>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="diagnostic-steps">
+                <h3>🔍 MQ问题排查步骤</h3>
+                <ol>
+                    <li>检查RabbitMQ服务是否正常运行</li>
+                    <li>验证RabbitMQ连接配置是否正确</li>
+                    <li>检查队列是否正确创建和绑定</li>
+                    <li>验证消息处理器是否正常启动</li>
+                    <li>检查队列中是否有积压的消息</li>
+                    <li>测试手动发送消息是否能正常处理</li>
+                </ol>
+            </div>
+            
+            <div class="grid">
+                <div class="status-card" id="connectionStatus">
+                    <h3>🔗 连接状态</h3>
+                    <div class="status-details">正在检查连接状态...</div>
+                </div>
+                
+                <div class="status-card" id="queueStatus">
+                    <h3>📊 队列状态</h3>
+                    <div class="status-details">正在检查队列状态...</div>
+                </div>
+                
+                <div class="status-card" id="processorStatus">
+                    <h3>⚙️ 处理器状态</h3>
+                    <div class="status-details">正在检查处理器状态...</div>
+                </div>
+            </div>
+            
+            <div>
+                <h3>📝 排查日志</h3>
+                <div class="log-section" id="logContent">
+系统启动，开始RabbitMQ问题排查...
+
+常见问题检查清单：
+1. RabbitMQ服务是否在运行？
+2. 端口5672是否可访问？
+3. 用户名密码是否正确？
+4. 队列配置是否正确？
+5. 消息处理器是否启动？
+</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 后端服务器配置
+        const API_BASE_URL = 'http://localhost:8080';
+        
+        // 创建完整的API URL
+        function getApiUrl(endpoint) {
+            return API_BASE_URL + endpoint;
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('🚀 RabbitMQ排查工具已启动');
+            setTimeout(() => {
+                checkRabbitMQConnection();
+            }, 1000);
+        });
+        
+        // 添加日志
+        function addLog(message) {
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleString('zh-CN');
+            const logLine = `[${timestamp}] ${message}`;
+            
+            // 如果是初始内容，清空
+            if (logContent.textContent.includes('系统启动，开始RabbitMQ问题排查...')) {
+                logContent.textContent = '';
+            }
+            
+            logContent.textContent = logLine + '\n' + logContent.textContent;
+            
+            // 限制日志行数
+            const lines = logContent.textContent.split('\n');
+            if (lines.length > 50) {
+                logContent.textContent = lines.slice(0, 50).join('\n');
+            }
+        }
+        
+        // 更新状态卡片
+        function updateStatusCard(cardId, title, content, type = 'info') {
+            const card = document.getElementById(cardId);
+            if (!card) return;
+            
+            card.className = `status-card ${type}`;
+            
+            const titleElement = card.querySelector('h3');
+            const contentElement = card.querySelector('.status-details');
+            
+            if (titleElement) titleElement.innerHTML = title;
+            if (contentElement) contentElement.innerHTML = content;
+        }
+        
+        // 检查RabbitMQ连接
+        async function checkRabbitMQConnection() {
+            addLog('🔍 开始检查RabbitMQ连接状态...');
+            updateStatusCard('connectionStatus', '🔗 连接状态', '正在检查...', 'warning');
+            
+            try {
+                const response = await fetch(getApiUrl('/api/diagnostic/rabbitmq-status'));
+                const data = await response.json();
+                
+                if (data.rabbitMQStatus === 'CONNECTED') {
+                    addLog('✅ RabbitMQ连接正常');
+                    updateStatusCard('connectionStatus', '🔗 连接状态', '连接正常 ✅', 'success');
+                    
+                    // 连接正常，继续检查队列
+                    setTimeout(checkQueueStatus, 500);
+                } else {
+                    addLog('❌ RabbitMQ连接失败: ' + (data.error || '未知错误'));
+                    updateStatusCard('connectionStatus', '🔗 连接状态', 
+                        `连接失败 ❌<br>错误: ${data.error || '未知错误'}`, 'error');
+                    
+                    // 提供解决建议
+                    addLog('💡 解决建议：');
+                    addLog('1. 检查RabbitMQ服务是否启动：rabbitmq-server');
+                    addLog('2. 检查端口5672是否开放');
+                    addLog('3. 检查用户名密码配置');
+                    addLog('4. 检查虚拟主机配置');
+                }
+            } catch (error) {
+                addLog('❌ 检查RabbitMQ连接时发生错误: ' + error.message);
+                updateStatusCard('connectionStatus', '🔗 连接状态', 
+                    `检查失败 ❌<br>错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 检查队列状态
+        async function checkQueueStatus() {
+            addLog('📊 开始检查队列状态...');
+            updateStatusCard('queueStatus', '📊 队列状态', '正在检查...', 'warning');
+            
+            try {
+                const response = await fetch(getApiUrl('/api/diagnostic/rabbitmq-queue-status'));
+                const data = await response.json();
+                
+                if (data.success) {
+                    const queueStatus = data.queueStatus;
+                    let statusHtml = '';
+                    let hasIssues = false;
+                    
+                    addLog('📊 队列状态检查结果:');
+                    
+                    for (const [queueName, info] of Object.entries(queueStatus)) {
+                        if (typeof info === 'object' && info.messageCount !== undefined) {
+                            const messageCount = info.messageCount;
+                            const consumerCount = info.consumerCount;
+                            
+                            statusHtml += `${queueName}:<br>`;
+                            statusHtml += `&nbsp;&nbsp;消息数: ${messageCount}<br>`;
+                            statusHtml += `&nbsp;&nbsp;消费者: ${consumerCount}<br><br>`;
+                            
+                            addLog(`  ${queueName}: 消息=${messageCount}, 消费者=${consumerCount}`);
+                            
+                            if (messageCount > 0) {
+                                addLog(`⚠️ 队列 ${queueName} 有 ${messageCount} 条积压消息`);
+                                hasIssues = true;
+                            }
+                            
+                            if (consumerCount === 0) {
+                                addLog(`⚠️ 队列 ${queueName} 没有消费者监听`);
+                                hasIssues = true;
+                            }
+                        } else {
+                            statusHtml += `${queueName}: ${info}<br>`;
+                            addLog(`  ${queueName}: ${info}`);
+                            hasIssues = true;
+                        }
+                    }
+                    
+                    updateStatusCard('queueStatus', '📊 队列状态', 
+                        statusHtml || '无队列信息', hasIssues ? 'warning' : 'success');
+                    
+                    if (hasIssues) {
+                        addLog('💡 发现队列问题，建议：');
+                        addLog('1. 重启应用以重新注册消费者');
+                        addLog('2. 清理积压消息');
+                        addLog('3. 检查消息处理器是否正常');
+                    } else {
+                        addLog('✅ 所有队列状态正常');
+                    }
+                    
+                    // 检查处理器状态
+                    setTimeout(checkProcessorStatus, 500);
+                } else {
+                    addLog('❌ 获取队列状态失败: ' + (data.error || '未知错误'));
+                    updateStatusCard('queueStatus', '📊 队列状态', 
+                        `检查失败 ❌<br>错误: ${data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                addLog('❌ 检查队列状态时发生错误: ' + error.message);
+                updateStatusCard('queueStatus', '📊 队列状态', 
+                    `检查失败 ❌<br>错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 检查处理器状态
+        async function checkProcessorStatus() {
+            addLog('⚙️ 开始检查消息处理器状态...');
+            updateStatusCard('processorStatus', '⚙️ 处理器状态', '正在检查...', 'warning');
+            
+            try {
+                const response = await fetch(getApiUrl('/api/diagnostic/health'));
+                const data = await response.json();
+                
+                if (data.status === 'OK') {
+                    const stats = data.processingStatistics || {};
+                    
+                    let statusHtml = `系统状态: ${data.status} ✅<br>`;
+                    statusHtml += `文档总数: ${data.totalDocuments || 0}<br>`;
+                    
+                    if (stats) {
+                        statusHtml += `待处理: ${stats.pendingCount || 0}<br>`;
+                        statusHtml += `处理中: ${stats.processingCount || 0}<br>`;
+                        statusHtml += `已完成: ${stats.completedCount || 0}<br>`;
+                        statusHtml += `失败: ${stats.failedCount || 0}`;
+                        
+                        addLog('⚙️ 处理统计:');
+                        addLog(`  待处理: ${stats.pendingCount || 0}`);
+                        addLog(`  处理中: ${stats.processingCount || 0}`);
+                        addLog(`  已完成: ${stats.completedCount || 0}`);
+                        addLog(`  失败: ${stats.failedCount || 0}`);
+                        
+                        if ((stats.pendingCount || 0) > 0) {
+                            addLog(`⚠️ 发现 ${stats.pendingCount} 个待处理文档`);
+                        }
+                    }
+                    
+                    updateStatusCard('processorStatus', '⚙️ 处理器状态', statusHtml, 'success');
+                    addLog('✅ 消息处理器状态正常');
+                } else {
+                    addLog('❌ 消息处理器状态异常: ' + data.status);
+                    updateStatusCard('processorStatus', '⚙️ 处理器状态', 
+                        `状态异常 ❌<br>状态: ${data.status}`, 'error');
+                }
+            } catch (error) {
+                addLog('❌ 检查处理器状态时发生错误: ' + error.message);
+                updateStatusCard('processorStatus', '⚙️ 处理器状态', 
+                    `检查失败 ❌<br>错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 测试文档处理
+        async function testDocumentProcessing() {
+            const documentId = document.getElementById('documentId').value;
+            if (!documentId) {
+                alert('请输入文档ID');
+                return;
+            }
+            
+            addLog(`🧪 开始测试文档 ${documentId} 的处理流程...`);
+            
+            try {
+                const response = await fetch(getApiUrl(`/api/diagnostic/trigger-processing/${documentId}`), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        parseMode: 'auto',
+                        enableVectorization: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.triggerSuccess) {
+                    addLog(`✅ 文档 ${documentId} 处理流程已成功触发`);
+                    addLog('📝 请稍等片刻，然后检查文档状态');
+                } else {
+                    addLog(`❌ 文档 ${documentId} 处理流程触发失败: ${data.error || data.message}`);
+                }
+            } catch (error) {
+                addLog(`❌ 测试文档处理时发生错误: ${error.message}`);
+            }
+        }
+        
+        // 重试文档处理
+        async function retryDocumentProcessing() {
+            const documentId = document.getElementById('documentId').value;
+            if (!documentId) {
+                alert('请输入文档ID');
+                return;
+            }
+            
+            addLog(`🔄 开始重试文档 ${documentId} 的处理...`);
+            
+            try {
+                const response = await fetch(getApiUrl(`/api/diagnostic/retry-document-processing/${documentId}`), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.retrySuccess) {
+                    addLog(`✅ 文档 ${documentId} 重试处理成功`);
+                    addLog('📝 文档状态已重置，处理流程已重新启动');
+                } else {
+                    addLog(`❌ 文档 ${documentId} 重试处理失败: ${data.error || data.message}`);
+                }
+            } catch (error) {
+                addLog(`❌ 重试文档处理时发生错误: ${error.message}`);
+            }
+        }
+        
+        // 清理所有队列
+        async function clearAllQueues() {
+            if (!confirm('确定要清理所有队列吗？这将删除所有待处理的消息！')) {
+                return;
+            }
+            
+            addLog('🗑️ 开始清理所有消息队列...');
+            
+            try {
+                const response = await fetch(getApiUrl('/api/diagnostic/clear-rabbitmq-queues'), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const clearedQueues = data.clearedQueues || {};
+                    addLog('✅ 队列清理完成:');
+                    
+                    for (const [queueName, count] of Object.entries(clearedQueues)) {
+                        if (count >= 0) {
+                            addLog(`  ${queueName}: 清理了 ${count} 条消息`);
+                        } else {
+                            addLog(`  ${queueName}: 清理失败`);
+                        }
+                    }
+                    
+                    // 清理完成后重新检查状态
+                    setTimeout(checkQueueStatus, 1000);
+                } else {
+                    addLog('❌ 清理队列失败: ' + (data.error || '未知错误'));
+                }
+            } catch (error) {
+                addLog('❌ 清理队列时发生错误: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
