@@ -21,9 +21,9 @@ public interface ConversationRepository extends R2dbcRepository<Conversation, Lo
     Flux<Conversation> findByUserIdOrderByUpdatedAtDesc(Long userId);
 
     /**
-     * 查找所有注册用户的对话（用于搜索索引）
-     * @return 注册用户对话列表的响应式流
+     * 查找所有用户的对话（用于搜索索引）
+     * @return 所有对话列表的响应式流
      */
-    @Query("SELECT c.* FROM conversation c INNER JOIN users u ON c.user_id = u.user_id WHERE u.is_guest = false")
+    @Query("SELECT c.* FROM conversation c INNER JOIN users u ON c.user_id = u.user_id")
     Flux<Conversation> findAllConversationsFromRegisteredUsers();
 }

@@ -66,7 +66,6 @@ export const userApiService = {
       // 全局拦截器会处理401的情况，但为了确保用户点击登出按钮总能成功退出，这里保留清理和跳转逻辑
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      localStorage.removeItem('guestId');
       router.push('/login');
     }
   },
@@ -76,54 +75,20 @@ export const userApiService = {
     return !!localStorage.getItem('token');
   },
 
-  // 检查是否为游客
-  isGuest: () => {
-    return !!localStorage.getItem('guestId');
-  },
 
-  // 检查是否为注册用户
-  isRegisteredUser: () => {
-    return !!localStorage.getItem('token') && !localStorage.getItem('guestId');
-  },
 
   // 获取当前用户token
   getToken: () => {
     return localStorage.getItem('token');
   },
 
-  // 创建游客用户
-  createGuest: async () => {
-    try {
-      const response = await apiClient.post('/users/guest');
-      const { guestId, token } = response.data;
 
-      // 存储游客ID和token（去除空白字符）
-      const cleanToken = token.trim();
-      localStorage.setItem('token', cleanToken);
-      localStorage.setItem('guestId', guestId);
-
-      // 游客登录成功后也启动心跳服务
-      console.log('游客身份获取成功，启动JWT心跳服务');
-      heartbeatService.start();
-
-      return {
-        success: true,
-        guestId,
-        token
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.response?.data?.message || '获取游客身份失败'
-      };
-    }
-  },
   
   // 获取当前用户简要信息（用于心跳检测）
   getMe: async () => {
     try {
-      // 注意：此处的API端点用于获取最近对话列表，以初始化应用状态
-      const response = await apiClient.get('/conversations/recent');
+      // 使用用户信息端点进行心跳检测
+      const response = await apiClient.get('/users/me');
       return {
         success: true,
         data: response.data

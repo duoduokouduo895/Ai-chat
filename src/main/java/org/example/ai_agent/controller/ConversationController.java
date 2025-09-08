@@ -4,7 +4,6 @@ import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
-import org.example.ai_agent.exception.GuestLimitExceededException;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.SearchService;
@@ -35,9 +34,8 @@ public class ConversationController {
     @PostMapping
     public Mono<Conversation> createConversation(Principal principal) {
         String principalName = principal.getName();
-        // 首先尝试按用户名查找（针对注册用户），如果找不到，则尝试按GuestId查找（针对游客）
+        // 只支持注册用户创建对话
         return userRepository.findByUsername(principalName)
-                .switchIfEmpty(userRepository.findByGuestId(principalName))
                 .flatMap(user -> {
                     Conversation conversation = new Conversation();
                     conversation.setUserId(user.getUserId());
@@ -72,15 +70,9 @@ public class ConversationController {
     @DeleteMapping("/{conversationId}")
     public Mono<ResponseEntity<Void>> deleteConversation(@PathVariable Long conversationId, Principal principal) {
         return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(userRepository.findByGuestId(principal.getName()))
                 .flatMap(user -> conversationService.deleteConversation(conversationId, user.getUserId()))
                 .then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT)))
                 .defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @ExceptionHandler(GuestLimitExceededException.class)
-    public Mono<ResponseEntity<Map<String, Object>>> handleGuestLimitExceeded(GuestLimitExceededException ex) {
-        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Map.of("success", false, "message", ex.getMessage())));
-    }
 }

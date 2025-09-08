@@ -24,25 +24,7 @@ public class UserController {
         this.userService = userService;
     }
 
-    @PostMapping("/guest")
-    public Mono<ResponseEntity<Map<String, Object>>> createGuest() {
-        return userService.createGuestUser()
-                .flatMap(guest -> userService.generateTokenForGuest(guest)
-                        .map(token -> {
-                            Map<String, Object> response = new HashMap<>();
-                            response.put("success", true);
-                            response.put("guestId", guest.getGuestId());
-                            response.put("token", token);
-                            return ResponseEntity.ok(response);
-                        })
-                )
-                .onErrorResume(e -> {
-                    Map<String, Object> response = new HashMap<>();
-                    response.put("success", false);
-                    response.put("message", "Failed to create guest user: " + e.getMessage());
-                    return Mono.just(ResponseEntity.status(500).body(response));
-                });
-    }
+
 
     @PostMapping("/register")
     public Mono<ResponseEntity<Map<String, Object>>> registerUser(@RequestBody UserRegistrationDto registrationDto) {

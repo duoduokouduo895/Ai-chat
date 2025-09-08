@@ -4,6 +4,9 @@
       <div class="login-header">
         <h2 class="login-title">✨ Dduo AI-Chat</h2>
         <p class="login-subtitle">登录您的账户</p>
+        <div class="test-info">
+          <span class="test-badge">🧪 测试账户已预填充</span>
+        </div>
       </div>
       
       <form @submit.prevent="handleLogin" class="login-form">
@@ -71,10 +74,10 @@ export default {
   setup() {
     const router = useRouter();
     
-    // 表单数据
+    // 表单数据（预填充测试用户信息）
     const formData = ref({
-      username: '',
-      password: ''
+      username: 'Dduo',
+      password: 'c123456'
     });
     
     // 错误信息
@@ -234,7 +237,29 @@ export default {
 .login-subtitle {
   font-size: 18px;
   color: #4b5563;
-  margin: 0 0 32px 0;
+  margin: 0 0 16px 0;
+}
+
+.test-info {
+  margin-bottom: 16px;
+}
+
+.test-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 
 .login-form {

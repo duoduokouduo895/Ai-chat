@@ -45,11 +45,6 @@
     </main>
 
     <!-- 游客限制模态框 -->
-    <GuestLimitModal 
-      :visible="showGuestLimitModal" 
-      @close="showGuestLimitModal = false" 
-      @go-to-register="navigateToRegister" 
-    />
   </div>
 </template>
 
@@ -67,7 +62,6 @@ import AppSidebar from './AppSidebar.vue'
 import ChatPanel from '../chat/ChatPanel.vue'
 import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
 import SearchPanel from '../search/SearchPanel.vue'
-import GuestLimitModal from '../modal/GuestLimitModal.vue'
 
 const router = useRouter()
 
@@ -80,7 +74,6 @@ const showGuestLimitModal = ref(false)
 
 // 用户状态
 const isLoggedIn = ref(false)
-const isGuest = ref(false)
 
 // AI模型相关
 const availableModels = ref([])
@@ -102,7 +95,6 @@ const displayedConversations = computed(() => {
 // 核心业务方法
 const checkUserStatus = () => {
   isLoggedIn.value = userApiService.isLoggedIn()
-  isGuest.value = userApiService.isGuest()
 }
 
 const handleAuthAction = async () => {
@@ -124,9 +116,7 @@ const handleAuthAction = async () => {
   }
 }
 
-const navigateToRegister = () => {
-  router.push('/register')
-}
+
 
 const loadAvailableModels = async () => {
   try {
@@ -240,17 +230,9 @@ const handleSendMessage = async (data) => {
     },
     (error) => {
       console.error('聊天流中发生错误:', error)
-      if (error.response && error.response.data && error.response.data.code === 'GUEST_LIMIT_EXCEEDED') {
-        const aiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
-        if (aiMessageIndex !== -1) {
-          messages.value.splice(aiMessageIndex, 1)
-        }
-        showGuestLimitModal.value = true
-      } else {
-        const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
-        if (currentAiMessageIndex !== -1) {
-          messages.value[currentAiMessageIndex].text = '抱歉，AI服务暂时出现问题，请稍后再试。'
-        }
+      const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
+      if (currentAiMessageIndex !== -1) {
+        messages.value[currentAiMessageIndex].text = '抱歉，AI服务暂时出现问题，请稍后再试。'
       }
       isLoading.value = false
     },

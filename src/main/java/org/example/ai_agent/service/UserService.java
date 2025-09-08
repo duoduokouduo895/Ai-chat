@@ -17,13 +17,5 @@ public interface UserService {
      */
     Mono<Void> logoutUser(String authorizationHeader);
 
-    Mono<User> createGuestUser();
 
-    Mono<String> generateTokenForGuest(User guest);
-    
-    /**
-     * 清理创建时间超过1天的游客用户
-     * @return 清理的用户数量
-     */
-    Mono<Integer> cleanupExpiredGuestUsers();
 }
