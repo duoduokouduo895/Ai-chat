@@ -4,7 +4,6 @@ import org.example.ai_agent.config.performance.CacheConfig;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
-import org.example.ai_agent.exception.GuestLimitExceededException;
 import org.example.ai_agent.repository.chat.ConversationRepository;
 import org.example.ai_agent.repository.chat.MessageRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
@@ -24,16 +23,16 @@ import java.time.LocalDateTime;
 /**
  * 对话服务实现类
  * 负责处理对话和消息的创建、查询等业务逻辑
- * 
+ *
  * @author AI Agent
  * @version 1.0
  * @since 2024
  */
 @Service
 public class ConversationServiceImpl implements ConversationService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(ConversationServiceImpl.class);
-    
+
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final UserRepository userRepository; //
@@ -64,26 +63,26 @@ public class ConversationServiceImpl implements ConversationService {
     @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, key = "#conversation.userId")
     public Mono<Conversation> createConversation(Conversation conversation) {
         logger.info("开始创建新对话，标题: {}", conversation != null ? conversation.getTitle() : "null");
-        
+
         return Mono.fromCallable(() -> {
             // 参数验证
             if (conversation == null) {
                 throw new IllegalArgumentException("对话对象不能为空");
             }
-            
+
             if (conversation.getUserId() == null) {
                 throw new IllegalArgumentException("用户ID不能为空");
             }
-            
+
             if (!StringUtils.hasText(conversation.getTitle())) {
                 throw new IllegalArgumentException("对话标题不能为空");
             }
-            
+
             // 设置创建和更新时间
             LocalDateTime now = LocalDateTime.now();
             conversation.setCreatedAt(now);
             conversation.setUpdatedAt(now);
-            
+
             return conversation;
         })
         .flatMap(validatedConversation -> {
@@ -91,21 +90,20 @@ public class ConversationServiceImpl implements ConversationService {
             return conversationRepository.save(validatedConversation);
         })
         .doOnSuccess(savedConversation -> {
-            logger.info("对话创建成功，ID: {}, 标题: {}", 
+            logger.info("对话创建成功，ID: {}, 标题: {}",
                        savedConversation.getId(), savedConversation.getTitle());
         })
         .doOnError(error -> {
             logger.error("创建对话失败: {}", error.getMessage(), error);
         });
     }
-    
+
     /**
      * 向对话中添加消息
-     * 
+     *
      * @param message 要添加的消息对象
      * @return 添加成功的消息对象
      * @throws IllegalArgumentException 当参数无效时抛出
-     * @throws GuestLimitExceededException 当游客超出消息限制时抛出
      */
     @Override
     @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
@@ -113,19 +111,14 @@ public class ConversationServiceImpl implements ConversationService {
         logger.info("开始向对话添加消息，对话ID: {}", message != null ? message.getConversationId() : "null");
 
         // 1. 基础参数验证
-        if (message == null || message.getConversationId() == null || 
+        if (message == null || message.getConversationId() == null ||
             !StringUtils.hasText(message.getContent()) || !StringUtils.hasText(message.getSender())) {
             return Mono.error(new IllegalArgumentException("消息参数无效"));
         }
         message.setTimestampIfNull();
 
-        // 2. 游客限制检查（仅对用户消息）
-        Mono<Void> guestLimitCheck = "user".equalsIgnoreCase(message.getSender()) ?
-            checkGuestMessageLimit(message.getConversationId()) : Mono.empty();
-
-        // 3. 保存消息并更新对话
-        return guestLimitCheck
-                .then(messageRepository.save(message))
+        // 2. 保存消息并更新对话
+        return messageRepository.save(message)
                 .flatMap(savedMessage -> {
                     // 4. 异步更新对话时间戳并触发索引更新
                     return updateConversationTimestamp(savedMessage.getConversationId())
@@ -133,31 +126,11 @@ public class ConversationServiceImpl implements ConversationService {
                             .thenReturn(savedMessage);
                 })
                 .doOnSuccess(savedMessage -> logger.info("消息添加成功，ID: {}", savedMessage.getId()))
-                .doOnError(error -> {
-                    if (!(error instanceof GuestLimitExceededException)) {
-                        logger.error("添加消息失败: {}", error.getMessage(), error);
-                    }
-                });
+                .doOnError(error -> logger.error("添加消息失败: {}", error.getMessage(), error));
     }
-    
-    /**
-     * 检查游客消息限制
-     */
-    private Mono<Void> checkGuestMessageLimit(Long conversationId) {
-        return conversationRepository.findById(conversationId)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("对话不存在，ID: " + conversationId)))
-                .flatMap(conversation -> userRepository.findById(conversation.getUserId()))
-                .flatMap(user -> {
-                    if (user.isGuest()) {
-                        return messageRepository.countUserMessagesByUserId(user.getUserId())
-                                .flatMap(count -> count >= 1 ? 
-                                    Mono.error(new GuestLimitExceededException("游客消息上限为1条，请注册后继续使用。")) :
-                                    Mono.empty());
-                    }
-                    return Mono.empty();
-                });
-    }
-    
+
+
+
     /**
      * 更新对话时间戳
      */
@@ -168,10 +141,10 @@ public class ConversationServiceImpl implements ConversationService {
                     return conversationRepository.save(conversation);
                 });
     }
-    
+
     /**
      * 根据对话ID获取所有消息
-     * 
+     *
      * @param conversationId 对话ID
      * @return 按时间顺序排列的消息流
      * @throws IllegalArgumentException 当对话ID无效时抛出
@@ -179,17 +152,17 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     public Flux<Message> getMessagesByConversationId(Long conversationId) {
         logger.info("开始获取对话消息，对话ID: {}", conversationId);
-        
+
         return Mono.fromCallable(() -> {
             // 参数验证
             if (conversationId == null) {
                 throw new IllegalArgumentException("对话ID不能为空");
             }
-            
+
             if (conversationId <= 0) {
                 throw new IllegalArgumentException("对话ID必须大于0");
             }
-            
+
             return conversationId;
         })
         .flatMapMany(validatedId -> {
@@ -209,11 +182,11 @@ public class ConversationServiceImpl implements ConversationService {
             logger.error("获取对话消息失败，对话ID: {}, 错误: {}", conversationId, error.getMessage(), error);
         });
     }
-    
+
 
     /**
      * 获取用户最近的对话列表（包含预览信息）
-     * 
+     *
      * @param userId 用户ID
      * @return 包含预览信息的最近对话列表，按更新时间倒序排列
      * @throws IllegalArgumentException 当用户ID无效时抛出
@@ -222,7 +195,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Cacheable(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, key = "#userId")
     public Flux<ConversationWithPreview> getRecentConversationsWithPreview(Long userId) {
         logger.info("开始获取用户最近对话（包含预览信息），用户ID: {}", userId);
-        
+
         return Mono.fromCallable(() -> {
             if (userId == null || userId <= 0) {
                 throw new IllegalArgumentException("无效的用户ID");
@@ -263,11 +236,11 @@ public class ConversationServiceImpl implements ConversationService {
             logger.info("用户最近对话（包含预览信息）查询完成，用户ID: {}", userId);
         })
         .doOnError(error -> {
-            logger.error("获取用户最近对话（包含预览信息）失败，用户ID: {}, 错误: {}", 
+            logger.error("获取用户最近对话（包含预览信息）失败，用户ID: {}, 错误: {}",
                        userId, error.getMessage(), error);
         });
     }
-    
+
     @Override
     @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
     public Mono<Void> deleteConversation(Long conversationId, Long userId) {
@@ -290,7 +263,7 @@ public class ConversationServiceImpl implements ConversationService {
 
     /**
      * 根据会话ID获取会话信息
-     * 
+     *
      * @param conversationId 会话ID
      * @return 会话对象
      * @throws IllegalArgumentException 当会话ID无效时抛出
@@ -298,17 +271,17 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     public Mono<Conversation> getConversationById(Long conversationId) {
         logger.info("开始获取会话信息，会话ID: {}", conversationId);
-        
+
         return Mono.fromCallable(() -> {
             // 参数验证
             if (conversationId == null) {
                 throw new IllegalArgumentException("会话ID不能为空");
             }
-            
+
             if (conversationId <= 0) {
                 throw new IllegalArgumentException("会话ID必须大于0");
             }
-            
+
             return conversationId;
         })
         .flatMap(validatedId -> {
@@ -318,11 +291,11 @@ public class ConversationServiceImpl implements ConversationService {
                     "会话不存在，ID: " + validatedId)));
         })
         .doOnSuccess(conversation -> {
-            logger.info("会话信息获取成功，会话ID: {}, 标题: {}", 
+            logger.info("会话信息获取成功，会话ID: {}, 标题: {}",
                        conversation.getId(), conversation.getTitle());
         })
         .doOnError(error -> {
-            logger.error("获取会话信息失败，会话ID: {}, 错误: {}", 
+            logger.error("获取会话信息失败，会话ID: {}, 错误: {}",
                        conversationId, error.getMessage(), error);
         });
     }

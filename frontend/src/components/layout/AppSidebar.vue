@@ -66,7 +66,7 @@
         </div>
       </div>
 
-      <!-- 使用提示 - 固定在右下角 -->
+      <!-- 使用提示 - 与对话列表同宽 -->
       <div v-if="conversations.length > 0 && conversations.length < 8" class="usage-tips">
         <div class="tips-title">💡 使用提示</div>
         <div class="tip-item">• 支持多模型对话</div>
@@ -92,7 +92,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { useUserStore } from '@/services/userStore';
+import { userApiService } from '@/services/userApi.js';
 
 // Props
 const props = defineProps({
@@ -118,20 +118,18 @@ const emit = defineEmits([
 ]);
 
 const router = useRouter();
-const userStore = useUserStore();
 
-// 计算属性，用于判断用户是否为真实登录用户（非游客）
+// 计算属性，用于判断用户是否为真实登录用户
 const isUserLoggedIn = computed(() => {
-  return userStore.isAuthenticated && !userStore.isGuest;
+  return userApiService.isLoggedIn();
 });
 
 // 处理认证操作
-const handleAuth = () => {
+const handleAuth = async () => {
   if (isUserLoggedIn.value) {
     // 执行登出操作
-    userStore.logout();
-    // 可以选择性地跳转到登录页或首页
-    router.push('/login');
+    await userApiService.logout();
+    // logout方法已经包含了跳转到登录页的逻辑
   } else {
     // 跳转到登录页
     router.push('/login');
@@ -379,33 +377,30 @@ const getConversationPreview = (conversation) => {
 }
 
 .usage-tips {
-  position: absolute;
-  bottom: var(--spacing-md);
-  right: var(--spacing-md);
-  padding: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
   background: rgba(255, 255, 255, 0.08);
   border-radius: var(--border-radius-lg);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  max-width: 200px;
+  width: 100%;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(8px);
-  z-index: 10;
 }
 
 .tips-title {
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
   text-align: left;
 }
 
 .tip-item {
   font-size: var(--font-size-xs);
   color: rgba(255, 255, 255, 0.7);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: 2px;
   text-align: left;
-  line-height: 1.3;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -445,10 +440,8 @@ const getConversationPreview = (conversation) => {
   }
   
   .usage-tips {
-    padding: var(--spacing-sm);
-    max-width: 160px;
-    bottom: var(--spacing-sm);
-    right: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    margin-top: var(--spacing-sm);
   }
   
   .empty-state {

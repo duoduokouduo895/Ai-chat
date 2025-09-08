@@ -21,8 +21,8 @@ const startHeartbeat = () => {
   }
 
   const performHeartbeat = () => {
-    // 只有当用户是登录状态（非游客）时才发送心跳
-    if (userApiService.isRegisteredUser()) {
+    // 只有当用户是登录状态时才发送心跳
+    if (userApiService.isLoggedIn()) {
       console.log('Sending heartbeat to keep session alive...');
       userApiService.getMe().catch(error => {
         // 错误会被全局拦截器处理，这里只打印日志用于调试
@@ -61,21 +61,6 @@ onMounted(async () => {
   if (userApiService.isLoggedIn()) {
     // 如果已登录，则启动心跳
     startHeartbeat();
-  } else {
-    // 如果未登录，则尝试创建游客会话
-    console.log('No active session found. Creating a guest session...');
-    try {
-      const result = await userApiService.createGuest();
-      if (result.success) {
-        console.log('Guest session created successfully.');
-        // 游客创建成功后，也启动心跳
-        startHeartbeat();
-      } else {
-        console.error('Failed to create guest session:', result.message);
-      }
-    } catch (error) {
-      console.error('An error occurred while creating guest session:', error);
-    }
   }
   // 添加事件监听器
   document.addEventListener('visibilitychange', handleVisibilityChange);

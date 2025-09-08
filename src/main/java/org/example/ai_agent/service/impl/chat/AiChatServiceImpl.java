@@ -11,7 +11,6 @@ import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.dto.chat.RagChatDto;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
-import org.example.ai_agent.exception.GuestLimitExceededException;
 import org.example.ai_agent.service.AiChatService;
 import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.RagService;
@@ -49,7 +48,7 @@ public class AiChatServiceImpl implements AiChatService {
     public Flux<String> chat(ChatRequest chatRequest) {
         // 智能路由：根据是否提供知识库ID来选择聊天模式
         if (chatRequest.isRagMode()) {
-            log.info("检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}", 
+            log.info("检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}",
                     chatRequest.getKnowledgeBaseIds(), chatRequest.getUserId());
             return handleRagChat(chatRequest);
         } else {
@@ -120,25 +119,14 @@ public class AiChatServiceImpl implements AiChatService {
      * 统一的错误处理
      */
     private Flux<String> handleChatError(Throwable ex) {
-        if (ex instanceof GuestLimitExceededException) {
-            log.warn("游客消息超限，将错误信息发送至前端: {}", ex.getMessage());
-            Map<String, Object> errorPayload = Map.of(
-                    "type", "error",
-                    "code", "GUEST_LIMIT_EXCEEDED",
-                    "message", ex.getMessage()
-            );
-            String errorJson = JSON.toJSONString(errorPayload);
-            return Flux.just("[ERROR]" + errorJson);
-        } else {
-            log.error("聊天处理失败", ex);
-            Map<String, Object> errorPayload = Map.of(
-                    "type", "error",
-                    "code", "CHAT_ERROR",
-                    "message", "聊天处理失败：" + ex.getMessage()
-            );
-            String errorJson = JSON.toJSONString(errorPayload);
-            return Flux.just("[ERROR]" + errorJson);
-        }
+        log.error("聊天处理失败", ex);
+        Map<String, Object> errorPayload = Map.of(
+                "type", "error",
+                "code", "CHAT_ERROR",
+                "message", "聊天处理失败：" + ex.getMessage()
+        );
+        String errorJson = JSON.toJSONString(errorPayload);
+        return Flux.just("[ERROR]" + errorJson);
     }
     /**
      * 确保对话存在
@@ -182,7 +170,7 @@ public class AiChatServiceImpl implements AiChatService {
                         return Flux.create(sink -> {
                             model.chat(chatMemory.messages(), new StreamingChatResponseHandler() {
                                 private final StringBuilder responseBuilder = new StringBuilder();
-                                
+
                                 @Override
                                 public void onPartialResponse(String partialResponse) {
                                     responseBuilder.append(partialResponse);
@@ -194,7 +182,7 @@ public class AiChatServiceImpl implements AiChatService {
                                     log.info("AI响应流完成。 Token usage: {}", completeResponse.metadata().tokenUsage());
                                     AiMessage aiMessage = completeResponse.aiMessage();
                                     chatMemory.add(aiMessage);
-                                    
+
                                     // 异步保存AI消息
                                     saveAiMessage(chatRequest, responseBuilder.toString())
                                             .subscribeOn(Schedulers.boundedElastic())
@@ -225,7 +213,7 @@ public class AiChatServiceImpl implements AiChatService {
         userMessage.setSender("user");
         userMessage.setContent(chatRequest.getPrompt());
         userMessage.setModel(chatRequest.getModel());
-        
+
         conversationService.addMessageToConversation(userMessage)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(

@@ -20,13 +20,7 @@ public interface MessageRepository extends R2dbcRepository<Message, Long> {
     @Query("SELECT * FROM message WHERE conversation_id = :conversationId AND sender = :sender ORDER BY timestamp ASC LIMIT 1")
     Mono<Message> findFirstByConversationIdAndSenderOrderByTimestampAsc(@Param("conversationId") Long conversationId, @Param("sender") String sender);
 
-    /**
-     * 统计指定用户发送的消息总数
-     * @param userId 用户ID
-     * @return 用户发送的消息总数
-     */
-    @Query("SELECT COUNT(m.id) FROM message m JOIN conversation c ON m.conversation_id = c.id WHERE c.user_id = :userId AND m.sender = 'user'")
-    Mono<Long> countUserMessagesByUserId(@Param("userId") Long userId);
+
 
     /**
      * 根据对话ID删除所有消息
