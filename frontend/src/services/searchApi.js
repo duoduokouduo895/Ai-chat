@@ -135,6 +135,20 @@ export const SearchApiService = {
       throw error;
     }
   },
+  
+  /**
+   * 清理重复的搜索历史
+   * @returns {Promise} 清理结果
+   */
+  async cleanupDuplicateSearchHistory() {
+    try {
+      const response = await apiClient.post('/search/history/cleanup');
+      return response.data;
+    } catch (error) {
+      console.error('清理重复搜索历史失败:', error);
+      throw error;
+    }
+  },
 };
 
 export default SearchApiService;

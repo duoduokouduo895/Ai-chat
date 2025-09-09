@@ -132,4 +132,10 @@ public interface SearchService {
      * @return 操作完成的信号
      */
     Mono<Void> clearSearchHistory();
+    
+    /**
+     * 清理重复的搜索历史记录
+     * @return 清理结果信息
+     */
+    Mono<String> cleanupDuplicateSearchHistory();
 }
