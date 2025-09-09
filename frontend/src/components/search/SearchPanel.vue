@@ -100,6 +100,7 @@ const handleSuggestionSelected = (query) => {
 };
 
 const handleHistorySelected = (query) => {
+  console.log('处理搜索历史选择:', query)
   searchQuery.value = query;
   executeSearch();
 };

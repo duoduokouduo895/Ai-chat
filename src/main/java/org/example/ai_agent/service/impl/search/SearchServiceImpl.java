@@ -238,25 +238,37 @@ public class SearchServiceImpl implements SearchService {
             return Mono.empty();
         }
         
-        return Mono.fromCallable(() -> {
-            org.example.ai_agent.entity.SearchHistory searchHistory = new org.example.ai_agent.entity.SearchHistory();
-            searchHistory.setQuery(query.trim());
-            searchHistory.setType(type != null ? type : "GENERAL");
-            searchHistory.setTimestamp(java.time.LocalDateTime.now()); // 修复：使用正确的字段名timestamp
-            return searchHistory;
-        })
-        .flatMap(searchHistoryRepository::save)
-        .doOnSuccess(saved -> log.debug("搜索历史记录已保存: query={}, type={}", query, type))
-        .doOnError(error -> log.error("保存搜索历史失败: query={}", query, error))
-        .then();
+        String trimmedQuery = query.trim();
+        
+        // 检查是否已存在相同的查询
+        return searchHistoryRepository.findByQuery(trimmedQuery)
+                .flatMap(existingHistory -> {
+                    // 如果存在，更新时间戳
+                    existingHistory.setTimestamp(LocalDateTime.now());
+                    return searchHistoryRepository.save(existingHistory)
+                            .doOnSuccess(updated -> log.debug("搜索历史已更新: query={}, id={}", trimmedQuery, updated.getId()))
+                            .then();
+                })
+                .switchIfEmpty(
+                    // 如果不存在，创建新记录
+                    Mono.fromCallable(() -> {
+                        org.example.ai_agent.entity.SearchHistory searchHistory = new org.example.ai_agent.entity.SearchHistory();
+                        searchHistory.setQuery(trimmedQuery);
+                        searchHistory.setType(type != null ? type : "GENERAL");
+                        searchHistory.setTimestamp(LocalDateTime.now());
+                        return searchHistory;
+                    })
+                    .flatMap(searchHistoryRepository::save)
+                    .doOnSuccess(saved -> log.debug("搜索历史记录已保存: query={}, type={}, id={}", trimmedQuery, type, saved.getId()))
+                    .then()
+                )
+                .doOnError(error -> log.error("保存搜索历史失败: query={}", trimmedQuery, error));
     }
 
     @Override
     public Flux<ConversationDocument> getSearchHistory(int size) {
-        // 修复：直接返回搜索历史记录，转换为ConversationDocument格式以保持接口兼容性
-        return searchHistoryRepository.findAll()
-                .sort((h1, h2) -> h2.getTimestamp().compareTo(h1.getTimestamp())) // 按时间倒序
-                .take(Math.max(1, size)) // 确保至少返回1条记录
+        // 直接使用数据库去重查询，保证返回的是去重后的结果
+        return searchHistoryRepository.findDistinctByQueryOrderByTimestampDesc(Math.max(1, size))
                 .map(searchHistory -> {
                     // 将搜索历史转换为ConversationDocument格式，以便前端显示
                     ConversationDocument doc = new ConversationDocument();
@@ -267,8 +279,8 @@ public class SearchServiceImpl implements SearchService {
                     doc.setUserId(null); // 搜索历史没有用户ID
                     return doc;
                 })
-                .doOnComplete(() -> log.debug("搜索历史查询完成, size={}", size))
-                .doOnError(error -> log.error("获取搜索历史失败", error));
+                .doOnComplete(() -> log.debug("去重搜索历史查询完成, size={}", size))
+                .doOnError(error -> log.error("获取去重搜索历史失败", error));
     }
 
     @Override
