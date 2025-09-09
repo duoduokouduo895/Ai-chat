@@ -135,6 +135,19 @@ export const knowledgeApiService = {
     }
   },
 
+  // 下载文档
+  async downloadDocument(id) {
+    try {
+      const response = await apiClient.get(`/knowledge/documents/${id}/download`, {
+        responseType: 'blob'
+      })
+      return response
+    } catch (error) {
+      console.error('下载文档失败:', error)
+      throw error
+    }
+  },
+
   // 重新解析文档
   async reparseDocument(id, options = {}) {
     try {
