@@ -42,5 +42,5 @@ public class RagChatDto {
     /**
      * 最小相似度
      */
-    private Double minSimilarity = 0.7;
+    private Double minSimilarity = 0.3;
 }

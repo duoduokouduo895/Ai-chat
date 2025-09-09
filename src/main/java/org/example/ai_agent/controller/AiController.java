@@ -55,8 +55,9 @@ public class AiController {
         }
         chatRequest.setUserId(userId);
         
-        log.info("接收到来自用户 {} 的聊天请求，会话ID: {}, 模型: {}",
-                userId, chatRequest.getConversationId(), chatRequest.getModel());
+        log.info("📨 [控制器] 用户 {} 聊天请求: 模型={}, 知识库数量={}",
+                userId, chatRequest.getModel(), 
+                chatRequest.getKnowledgeBaseIds() != null ? chatRequest.getKnowledgeBaseIds().size() : 0);
         
         return aiChatService.chat(chatRequest);
     }
