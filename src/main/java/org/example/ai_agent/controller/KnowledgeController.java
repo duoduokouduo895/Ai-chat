@@ -40,7 +40,7 @@ import java.util.Map;
  * <p>
  * 提供知识库管理、文档上传、搜索、RAG对话等API
  * </p>
- * 
+ *
  * @author AI Agent
  * @version 1.0
  * @since 2024
@@ -48,7 +48,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
 public class KnowledgeController {
 
     @Autowired
@@ -131,7 +131,7 @@ public class KnowledgeController {
         // 从JWT token中获取用户ID
         String token = authorizationHeader.substring(7).trim(); // 移除 "Bearer " 前缀
         Long creatorId = jwtUtil.getUserIdFromToken(token);
-        
+
         if (creatorId == null) {
             return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
         }
@@ -291,7 +291,7 @@ public class KnowledgeController {
         // 从JWT token中获取用户ID
         String token = authorizationHeader.substring(7).trim();
         Long uploaderId = jwtUtil.getUserIdFromToken(token);
-        
+
         if (uploaderId == null) {
             return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
         }
@@ -311,14 +311,14 @@ public class KnowledgeController {
                                                              @RequestParam(value = "parseMode", defaultValue = "auto") String parseMode,
                                                              @RequestParam(value = "enableVectorization", defaultValue = "true") Boolean enableVectorization,
                                                              @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        
+
         log.info("批量上传文档请求: knowledgeBaseId={}, fileCount={}, parseMode={}, enableVectorization={}",
                 knowledgeBaseId, files.length, parseMode, enableVectorization);
 
         // 从JWT token中获取用户ID
         String token = authorizationHeader.substring(7).trim();
         Long uploaderId = jwtUtil.getUserIdFromToken(token);
-        
+
         if (uploaderId == null) {
             return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
         }
@@ -330,7 +330,7 @@ public class KnowledgeController {
                             .map(DocumentBatchUploadDto.SuccessDocument::new)
                             .cast(Object.class)
                             .onErrorReturn(new DocumentBatchUploadDto.FailedDocument(
-                                    file.getOriginalFilename(), 
+                                    file.getOriginalFilename(),
                                     "文件上传失败"));
                 }, 3) // 限制并发数为3
                 .collectList()
@@ -338,7 +338,7 @@ public class KnowledgeController {
                     DocumentBatchUploadDto response = new DocumentBatchUploadDto();
                     response.setSuccessDocuments(new java.util.ArrayList<>());
                     response.setFailedDocuments(new java.util.ArrayList<>());
-                    
+
                     for (Object result : results) {
                         if (result instanceof DocumentBatchUploadDto.SuccessDocument) {
                             response.getSuccessDocuments().add(((DocumentBatchUploadDto.SuccessDocument) result).getDocument());
@@ -350,12 +350,12 @@ public class KnowledgeController {
                             response.getFailedDocuments().add(error);
                         }
                     }
-                    
+
                     return response;
                 })
-                .doOnSuccess(result -> log.info("批量上传完成: 成功={}, 失败={}", 
+                .doOnSuccess(result -> log.info("批量上传完成: 成功={}, 失败={}",
                         result.getSuccessDocuments().size(), result.getFailedDocuments().size()))
-                .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, error={}", 
+                .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, error={}",
                         knowledgeBaseId, error.getMessage()));
     }
 
@@ -409,16 +409,16 @@ public class KnowledgeController {
                     if (documentDto.getOssUrl() == null) {
                         return Mono.just(ResponseEntity.notFound().build());
                     }
-                    
+
                     // 返回重定向响应到OSS URL
                     HttpHeaders headers = new HttpHeaders();
                     headers.add("Location", documentDto.getOssUrl());
-                    headers.add("Content-Disposition", 
+                    headers.add("Content-Disposition",
                         "attachment; filename=\"" + documentDto.getFileName() + "\"");
-                    
-                    log.info("文档下载重定向: id={}, fileName={}, url={}", 
+
+                    log.info("文档下载重定向: id={}, fileName={}, url={}",
                         id, documentDto.getFileName(), documentDto.getOssUrl());
-                    
+
                     return Mono.just(ResponseEntity.status(HttpStatus.FOUND)
                             .headers(headers)
                             .build());
@@ -507,12 +507,12 @@ public class KnowledgeController {
     @GetMapping("/documents/{id}/processing-records")
     public Flux<org.example.ai_agent.entity.DocumentProcessingRecord> getDocumentProcessingRecords(@PathVariable Long id) {
         log.info("获取文档处理记录请求: documentId={}", id);
-        
+
         return recordService.getDocumentProcessingRecords(id)
             .doOnComplete(() -> log.info("文档处理记录获取完成: documentId={}", id))
             .doOnError(error -> log.error("获取文档处理记录失败: documentId={}, error={}", id, error.getMessage()));
     }
-    
+
     /**
      * 获取失败的处理记录
      */
@@ -521,19 +521,19 @@ public class KnowledgeController {
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "10") Integer size) {
         log.info("获取失败处理记录请求: page={}, size={}", page, size);
-        
+
         return recordService.getFailedProcessingRecords(page, size)
             .doOnComplete(() -> log.info("失败处理记录获取完成: page={}, size={}", page, size))
             .doOnError(error -> log.error("获取失败处理记录失败: error={}", error.getMessage()));
     }
-    
+
     /**
      * 获取处理统计信息
      */
     @GetMapping("/processing-statistics")
     public Mono<DocumentProcessingRecordService.ProcessingStatistics> getProcessingStatistics() {
         log.info("获取处理统计信息请求");
-        
+
         return recordService.getProcessingStatistics()
             .doOnSuccess(stats -> log.info("处理统计信息获取成功: {}", stats))
             .doOnError(error -> log.error("获取处理统计信息失败: error={}", error.getMessage()));

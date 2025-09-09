@@ -15,6 +15,8 @@ import reactor.core.publisher.Mono;
  */
 @RestController
 @RequestMapping("/api/search")
+@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
+
 public class SearchController {
 
     private final SearchService searchService;
@@ -105,7 +107,7 @@ public class SearchController {
         return searchService.getSearchSuggestions(prefix, size);
     }
 
-    
+
 
     @PostMapping("/history")
     public Mono<Void> recordSearchHistory(@RequestBody SearchHistoryDto searchHistoryDto) {
@@ -125,7 +127,7 @@ public class SearchController {
     public Mono<Void> clearSearchHistory() {
         return searchService.clearSearchHistory();
     }
-    
+
     @PostMapping("/history/cleanup")
     public Mono<String> cleanupDuplicateSearchHistory() {
         return searchService.cleanupDuplicateSearchHistory();
