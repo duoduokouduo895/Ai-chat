@@ -9,11 +9,12 @@ import reactor.core.publisher.Mono;
 public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, Long> {
     
     /**
-     * 根据查询内容查找搜索历史
+     * 根据查询内容查找最新的搜索历史记录
      * @param query 查询内容
-     * @return 搜索历史记录
+     * @return 最新的搜索历史记录
      */
-    Mono<SearchHistory> findByQuery(String query);
+    @Query("SELECT * FROM search_history WHERE query = :query ORDER BY timestamp DESC LIMIT 1")
+    Mono<SearchHistory> findLatestByQuery(String query);
     
     /**
      * 按时间倒序获取去重的搜索历史（MySQL版本）
@@ -49,8 +50,8 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
      * @return 清理完成信号
      */
     @Query("DELETE FROM search_history WHERE id NOT IN (" +
-           "  SELECT * FROM (" +
-           "    SELECT MAX(id) FROM search_history GROUP BY query" +
+           "  SELECT max_id FROM (" +
+           "    SELECT MAX(id) as max_id FROM search_history GROUP BY query" +
            "  ) AS temp" +
            ")")
     Mono<Void> cleanupDuplicateHistory();

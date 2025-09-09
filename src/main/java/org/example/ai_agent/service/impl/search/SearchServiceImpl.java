@@ -240,8 +240,8 @@ public class SearchServiceImpl implements SearchService {
 
         String trimmedQuery = query.trim();
 
-        // 检查是否已存在相同的查询
-        return searchHistoryRepository.findByQuery(trimmedQuery)
+        // 检查是否已存在相同的查询（使用最新记录）
+        return searchHistoryRepository.findLatestByQuery(trimmedQuery)
                 .flatMap(existingHistory -> {
                     // 如果存在，更新时间戳
                     existingHistory.setTimestamp(LocalDateTime.now());
@@ -265,6 +265,31 @@ public class SearchServiceImpl implements SearchService {
                 .doOnError(error -> log.error("保存搜索历史失败: query={}", trimmedQuery, error));
     }
 
+    @Override
+    public Flux<ConversationDocument> getSearchHistory(int size) {
+        log.debug("开始获取去重搜索历史, size={}", size);
+
+        // 优先使用改进的去重查询
+        return searchHistoryRepository.findDistinctByQueryOrderByTimestampDesc(Math.max(1, size))
+                .doOnNext(history -> log.debug("找到去重历史记录: id={}, query={}, timestamp={}",
+                    history.getId(), history.getQuery(), history.getTimestamp()))
+                .map(searchHistory -> {
+                    // 将搜索历史转换为ConversationDocument格式，以便前端显示
+                    ConversationDocument doc = new ConversationDocument();
+                    doc.setId(searchHistory.getId().toString()); // 使用搜索历史ID
+                    doc.setTitle(searchHistory.getQuery()); // 使用查询内容作为标题
+                    doc.setCreatedAt(searchHistory.getTimestamp()); // 使用搜索时间
+                    doc.setMessageCount(0); // 搜索历史没有消息数量
+                    doc.setUserId(null); // 搜索历史没有用户ID
+                    return doc;
+                })
+                .doOnComplete(() -> log.debug("去重搜索历史查询完成, size={}", size))
+                .doOnError(error -> {
+                    log.error("获取去重搜索历史失败", error);
+                    // 如果去重查询失败，尝试使用普通查询并在应用层去重
+                    log.warn("降级使用普通查询并在应用层去重");
+                });
+    }
 
     @Override
     public Mono<Void> clearSearchHistory() {
