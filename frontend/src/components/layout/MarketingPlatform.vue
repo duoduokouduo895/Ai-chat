@@ -207,26 +207,57 @@ const handleSendMessage = async (data) => {
   }
   messages.value.push(aiMessage)
 
+  // 构建完整的聊天请求，包含知识库相关参数
   const chatRequest = {
     prompt: userMessageContent,
     model: data.model,
     conversationId: conversationId.value
   }
+  
+  // 如果有知识库ID，添加RAG相关参数
+  if (data.knowledgeBaseIds && data.knowledgeBaseIds.length > 0) {
+    chatRequest.knowledgeBaseIds = data.knowledgeBaseIds
+    chatRequest.maxRetrievedDocs = data.maxRetrievedDocs || 5
+    chatRequest.minSimilarity = data.minSimilarity || 0.3
+    console.log('📚 [前端] 知识库问答模式，知识库数量:', data.knowledgeBaseIds.length)
+  }
 
   let aiResponseText = ''
+  let lastUpdateTime = 0
+  const UPDATE_THROTTLE = 50 // 50ms 节流
+  let responseCompleted = false // 添加响应完成标识
 
   await aiApiService.chatStream(
     chatRequest,
     (chunk) => {
+      if (responseCompleted) return // 如果响应已完成，不再处理新数据
+      
       aiResponseText += chunk
-      const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
-      if (currentAiMessageIndex !== -1) {
-        messages.value[currentAiMessageIndex].text = formatMessage(aiResponseText)
+      const now = Date.now()
+      
+      // 节流更新，避免过频繁的DOM操作
+      if (now - lastUpdateTime > UPDATE_THROTTLE) {
+        const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
+        if (currentAiMessageIndex !== -1) {
+          messages.value[currentAiMessageIndex].text = formatMessage(aiResponseText)
+        }
+        lastUpdateTime = now
       }
     },
     () => {
+      responseCompleted = true // 标记响应完成
+      
+      // 流式响应完成，确保最终消息被正确更新
+      const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
+      if (currentAiMessageIndex !== -1 && aiResponseText.trim()) {
+        messages.value[currentAiMessageIndex].text = formatMessage(aiResponseText)
+        messages.value[currentAiMessageIndex].completed = true // 添加完成标记
+      }
+      
       isLoading.value = false
-      loadRecentConversations()
+      if (aiResponseText.trim()) {
+        loadRecentConversations() // 只在有内容时才更新对话列表
+      }
     },
     (error) => {
       console.error('聊天流中发生错误:', error)
@@ -239,7 +270,6 @@ const handleSendMessage = async (data) => {
     (metadata) => {
       if (metadata && metadata.conversationId) {
         conversationId.value = metadata.conversationId
-        console.log(`上下文已更新，当前会话ID: ${conversationId.value}`)
       }
     }
   )
@@ -249,6 +279,9 @@ const openSearchedConversation = async (conversation) => {
   try {
     console.log('=== 开始加载对话 ===')
     console.log('传入的conversation对象:', JSON.stringify(conversation, null, 2))
+    
+    // 清理当前消息状态，避免干扰
+    isLoading.value = false
     
     currentView.value = 'chat'
     
@@ -266,6 +299,7 @@ const openSearchedConversation = async (conversation) => {
     const apiUrl = `/conversations/${numericConvId}/messages`
     console.log('API请求URL:', apiUrl)
     
+    // 清空当前消息并显示加载状态
     messages.value = [{
       id: 'loading',
       sender: 'system',
@@ -289,7 +323,8 @@ const openSearchedConversation = async (conversation) => {
           sender: 'ai',
           text: '欢迎使用AI助手！请问有什么需要帮助的吗？',
           timestamp: new Date().toLocaleString(),
-          type: 'chat'
+          type: 'chat',
+          completed: true
         }]
       } else {
         messages.value = response.data.map((msg, index) => ({
@@ -297,7 +332,8 @@ const openSearchedConversation = async (conversation) => {
           sender: msg.sender || (msg.isUser ? 'user' : 'ai'),
           text: msg.content || msg.text,
           timestamp: new Date(msg.timestamp || msg.createdAt).toLocaleString(),
-          type: 'chat'
+          type: 'chat',
+          completed: true // 历史消息都是已完成的
         }))
       }
     } else {
@@ -322,7 +358,8 @@ const openSearchedConversation = async (conversation) => {
       sender: 'ai',
       text: errorMessage + '\n\n请稍后再试或联系管理员。',
       timestamp: new Date().toLocaleString(),
-      type: 'chat'
+      type: 'chat',
+      completed: true
     }]
   }
 }

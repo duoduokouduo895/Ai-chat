@@ -135,6 +135,9 @@ public class RagServiceImpl implements RagService {
     
     @Override
     public Flux<String> ragChatStream(RagChatDto ragRequest) {
+        log.info("🤖 [RAG模式] 开始流式对话: question={}, modelId={}, knowledgeBaseIds={}",
+                ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
+        
         return retrieveContext(
                 ragRequest.getQuestion(), 
                 ragRequest.getKnowledgeBaseIds(),
@@ -203,8 +206,10 @@ public class RagServiceImpl implements RagService {
                 
                 long retrievalTime = System.currentTimeMillis() - startTime;
                 
-                log.info("上下文检索完成: question={}, documentCount={}, retrievalTime={}ms", 
+                log.info("🔍 [上下文检索] 上下文检索完成: question={}, documentCount={}, retrievalTime={}ms", 
                         question, relevantDocs.size(), retrievalTime);
+                log.info("📝 [检索结果] 获得相关文档: {}", 
+                        relevantDocs.stream().map(doc -> String.format("[%s:%.2f]", doc.getDocumentTitle(), doc.getScore())).collect(Collectors.joining(", ")));
                 
                 return new RetrievalContext(question, relevantDocs, contextText, relevantDocs.size(), retrievalTime);
             })

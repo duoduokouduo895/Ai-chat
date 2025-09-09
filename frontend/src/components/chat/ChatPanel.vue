@@ -115,7 +115,7 @@ const handleSendMessage = (message, model, knowledgeBaseIds) => {
   if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
     chatRequest.knowledgeBaseIds = knowledgeBaseIds
     chatRequest.maxRetrievedDocs = 5
-    chatRequest.minSimilarity = 0.7
+    chatRequest.minSimilarity = 0.3  // 与后端配置保持一致
   }
   
   emit('sendMessage', chatRequest)

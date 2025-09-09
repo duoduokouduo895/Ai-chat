@@ -48,11 +48,11 @@ public class AiChatServiceImpl implements AiChatService {
     public Flux<String> chat(ChatRequest chatRequest) {
         // 智能路由：根据是否提供知识库ID来选择聊天模式
         if (chatRequest.isRagMode()) {
-            log.info("检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}",
+            log.info("🔄 [路由决策] 检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}",
                     chatRequest.getKnowledgeBaseIds(), chatRequest.getUserId());
             return handleRagChat(chatRequest);
         } else {
-            log.info("未提供知识库ID，使用普通AI对话模式: userId={}", chatRequest.getUserId());
+            log.info("🔄 [路由决策] 未提供知识库ID，使用普通AI对话模式: userId={}", chatRequest.getUserId());
             return handleNormalChat(chatRequest);
         }
     }
@@ -64,29 +64,41 @@ public class AiChatServiceImpl implements AiChatService {
         return Mono.just(chatRequest)
                 .flatMap(this::ensureConversationExists)
                 .flatMapMany(request -> {
-                    // 1. 创建包含conversationId的元数据
-                    Map<String, Object> metadata = Map.of(
-                            "type", "metadata",
-                            "conversationId", request.getConversationId(),
-                            "mode", "rag"
-                    );
-                    String metadataJson = JSON.toJSONString(metadata);
-                    Flux<String> metadataFlux = Flux.just("[METADATA]" + metadataJson);
+                    // 1. 先检查是否已经存在相同的用户消息（防止重复）
+                    return checkAndSaveUserMessage(request)
+                            .flatMapMany(savedUserMessage -> {
+                                // 2. 创建包含conversationId的元数据
+                                Map<String, Object> metadata = Map.of(
+                                        "type", "metadata",
+                                        "conversationId", request.getConversationId(),
+                                        "mode", "rag"
+                                );
+                                String metadataJson = JSON.toJSONString(metadata);
+                                Flux<String> metadataFlux = Flux.just("[METADATA]" + metadataJson);
 
-                    // 2. 使用RAG服务进行对话
-                    RagChatDto ragDto = request.toRagChatDto();
-                    Flux<String> ragFlux = ragService.ragChatStream(ragDto)
-                            .doOnNext(response -> {
-                                // 在RAG模式下也可以保存聊天记录
-                                if (request.getSaveMessage() != null && request.getSaveMessage()) {
-                                    saveUserMessageAsync(request);
-                                }
-                            })
-                            .doOnComplete(() -> {
-                                log.info("RAG对话完成: conversationId={}", request.getConversationId());
+                                // 3. 使用RAG服务进行对话并收集AI响应
+                                RagChatDto ragDto = request.toRagChatDto();
+                                log.info("🤖 [RAG模式] 转换为ChatRequest为RagChatDto: question={}, knowledgeBaseIds={}, minSimilarity={}",
+                                        ragDto.getQuestion(), ragDto.getKnowledgeBaseIds(), ragDto.getMinSimilarity());
+                                
+                                StringBuilder aiResponseBuilder = new StringBuilder();
+                                Flux<String> ragFlux = ragService.ragChatStream(ragDto)
+                                        .doOnNext(chunk -> aiResponseBuilder.append(chunk))
+                                        .doOnComplete(() -> {
+                                            // 流式响应完成后保存AI消息
+                                            if (aiResponseBuilder.length() > 0) {
+                                                saveAiMessage(request, aiResponseBuilder.toString())
+                                                        .subscribeOn(Schedulers.boundedElastic())
+                                                        .subscribe(
+                                                                savedAiMessage -> log.info("RAG模式AI消息已保存，ID: {}", savedAiMessage.getId()),
+                                                                error -> log.error("保存RAG模式AI消息失败", error)
+                                                        );
+                                            }
+                                            log.info("RAG对话完成: conversationId={}", request.getConversationId());
+                                        });
+
+                                return Flux.concat(metadataFlux, ragFlux);
                             });
-
-                    return Flux.concat(metadataFlux, ragFlux);
                 })
                 .onErrorResume(this::handleChatError);
     }
@@ -202,35 +214,68 @@ public class AiChatServiceImpl implements AiChatService {
                         return Flux.error(e);
                     }
                 });
-    }
-
+    }    
     /**
-     * 异步保存用户消息（用于RAG模式）
+     * 检查并保存用户消息（防止重复）
      */
-    private void saveUserMessageAsync(ChatRequest chatRequest) {
-        Message userMessage = new Message();
-        userMessage.setConversationId(chatRequest.getConversationId());
-        userMessage.setSender("user");
-        userMessage.setContent(chatRequest.getPrompt());
-        userMessage.setModel(chatRequest.getModel());
-
-        conversationService.addMessageToConversation(userMessage)
-                .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(
-                    savedMessage -> log.debug("用户消息已保存，ID: {}", savedMessage.getId()),
-                    error -> log.error("保存用户消息失败", error)
-                );
+    private Mono<Message> checkAndSaveUserMessage(ChatRequest request) {
+        // 检查最近的消息是否与当前消息相同
+        return conversationService.getMessagesByConversationId(request.getConversationId())
+                .filter(message -> "user".equals(message.getSender()))
+                .takeLast(1)
+                .singleOrEmpty()
+                .flatMap(lastUserMessage -> {
+                    // 如果最近的用户消息内容相同，则不重复保存
+                    if (lastUserMessage.getContent().equals(request.getPrompt().trim())) {
+                        log.warn("检测到重复的用户消息，跳过保存: {}", request.getPrompt());
+                        return Mono.just(lastUserMessage);
+                    } else {
+                        // 内容不同，保存新消息
+                        return saveNewUserMessage(request);
+                    }
+                })
+                .switchIfEmpty(Mono.defer(() -> {
+                    // 没有历史消息，直接保存
+                    return saveNewUserMessage(request);
+                }));
     }
-
+    
+    /**
+     * 保存新的用户消息
+     */
+    private Mono<Message> saveNewUserMessage(ChatRequest request) {
+        Message userMessage = new Message();
+        userMessage.setConversationId(request.getConversationId());
+        userMessage.setSender("user");
+        userMessage.setContent(request.getPrompt());
+        userMessage.setModel(request.getModel());
+        
+        return conversationService.addMessageToConversation(userMessage)
+                .doOnSuccess(savedMessage -> log.info("新用户消息已保存，ID: {}", savedMessage.getId()));
+    }
+    
     private Mono<Message> saveAiMessage(ChatRequest chatRequest, String content) {
+        if (content == null || content.trim().isEmpty()) {
+            log.warn("跳过保存空的AI消息");
+            return Mono.empty();
+        }
+        
         Message aiMessage = new Message();
         aiMessage.setConversationId(chatRequest.getConversationId());
         aiMessage.setSender("ai");
-        aiMessage.setContent(content);
+        aiMessage.setContent(content.trim());
         aiMessage.setModel(chatRequest.getModel());
-        // 使用ConversationService来保存AI消息，以确保更新对话时间等逻辑被执行
+        
+        // 使用ConversationService来保存AI消息，并添加重试机制
         return conversationService.addMessageToConversation(aiMessage)
-                .doOnSuccess(savedMessage -> log.info("AI消息已保存，ID: {}", savedMessage.getId()))
-                .doOnError(e -> log.error("保存AI消息失败", e));
+                .retry(3) // 最多重试3次
+                .doOnSuccess(savedMessage -> log.info("AI消息已成功保存，ID: {}, 内容长度: {}", 
+                        savedMessage.getId(), content.length()))
+                .doOnError(e -> log.error("保存AI消息失败，内容: {}, 错误: {}", 
+                        content.substring(0, Math.min(content.length(), 100)), e.getMessage(), e))
+                .onErrorResume(e -> {
+                    log.error("最终保存AI消息失败，将返回空结果", e);
+                    return Mono.empty();
+                });
     }
 }

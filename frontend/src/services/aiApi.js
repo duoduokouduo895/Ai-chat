@@ -14,7 +14,7 @@ export const aiApiService = {
                 // 支持知识库相关参数
                 knowledgeBaseIds: chatRequest.knowledgeBaseIds || null,
                 maxRetrievedDocs: chatRequest.maxRetrievedDocs || 5,
-                minSimilarity: chatRequest.minSimilarity || 0.7,
+                minSimilarity: chatRequest.minSimilarity || 0.3,  // 与后端配置保持一致
                 // 其他可选参数
                 saveMessage: chatRequest.saveMessage !== false,
                 streaming: chatRequest.streaming !== false
@@ -27,7 +27,7 @@ export const aiApiService = {
                 }
             });
             
-            console.log('发送聊天请求:', requestData);
+            console.log('📤 [前端发送] 知识库模式:', !!requestData.knowledgeBaseIds, '知识库IDs:', requestData.knowledgeBaseIds);
             
             const response = await fetch(`${API_BASE_URL}/ai/chat`, {
                 method: 'POST',
@@ -47,28 +47,36 @@ export const aiApiService = {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
+            let buffer = '';
+            let isComplete = false;
 
-            // Simplified stream processing loop
-            while (true) {
+            // 优化的流式响应处理
+            while (true && !isComplete) {
                 const { done, value } = await reader.read();
                 if (done) {
-                    break; // Exit loop when stream is done
+                    break;
                 }
 
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n').filter(line => line.trim() !== '');
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // 保留最后一行作为缓冲
 
                 for (const line of lines) {
-                    if (!line.startsWith('data:')) continue;
+                    if (!line.trim() || !line.startsWith('data:')) continue;
 
                     const data = line.substring(5).trim();
+                    
+                    if (data === '[DONE]') {
+                        isComplete = true;
+                        break;
+                    }
                     
                     if (data.startsWith('[METADATA]')) {
                         const metadataJson = data.substring(10);
                         try {
                             if (onMetadata) onMetadata(JSON.parse(metadataJson));
                         } catch (e) {
-                            console.error("Failed to parse metadata", e);
+                            console.warn('元数据解析失败:', e);
                         }
                     } else if (data.startsWith('[ERROR]')) {
                         const errorJson = data.substring(7);
@@ -77,15 +85,18 @@ export const aiApiService = {
                             const error = new Error(errorPayload.message);
                             error.response = { data: errorPayload };
                             if (onError) onError(error);
+                            return; // 遇到错误立即返回
                         } catch (e) {
-                            console.error("Failed to parse stream error", e);
+                            console.warn('错误数据解析失败:', e);
                         }
-                    } else {
-                        onData(data);
+                    } else if (data && data.length > 0) {
+                        // 只处理非空数据
+                        if (onData) onData(data);
                     }
                 }
             }
-            // Call onComplete after the loop finishes successfully
+            
+            // 流式响应正常完成后调用 onComplete
             if (onComplete) onComplete();
 
         } catch (error) {

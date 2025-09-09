@@ -117,10 +117,10 @@ public class ChatRequest {
     
     /**
      * 最小相似度
-     * RAG模式下的参数，默认为0.7
+     * RAG模式下的参数，默认为0.3
      */
     @Builder.Default
-    private Double minSimilarity = 0.7;
+    private Double minSimilarity = 0.3;
     
     /**
      * 验证请求参数的有效性

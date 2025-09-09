@@ -43,10 +43,11 @@ public class AiModelRegistry {
         
         // 检查models映射是否为空
         if (aiModelProperties.getModels() == null || aiModelProperties.getModels().isEmpty()) {
-            log.error("在AiModelProperties中没有找到任何模型配置。请检查您的Nacos配置。");
-            log.error("当前配置前缀: langchain4j.open-ai.chat-model");
-            log.error("请确保Nacos中有对应的配置项");
-            return;
+            log.warn("⚠️ 在AiModelProperties中没有找到任何模型配置。");
+            log.warn("当前配置前缀: langchain4j.open-ai");
+            log.warn("请确保Nacos中有对应的配置项");
+            log.warn("⚠️ 模型注册中心将继续运行，但无可用模型。系统可能无法正常工作。");
+            return; // 优雅地退出，不抛出异常
         }
 
         // 从配置中获取全局的apiKey和baseUrl
@@ -55,12 +56,14 @@ public class AiModelRegistry {
         
         // 验证关键配置
         if (globalApiKey == null || globalApiKey.trim().isEmpty()) {
-            log.error("API Key未配置或为空！请检查Nacos配置中的langchain4j.open-ai.chat-model.api-key");
+            log.warn("⚠️ API Key未配置或为空！请检查Nacos配置中的langchain4j.open-ai.api-key");
+            log.warn("系统将继续运行，但可能无法正常使用AI功能。");
             return;
         }
         
         if (globalBaseUrl == null || globalBaseUrl.trim().isEmpty()) {
-            log.error("Base URL未配置或为空！请检查Nacos配置中的langchain4j.open-ai.chat-model.base-url");
+            log.warn("⚠️ Base URL未配置或为空！请检查Nacos配置中的langchain4j.open-ai.base-url");
+            log.warn("系统将继续运行，但可能无法正常使用AI功能。");
             return;
         }
         
