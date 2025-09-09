@@ -106,6 +106,13 @@
               👁️
             </button>
             <button 
+              class="btn-base btn-sm btn-info"
+              @click="downloadDocument(doc)"
+              title="下载文档"
+            >
+              📥
+            </button>
+            <button 
               class="btn-base btn-sm btn-danger"
               @click="$emit('deleteDocument', doc)"
               title="删除文档"
@@ -116,10 +123,75 @@
         </div>
       </div>
     </div>
+
+    <!-- 文档查看模态框 -->
+    <div v-if="documentViewModal" class="modal-overlay" @click="closeDocumentView">
+      <div class="modal-content document-view-modal" @click.stop>
+        <div class="modal-header">
+          <h3>📄 文档内容查看</h3>
+          <button class="btn-close" @click="closeDocumentView">×</button>
+        </div>
+        
+        <div class="modal-body">
+          <!-- 文档基本信息 -->
+          <div v-if="currentViewDocument" class="document-info">
+            <div class="info-row">
+              <span class="info-label">文档名称:</span>
+              <span class="info-value">{{ currentViewDocument.fileName }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">文件大小:</span>
+              <span class="info-value">{{ formatFileSize(currentViewDocument.fileSize) }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">解析状态:</span>
+              <span class="status-badge" :class="getParseStatusClass(currentViewDocument.parseStatus)">
+                {{ getParseStatusText(currentViewDocument.parseStatus) }}
+              </span>
+            </div>
+          </div>
+          
+          <!-- 文档内容 -->
+          <div class="document-content-container">
+            <div class="content-header">
+              <h4>文档内容</h4>
+              <div class="content-actions">
+                <button 
+                  v-if="currentViewDocument" 
+                  class="btn-base btn-sm btn-outline"
+                  @click="downloadDocument(currentViewDocument)"
+                >
+                  📥 下载原文件
+                </button>
+              </div>
+            </div>
+            
+            <!-- 加载状态 -->
+            <div v-if="loadingDocumentContent" class="loading-container">
+              <div class="loading"></div>
+              <span>加载内容中...</span>
+            </div>
+            
+            <!-- 文档内容显示 -->
+            <div v-else class="document-content">
+              <pre>{{ documentContent }}</pre>
+            </div>
+          </div>
+        </div>
+        
+        <div class="modal-footer">
+          <button class="btn-base btn-outline" @click="closeDocumentView">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import knowledgeApiService from '@/services/knowledgeApi'
 
 // Props
 const props = defineProps({
@@ -220,11 +292,62 @@ const getParseStatusText = (status) => {
   return texts[status] || status || '未知'
 }
 
+// 文档查看相关状态
+const documentViewModal = ref(false)
+const currentViewDocument = ref(null)
+const documentContent = ref('')
+const loadingDocumentContent = ref(false)
+
 // 查看文档
-const viewDocument = (doc) => {
-  // TODO: 实现文档查看功能
+const viewDocument = async (doc) => {
   console.log('查看文档:', doc)
-  alert(`查看文档功能待实现\n文档: ${doc.fileName}`)
+  currentViewDocument.value = doc
+  documentViewModal.value = true
+  
+  // 加载文档内容
+  await loadDocumentContent(doc.id)
+}
+
+// 加载文档内容
+const loadDocumentContent = async (documentId) => {
+  try {
+    loadingDocumentContent.value = true
+    documentContent.value = ''
+    
+    const response = await knowledgeApiService.getDocument(documentId)
+    if (response && response.data) {
+      documentContent.value = response.data.content || '文档内容为空或尚未解析完成'
+    } else {
+      documentContent.value = '无法获取文档内容'
+    }
+  } catch (error) {
+    console.error('加载文档内容失败:', error)
+    documentContent.value = '加载文档内容失败，请稍后重试'
+  } finally {
+    loadingDocumentContent.value = false
+  }
+}
+
+// 下载文档
+const downloadDocument = (doc) => {
+  if (doc.ossUrl) {
+    const link = document.createElement('a')
+    link.href = doc.ossUrl
+    link.download = doc.fileName
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } else {
+    alert('文档下载链接不可用')
+  }
+}
+
+// 关闭文档查看模态框
+const closeDocumentView = () => {
+  documentViewModal.value = false
+  currentViewDocument.value = null
+  documentContent.value = ''
 }
 </script>
 
@@ -497,6 +620,213 @@ const viewDocument = (doc) => {
   .doc-actions {
     flex-direction: row;
     justify-content: flex-end;
+  }
+}
+
+/* 文档查看模态框样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--spacing-md);
+}
+
+.modal-content {
+  background: var(--bg-primary);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-light);
+  max-width: 90vw;
+  max-height: 90vh;
+  width: 800px;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.document-view-modal {
+  max-width: 95vw;
+  max-height: 95vh;
+  width: 900px;
+  height: 700px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.btn-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  flex: 1;
+  padding: var(--spacing-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.document-info {
+  background: var(--bg-secondary);
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.info-row:last-child {
+  margin-bottom: 0;
+}
+
+.info-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.info-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.document-content-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.content-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.content-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.document-content {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius-md);
+  padding: var(--spacing-md);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.document-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text-primary);
+}
+
+.modal-footer {
+  padding: var(--spacing-lg);
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+}
+
+/* 下载按钮样式 */
+.btn-info {
+  background: var(--info-bg);
+  color: var(--info-text);
+  border: 1px solid var(--info-border, var(--border-light));
+}
+
+.btn-info:hover {
+  background: var(--info-hover-bg, var(--bg-tertiary));
+  border-color: var(--info-hover-border, var(--border-focus));
+}
+
+/* 响应式模态框 */
+@media (max-width: 768px) {
+  .document-view-modal {
+    width: 95vw;
+    height: 95vh;
+    max-width: 95vw;
+    max-height: 95vh;
+  }
+  
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: var(--spacing-md);
+  }
+  
+  .content-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+  
+  .content-actions {
+    width: 100%;
+  }
+  
+  .document-content {
+    font-size: var(--font-size-xs);
   }
 }
 </style>

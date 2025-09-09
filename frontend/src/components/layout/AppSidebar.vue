@@ -138,7 +138,7 @@ const handleAuth = async () => {
 
 // 打开 GitHub 链接
 const openGitHub = () => {
-  window.open('https://github.com/KouDu-duo/Ai_Agent', '_blank');
+  window.open('https://gitee.com/duo-duo-kou-duo', '_blank');
 };
 
 // 工具方法
@@ -425,29 +425,29 @@ const getConversationPreview = (conversation) => {
     height: auto;
     max-height: 400px; /* 进一步增加移动端高度 */
   }
-  
+
   .sidebar-icons {
     padding: var(--spacing-md);
   }
-  
+
   .conversations {
     max-height: 280px; /* 增加移动端对话区域高度 */
     min-height: 280px;
   }
-  
+
   .conversation-spacer {
     margin-top: var(--spacing-md);
   }
-  
+
   .usage-tips {
     padding: var(--spacing-xs) var(--spacing-sm);
     margin-top: var(--spacing-sm);
   }
-  
+
   .empty-state {
     padding: var(--spacing-lg);
   }
-  
+
   .sidebar-footer {
     padding: var(--spacing-sm) var(--spacing-md);
   }

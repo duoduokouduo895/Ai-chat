@@ -20,6 +20,9 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.util.MultiValueMap;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ServerWebExchange;
@@ -392,6 +395,35 @@ public class KnowledgeController {
         return documentService.deleteDocument(id)
                 .doOnSuccess(v -> log.info("文档删除成功: id={}", id))
                 .doOnError(error -> log.error("文档删除失败: id={}, error={}", id, error.getMessage()));
+    }
+
+    /**
+     * 下载文档
+     */
+    @GetMapping("/documents/{id}/download")
+    public Mono<ResponseEntity<Object>> downloadDocument(@PathVariable Long id) {
+        log.info("下载文档请求: id={}", id);
+
+        return documentService.getDocument(id)
+                .flatMap(documentDto -> {
+                    if (documentDto.getOssUrl() == null) {
+                        return Mono.just(ResponseEntity.notFound().build());
+                    }
+                    
+                    // 返回重定向响应到OSS URL
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.add("Location", documentDto.getOssUrl());
+                    headers.add("Content-Disposition", 
+                        "attachment; filename=\"" + documentDto.getFileName() + "\"");
+                    
+                    log.info("文档下载重定向: id={}, fileName={}, url={}", 
+                        id, documentDto.getFileName(), documentDto.getOssUrl());
+                    
+                    return Mono.just(ResponseEntity.status(HttpStatus.FOUND)
+                            .headers(headers)
+                            .build());
+                })
+                .doOnError(error -> log.error("文档下载失败: id={}, error={}", id, error.getMessage()));
     }
 
     /**
