@@ -9,7 +9,7 @@ import java.util.Arrays;
 
 @RestController
 @RequestMapping("/api/models")
-@CrossOrigin(origins = {"http://localhost:3000"})
+@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
 public class ModelController {
 
     @GetMapping
