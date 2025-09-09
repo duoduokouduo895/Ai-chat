@@ -155,10 +155,19 @@ const executeSearch = async () => {
 
     searchTime.value = Date.now() - startTime;
 
-    await SearchApiService.recordSearchHistory(searchQuery.value, 'unified');
-
-    if (historyRef.value) {
-      await historyRef.value.refresh();
+    // 记录搜索历史，实现去重更新
+    try {
+      await SearchApiService.recordSearchHistory(searchQuery.value, 'unified');
+      console.log(`搜索历史已记录/更新: "${searchQuery.value}"`);
+      
+      // 刷新搜索历史显示
+      if (historyRef.value) {
+        await historyRef.value.refresh();
+        console.log('搜索历史显示已刷新');
+      }
+    } catch (historyError) {
+      console.error('更新搜索历史失败:', historyError);
+      // 历史记录错误不影响搜索结果显示
     }
   } catch (error) {
     console.error('搜索失败:', error);

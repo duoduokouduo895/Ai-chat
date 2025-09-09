@@ -21,9 +21,10 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
      * @return 去重的搜索历史列表
      */
     @Query("SELECT s1.* FROM search_history s1 " +
-           "INNER JOIN (SELECT query, MAX(timestamp) as max_timestamp " +
-           "FROM search_history GROUP BY query) s2 " +
-           "ON s1.query = s2.query AND s1.timestamp = s2.max_timestamp " +
+           "WHERE s1.id IN (" +
+           "  SELECT MAX(s2.id) FROM search_history s2 " +
+           "  GROUP BY s2.query" +
+           ") " +
            "ORDER BY s1.timestamp DESC LIMIT :limit")
     Flux<SearchHistory> findDistinctByQueryOrderByTimestampDesc(int limit);
     
@@ -35,4 +36,22 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
      */
     @Query("DELETE FROM search_history WHERE query = :query AND id != :keepId")
     Mono<Void> deleteOldRecordsByQuery(String query, Long keepId);
+    
+    /**
+     * 获取所有搜索历史用于调试
+     * @return 所有搜索历史记录
+     */
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
+    Flux<SearchHistory> findAllOrderByTimestampDesc();
+    
+    /**
+     * 清理重复的搜索历史，保留每个查询的最新记录
+     * @return 清理完成信号
+     */
+    @Query("DELETE FROM search_history WHERE id NOT IN (" +
+           "  SELECT * FROM (" +
+           "    SELECT MAX(id) FROM search_history GROUP BY query" +
+           "  ) AS temp" +
+           ")")
+    Mono<Void> cleanupDuplicateHistory();
 }

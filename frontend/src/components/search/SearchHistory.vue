@@ -2,13 +2,16 @@
   <div class="search-history">
     <div class="history-header">
       <h3 class="history-title">搜索历史</h3>
-      <button 
-        v-if="historyList.length > 0" 
-        @click="clearAllHistory" 
-        class="clear-all-btn"
-      >
-        清空全部
-      </button>
+      <div class="header-actions">
+        <button 
+          v-if="historyList.length > 0" 
+          @click="clearAllHistory" 
+          class="clear-all-btn"
+          title="清空所有搜索历史"
+        >
+          清空全部
+        </button>
+      </div>
     </div>
     
     <div v-if="loading" class="loading-history">
@@ -80,12 +83,41 @@ const loadHistory = async () => {
     
     // 将后端返回的ConversationDocument转换为前端需要的格式
     if (Array.isArray(response)) {
-      historyList.value = response.map(conversation => ({
-        id: conversation.id,
-        query: conversation.title || '未命名对话', // 使用对话标题作为查询内容
-        timestamp: conversation.createdAt || conversation.timestamp,
-        resultCount: conversation.messageCount || 0
-      }))
+      // 前端再次去重，防止后端去重失败
+      const uniqueHistories = new Map()
+      
+      response.forEach(conversation => {
+        const query = conversation.title || '未命名对话'
+        const timestamp = conversation.createdAt || conversation.timestamp
+        
+        // 如果已存在相同查询，比较时间戳，保留更新的
+        if (uniqueHistories.has(query)) {
+          const existing = uniqueHistories.get(query)
+          const existingTime = new Date(existing.timestamp)
+          const currentTime = new Date(timestamp)
+          if (currentTime > existingTime) {
+            uniqueHistories.set(query, {
+              id: conversation.id,
+              query: query,
+              timestamp: timestamp,
+              resultCount: conversation.messageCount || 0
+            })
+          }
+        } else {
+          uniqueHistories.set(query, {
+            id: conversation.id,
+            query: query,
+            timestamp: timestamp,
+            resultCount: conversation.messageCount || 0
+          })
+        }
+      })
+      
+      // 转换为数组并按时间排序
+      historyList.value = Array.from(uniqueHistories.values())
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      
+      console.log('去重后的搜索历史:', historyList.value)
     } else {
       console.warn('后端返回的搜索历史格式不正确:', response)
       historyList.value = []
@@ -157,6 +189,8 @@ const clearAllHistory = async () => {
   }
 }
 
+
+
 const formatTime = (timeString) => {
   const date = new Date(timeString)
   const now = new Date()
@@ -206,6 +240,13 @@ defineExpose({
   border-bottom: 1px solid #e9ecef;
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+
+
 .history-title {
   margin: 0;
   font-size: 16px;
@@ -214,29 +255,32 @@ defineExpose({
 }
 
 .clear-all-btn {
-  padding: 8px 14px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
+  padding: 6px 12px;
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  transition: all 0.2s;
-  min-width: 44px;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-weight: 400;
+  transition: all 0.2s ease;
   /* 触摸优化 */
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.clear-all-btn:hover,
+.clear-all-btn:hover {
+  background: #ff4757;
+  color: white;
+  border-color: #ff4757;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(255, 71, 87, 0.2);
+}
+
 .clear-all-btn:active {
-  background: #c82333;
-  transform: scale(0.95);
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(255, 71, 87, 0.2);
 }
 
 .loading-history {
@@ -380,10 +424,8 @@ defineExpose({
   }
   
   .clear-all-btn {
-    padding: 6px 12px;
+    padding: 6px 10px;
     font-size: 11px;
-    min-width: 40px;
-    min-height: 40px;
   }
   
   .no-history {
@@ -438,10 +480,8 @@ defineExpose({
   }
   
   .clear-all-btn {
-    padding: 4px 10px;
+    padding: 4px 8px;
     font-size: 10px;
-    min-width: 36px;
-    min-height: 36px;
   }
   
   .no-history {

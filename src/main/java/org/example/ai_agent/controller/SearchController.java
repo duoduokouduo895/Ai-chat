@@ -125,4 +125,9 @@ public class SearchController {
     public Mono<Void> clearSearchHistory() {
         return searchService.clearSearchHistory();
     }
+    
+    @PostMapping("/history/cleanup")
+    public Mono<String> cleanupDuplicateSearchHistory() {
+        return searchService.cleanupDuplicateSearchHistory();
+    }
 }
