@@ -1,8 +1,5 @@
 <template>
   <div class="ai-platform">
-    <!-- 导入样式 -->
-    <link rel="stylesheet" href="@/assets/styles/variables.css">
-    <link rel="stylesheet" href="@/assets/styles/common.css">
     
     <!-- 侧边栏 -->
     <AppSidebar
@@ -397,9 +394,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 导入公共样式 */
-@import '@/assets/styles/variables.css';
-@import '@/assets/styles/common.css';
+/* 导入的样式已在main.js中全局导入 */
 
 .ai-platform {
   display: flex;

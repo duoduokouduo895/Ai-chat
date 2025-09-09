@@ -61,7 +61,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['select-history', 'history-updated'])
+const emit = defineEmits(['history-selected', 'history-updated'])
 
 const historyList = ref([])
 const loading = ref(false)
@@ -130,7 +130,8 @@ const addHistory = async (query, resultCount = 0) => {
 }
 
 const selectHistory = (item) => {
-  emit('select-history', item.query)
+  console.log('点击搜索历史项:', item.query)
+  emit('history-selected', item.query)
 }
 
 const removeHistory = async (index) => {
@@ -280,8 +281,8 @@ defineExpose({
 }
 
 .history-list {
-  max-height: 400px;
-  overflow-y: auto;
+  /* 移除滚动条，显示所有搜索历史 */
+  overflow: visible;
 }
 
 .history-item {
@@ -395,7 +396,8 @@ defineExpose({
   }
   
   .history-list {
-    max-height: 350px;
+    /* 移动端也移除滚动条 */
+    overflow: visible;
   }
   
   .history-item {
@@ -460,7 +462,8 @@ defineExpose({
   }
   
   .history-list {
-    max-height: 300px;
+    /* 移动端也移除滚动条 */
+    overflow: visible;
   }
   
   .history-item {
