@@ -123,7 +123,7 @@ public class SearchServiceImpl implements SearchService {
             multiMatch.put("query", query);
             multiMatch.put("fields", new String[]{"title", "content"});
             multiMatch.put("type", "best_fields");
-            
+
             JSONArray mustClauses = new JSONArray();
             mustClauses.add(new JSONObject().fluentPut("multi_match", multiMatch));
             boolClause.put("must", mustClauses);
@@ -131,7 +131,7 @@ public class SearchServiceImpl implements SearchService {
 
         // 2. Filter Clause for exact matches
         JSONArray filterClauses = new JSONArray();
-        
+
         // User ID Filter (Always active)
         JSONObject userTerm = new JSONObject();
         userTerm.put("term", new JSONObject().fluentPut("userId", userId));
@@ -202,7 +202,7 @@ public class SearchServiceImpl implements SearchService {
                 .map(searchHit -> searchHit.getContent());
     }
 
-    
+
 
     @Override
     public Mono<List<String>> getSearchSuggestions(String prefix, int size) {
@@ -237,9 +237,9 @@ public class SearchServiceImpl implements SearchService {
         if (query == null || query.trim().isEmpty()) {
             return Mono.empty();
         }
-        
+
         String trimmedQuery = query.trim();
-        
+
         // 检查是否已存在相同的查询
         return searchHistoryRepository.findByQuery(trimmedQuery)
                 .flatMap(existingHistory -> {
@@ -265,55 +265,6 @@ public class SearchServiceImpl implements SearchService {
                 .doOnError(error -> log.error("保存搜索历史失败: query={}", trimmedQuery, error));
     }
 
-    @Override
-    public Flux<ConversationDocument> getSearchHistory(int size) {
-        log.debug("开始获取去重搜索历史, size={}", size);
-        
-        // 优先使用改进的去重查询
-        return searchHistoryRepository.findDistinctByQueryOrderByTimestampDesc(Math.max(1, size))
-                .doOnNext(history -> log.debug("找到去重历史记录: id={}, query={}, timestamp={}", 
-                    history.getId(), history.getQuery(), history.getTimestamp()))
-                .map(searchHistory -> {
-                    // 将搜索历史转换为ConversationDocument格式，以便前端显示
-                    ConversationDocument doc = new ConversationDocument();
-                    doc.setId(searchHistory.getId().toString()); // 使用搜索历史ID
-                    doc.setTitle(searchHistory.getQuery()); // 使用查询内容作为标题
-                    doc.setCreatedAt(searchHistory.getTimestamp()); // 使用搜索时间
-                    doc.setMessageCount(0); // 搜索历史没有消息数量
-                    doc.setUserId(null); // 搜索历史没有用户ID
-                    return doc;
-                })
-                .doOnComplete(() -> log.debug("去重搜索历史查询完成, size={}", size))
-                .doOnError(error -> {
-                    log.error("获取去重搜索历史失败", error);
-                    // 如果去重查询失败，尝试使用普通查询并在应用层去重
-                    log.warn("降级使用普通查询并在应用层去重");
-                })
-                .onErrorResume(error -> {
-                    // 如果去重查询失败，使用应用层去重作为备用方案
-                    return searchHistoryRepository.findAllOrderByTimestampDesc()
-                            .take(size * 2) // 取更多数据以便去重
-                            .collectMap(
-                                SearchHistory::getQuery, // 使用query作为key
-                                searchHistory -> searchHistory, // 使用整个对象作为value
-                                (existing, replacement) -> 
-                                    // 如果有重复，保留时间更新的那个
-                                    existing.getTimestamp().isAfter(replacement.getTimestamp()) ? existing : replacement
-                            )
-                            .flatMapMany(map -> Flux.fromIterable(map.values()))
-                            .sort((h1, h2) -> h2.getTimestamp().compareTo(h1.getTimestamp()))
-                            .take(size)
-                            .map(searchHistory -> {
-                                ConversationDocument doc = new ConversationDocument();
-                                doc.setId(searchHistory.getId().toString());
-                                doc.setTitle(searchHistory.getQuery());
-                                doc.setCreatedAt(searchHistory.getTimestamp());
-                                doc.setMessageCount(0);
-                                doc.setUserId(null);
-                                return doc;
-                            });
-                });
-    }
 
     @Override
     public Mono<Void> clearSearchHistory() {
@@ -321,11 +272,11 @@ public class SearchServiceImpl implements SearchService {
                 .doOnSuccess(v -> log.info("搜索历史已清空"))
                 .doOnError(error -> log.error("清空搜索历史失败", error));
     }
-    
+
     @Override
     public Mono<String> cleanupDuplicateSearchHistory() {
         return searchHistoryRepository.findAllOrderByTimestampDesc()
-                .doOnNext(history -> log.debug("处理历史记录: id={}, query={}, timestamp={}", 
+                .doOnNext(history -> log.debug("处理历史记录: id={}, query={}, timestamp={}",
                     history.getId(), history.getQuery(), history.getTimestamp()))
                 .count()
                 .doOnNext(totalBefore -> log.info("清理前总记录数: {}", totalBefore))
