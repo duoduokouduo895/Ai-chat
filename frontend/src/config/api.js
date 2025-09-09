@@ -4,7 +4,10 @@
 // 获取API基础URL
 const getApiBaseUrl = () => {
   // 在开发环境中，使用相对路径，由Vite代理处理
-  // 在生产环境中，也使用相对路径，这样会自动使用当前域名
+  // 在生产环境中，使用云服务器地址
+  if (import.meta.env.PROD) {
+    return 'http://119.29.109.190:8080/api';
+  }
   return '/api';
 };
 

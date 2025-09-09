@@ -41,21 +41,13 @@ export default defineConfig(({ mode }) => {
   build: {
     rollupOptions: {
       output: {
-        // 手动分包策略
+        // 简化分包策略，避免循环依赖
         manualChunks: {
           // 第三方库单独打包
           'vendor': ['vue', 'vue-router'],
-          'ui-libs': ['element-plus', '@fortawesome/fontawesome-svg-core', '@fortawesome/vue-fontawesome'],
-          'utils': ['axios', 'highlight.js'],
-          // 组件分包
-          'chat-components': [
-            './src/components/layout/MarketingPlatform.vue',
-            './src/components/chat/MessageContent.vue',
-            './src/components/common/CodeBlock.vue'
-          ],
-          'search-components': [
-            './src/components/search/SearchPanel.vue'
-          ]
+          'ui-libs': ['element-plus'],
+          'icons': ['@fortawesome/fontawesome-svg-core', '@fortawesome/vue-fontawesome', '@fortawesome/free-solid-svg-icons', '@fortawesome/free-regular-svg-icons'],
+          'utils': ['axios', 'highlight.js', 'marked']
         },
         // 文件命名优化
         chunkFileNames: 'js/[name]-[hash].js',
@@ -65,23 +57,25 @@ export default defineConfig(({ mode }) => {
     },
     // 代码分割阈值
     chunkSizeWarningLimit: 1000,
-    // 启用压缩
+    // 启用压缩，但保留更多调试信息
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
+        drop_console: false, // 保留console用于调试
         drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info'],
         dead_code: true
       },
       mangle: {
         safari10: true
+      },
+      format: {
+        comments: false
       }
     },
     // 构建优化
     target: 'es2020',
     cssCodeSplit: true,
-    sourcemap: false,
+    sourcemap: true,
     // 预加载优化 - 禁用自动预加载，使用智能预加载策略
     modulePreload: false
   },
