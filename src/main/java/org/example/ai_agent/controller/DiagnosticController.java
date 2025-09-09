@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 诊断控制器 - 用于检查系统状态和排查问题
- * 
+ *
  * @author AI Agent
  * @version 1.0
  * @since 2024
@@ -26,7 +26,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/diagnostic")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
 public class DiagnosticController {
 
     private final DocumentProcessingRecordService recordService;
@@ -86,7 +86,7 @@ public class DiagnosticController {
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: " + documentId)))
                 .flatMap(document -> {
                     Map<String, Object> result = new HashMap<>();
-                    
+
                     // 文档基本信息
                     result.put("documentId", documentId);
                     result.put("fileName", document.getFileName());
@@ -95,22 +95,22 @@ public class DiagnosticController {
                     result.put("isEmbedded", document.getIsEmbedded());
                     result.put("chunkCount", document.getChunkCount());
                     result.put("characterCount", document.getCharacterCount());
-                    
+
                     // 检查是否有内容
                     result.put("hasContent", document.getContent() != null && !document.getContent().trim().isEmpty());
                     result.put("contentLength", document.getContent() != null ? document.getContent().length() : 0);
-                    
+
                     // 检查处理记录
                     return recordService.getDocumentProcessingRecords(documentId)
                             .collectList()
                             .map(records -> {
                                 result.put("processingRecords", records);
-                                
+
                                 // 分析处理流程状态
                                 boolean hasParsing = records.stream().anyMatch(r -> "PARSE".equals(r.getProcessingType()));
                                 boolean hasChunking = records.stream().anyMatch(r -> "CHUNK".equals(r.getProcessingType()));
                                 boolean hasEmbedding = records.stream().anyMatch(r -> "EMBED".equals(r.getProcessingType()));
-                                
+
                                 result.put("flowAnalysis", Map.of(
                                     "hasParsing", hasParsing,
                                     "hasChunking", hasChunking,
@@ -119,20 +119,20 @@ public class DiagnosticController {
                                     "shouldTriggerChunking", "COMPLETED".equals(document.getParseStatus()) && !hasChunking,
                                     "shouldTriggerEmbedding", hasChunking && !hasEmbedding && document.getChunkCount() != null && document.getChunkCount() > 0
                                 ));
-                                
+
                                 // 诊断建议
                                 List<String> suggestions = new ArrayList<>();
-                                
+
                                 if (hasChunking && !hasEmbedding && document.getChunkCount() != null && document.getChunkCount() > 0) {
                                     suggestions.add("分块已完成但未触发向量化，可能是消息队列处理异常");
                                 }
                                 if ("PENDING".equals(document.getEmbeddingStatus()) && document.getChunkCount() != null && document.getChunkCount() > 0) {
                                     suggestions.add("文档块已创建但向量化状态为PENDING，建议手动触发向量化");
                                 }
-                                
+
                                 result.put("suggestions", suggestions);
                                 result.put("timestamp", System.currentTimeMillis());
-                                
+
                                 return result;
                             });
                 })
@@ -158,25 +158,25 @@ public class DiagnosticController {
                 .flatMap(document -> {
                     Map<String, Object> result = new HashMap<>();
                     result.put("documentId", documentId);
-                    
+
                     // 检查文档是否已解析
                     if (!"COMPLETED".equals(document.getParseStatus())) {
                         result.put("success", false);
                         result.put("error", "文档尚未解析完成，无法进行分块和向量化");
                         return Mono.just(result);
                     }
-                    
+
                     if (document.getContent() == null || document.getContent().trim().isEmpty()) {
                         result.put("success", false);
                         result.put("error", "文档内容为空，无法进行分块和向量化");
                         return Mono.just(result);
                     }
-                    
+
                     // 发送分块消息（带向量化选项）
                     DocumentProcessingMessage chunkMessage = DocumentProcessingMessage.createChunkMessage(
                         documentId, document.getKnowledgeBaseId(), true);
-                    
-                    return processingService.sendProcessingMessage(chunkMessage, 
+
+                    return processingService.sendProcessingMessage(chunkMessage,
                             DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK)
                             .map(chunkResult -> {
                                 if (chunkResult) {

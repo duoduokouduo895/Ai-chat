@@ -282,8 +282,13 @@ public class JwtUtil {
             
             if (shouldRefresh) {
                 long timeToExpiry = expirationDate.getTime() - now.getTime();
-                log.info("Token应该刷新 - 距离过期还有: {}ms, 刷新窗口: {}ms", 
-                        timeToExpiry, refreshWindowMillis);
+                if (timeToExpiry > 0) {
+                    log.info("Token应该刷新 - 距离过期还有: {}ms, 刷新窗口: {}ms", 
+                            timeToExpiry, refreshWindowMillis);
+                } else {
+                    log.info("Token应该刷新 - 已过期: {}ms, 但在宽限期内: {}ms", 
+                            -timeToExpiry, refreshWindowMillis);
+                }
             }
             
             return shouldRefresh;
