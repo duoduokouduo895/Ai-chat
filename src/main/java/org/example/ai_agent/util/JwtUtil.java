@@ -91,6 +91,10 @@ public class JwtUtil {
                 T result = claimsResolver.apply(claims);
                 log.debug("从Token中提取声明成功: {}", result);
                 return result;
+            } catch (UnsupportedOperationException e) {
+                // 特殊处理UnsupportedOperationException，可能来自不可修改的Claims
+                log.debug("从不可修改的Claims中提取数据时出现UnsupportedOperationException: {}", e.getMessage());
+                return null;
             } catch (Exception e) {
                 log.error("从Token声明中提取数据失败: {}", e.getMessage(), e);
                 return null;
@@ -197,9 +201,28 @@ public class JwtUtil {
                         .issuedAt(issuedAt)
                         .expiration(expiration);
                 
-                // 保留原有的用户ID声明
-                if (claims.get("userId") != null) {
-                    tokenBuilder.claim("userId", claims.get("userId"));
+                // 安全地保留原有的用户ID声明
+                try {
+                    Object userId = claims.get("userId");
+                    if (userId != null) {
+                        tokenBuilder.claim("userId", userId);
+                        log.debug("刷新Token时保留用户ID: {}", userId);
+                    }
+                } catch (UnsupportedOperationException e) {
+                    // 如果claims是不可修改的（比如来自ExpiredJwtException），
+                    // 尝试使用更安全的方式获取userId
+                    log.debug("从不可修改的Claims中获取userId时出现UnsupportedOperationException，尝试其他方式");
+                    
+                    // 尝试重新解析token来获取userId（即使token已过期）
+                    try {
+                        Long userIdFromToken = getUserIdFromToken(token);
+                        if (userIdFromToken != null) {
+                            tokenBuilder.claim("userId", userIdFromToken);
+                            log.debug("通过重新解析获取到用户ID: {}", userIdFromToken);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("无法获取用户ID，刷新的Token将不包含userId声明: {}", ex.getMessage());
+                    }
                 }
                 
                 String newToken = tokenBuilder.signWith(key).compact();
@@ -300,7 +323,40 @@ public class JwtUtil {
 
     public Long getUserIdFromToken(String token) {
         try {
-            Long userId = getClaimFromToken(token, claims -> claims.get("userId", Long.class));
+            Long userId = getClaimFromToken(token, claims -> {
+                try {
+                    return claims.get("userId", Long.class);
+                } catch (UnsupportedOperationException e) {
+                    // 如果claims是不可修改的，尝试使用更简单的方式
+                    log.debug("从不可修改的Claims中获取userId时出现UnsupportedOperationException");
+                    Object userIdObj = null;
+                    try {
+                        // 尝试直接访问而不使用get方法
+                        for (String key : claims.keySet()) {
+                            if ("userId".equals(key)) {
+                                userIdObj = claims.get(key);
+                                break;
+                            }
+                        }
+                    } catch (Exception ex) {
+                        // 如果连遍历都不行，则返回null
+                        log.debug("无法遍历Claims键值对: {}", ex.getMessage());
+                        return null;
+                    }
+                    
+                    if (userIdObj instanceof Number) {
+                        return ((Number) userIdObj).longValue();
+                    } else if (userIdObj instanceof String) {
+                        try {
+                            return Long.parseLong((String) userIdObj);
+                        } catch (NumberFormatException nfe) {
+                            log.warn("无法将userId字符串转换为Long: {}", userIdObj);
+                            return null;
+                        }
+                    }
+                    return null;
+                }
+            });
             log.debug("从Token中提取用户ID: {}", userId);
             return userId;
         } catch (Exception e) {
