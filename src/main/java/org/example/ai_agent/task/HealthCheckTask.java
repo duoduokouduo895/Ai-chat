@@ -89,8 +89,12 @@ public class HealthCheckTask {
                 .doOnError(error -> {
                     log.error("Actuator健康检查失败: {}", error.getMessage());
                 })
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .onErrorResume(error -> {
+                    // 记录错误但不中断其他检查
+                    log.warn("❌ Actuator健康检查超时或失败，跳过此检查");
+                    return Mono.empty();
+                })
+                .block(java.time.Duration.ofSeconds(12)); // 等待结果，但不超过12秒
     }
     
     /**
@@ -112,8 +116,12 @@ public class HealthCheckTask {
                 .doOnError(error -> {
                     log.error("自定义诊断检查失败: {}", error.getMessage());
                 })
-                .onErrorResume(error -> Mono.empty())
-                .subscribe();
+                .onErrorResume(error -> {
+                    // 记录错误但不中断其他检查
+                    log.warn("❌ 自定义诊断检查超时或失败，跳过此检查");
+                    return Mono.empty();
+                })
+                .block(java.time.Duration.ofSeconds(17)); // 等待结果，但不超过17秒
     }
     
     /**

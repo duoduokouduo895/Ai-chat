@@ -209,6 +209,7 @@ public class ConversationServiceImpl implements ConversationService {
                     // 为每个对话查询第一条用户消息作为预览
                     return messageRepository.findFirstByConversationIdAndSenderOrderByTimestampAsc(
                             conversation.getId(), "user")
+                        .timeout(java.time.Duration.ofSeconds(5)) // 添加超时控制
                         .map(firstUserMessage -> {
                             ConversationWithPreview preview = new ConversationWithPreview();
                             preview.setId(conversation.getId());
@@ -229,7 +230,25 @@ public class ConversationServiceImpl implements ConversationService {
                             preview.setUserId(conversation.getUserId());
                             preview.setFirstUserMessage(null);
                             return preview;
-                        }));
+                        }))
+                        .onErrorResume(error -> {
+                            // 对单个对话查询失败时，返回基本信息
+                            logger.warn("获取对话 {} 预览信息失败: {}", conversation.getId(), error.getMessage());
+                            ConversationWithPreview preview = new ConversationWithPreview();
+                            preview.setId(conversation.getId());
+                            preview.setTitle(conversation.getTitle());
+                            preview.setCreatedAt(conversation.getCreatedAt());
+                            preview.setUpdatedAt(conversation.getUpdatedAt());
+                            preview.setUserId(conversation.getUserId());
+                            preview.setFirstUserMessage("预览加载失败");
+                            return Mono.just(preview);
+                        });
+                })
+                .timeout(java.time.Duration.ofSeconds(10)) // 整体查询超时
+                .onErrorResume(error -> {
+                    logger.error("获取用户最近对话失败，用户ID: {}, 错误: {}", userId, error.getMessage());
+                    // 返回空结果而不是错误，避免前端500错误
+                    return Flux.empty();
                 });
         })
         .doOnComplete(() -> {

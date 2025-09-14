@@ -64,7 +64,7 @@ public class TokenRefreshFilter implements WebFilter {
                     // 尝试刷新token
                     String refreshedToken = jwtUtil.refreshToken(authToken);
                     if (refreshedToken != null) {
-                        // 在给客户端返回新Token之前，先将新Token的JTI存储到Redis白名单
+                        // 在给客户端返回新Token之前，必须先将新Token的JTI同步存储到Redis白名单
                         String newJti = jwtUtil.getIdFromToken(refreshedToken);
                         if (newJti != null) {
                             String redisKey = "token:jti:" + newJti;
@@ -73,41 +73,67 @@ public class TokenRefreshFilter implements WebFilter {
                                 long ttlMillis = expiration.getTime() - System.currentTimeMillis();
                                 Duration ttl = Duration.ofMillis(ttlMillis);
                                 
-                                // 异步存储新JTI到Redis，但不阻塞当前响应
-                                redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
+                                // 使用响应式方式存储新JTI到Redis，确保在返回Token前完成存储
+                                return redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
+                                    .timeout(Duration.ofSeconds(2)) // 设置2秒超时
                                     .doOnSuccess(saved -> {
                                         if (Boolean.TRUE.equals(saved)) {
                                             System.out.println("🔄 [Token刷新] 新JTI已成功存储到Redis: " + newJti);
+                                            
+                                            // 清理旧Token的JTI（异步执行，不影响新Token返回）
+                                            String oldJti = jwtUtil.getIdFromToken(authToken);
+                                            if (oldJti != null && !oldJti.equals(newJti)) {
+                                                String oldRedisKey = "token:jti:" + oldJti;
+                                                redisTemplate.delete(oldRedisKey)
+                                                    .doOnSuccess(deleted -> {
+                                                        if (Boolean.TRUE.equals(deleted)) {
+                                                            System.out.println("🗋 [Token清理] 旧JTI已从白名单中移除: " + oldJti);
+                                                        }
+                                                    })
+                                                    .doOnError(error -> System.err.println("⚠️ [Token清理] 清理旧JTI异常: " + error.getMessage()))
+                                                    .subscribe();
+                                            }
+                                            
+                                            // 只有在JTI成功存储后才返回新Token
+                                            ServerHttpResponse response = exchange.getResponse();
+                                            response.getHeaders().add("X-Refreshed-Token", refreshedToken);
+                                            
+                                            // 详细的刷新成功日志
+                                            System.out.println("🔄 [Token刷新] 用户 '" + username + "' (ID: " + userId + ") 的Token已成功刷新 | 请求路径: " + requestPath);
+
+                                            // 记录刷新时间信息
+                                            java.util.Date exp = jwtUtil.getExpirationDateFromToken(authToken);
+                                            if (exp != null) {
+                                                long timeToExpiry = exp.getTime() - System.currentTimeMillis();
+                                                if (timeToExpiry > 0) {
+                                                    System.out.println("📊 [Token刷新] 原Token剩余 " + (timeToExpiry / 1000 / 60) + " 分钟过期，提前刷新成功");
+                                                } else {
+                                                    System.out.println("📊 [Token刷新] 原Token已过期 " + (-timeToExpiry / 1000) + " 秒，宽限期内刷新成功");
+                                                }
+                                            }
                                         } else {
-                                            System.err.println("⚠️ [Token刷新] 新JTI存储到Redis失败，JTI可能已存在: " + newJti);
+                                            System.err.println("⚠️ [Token刷新] 新JTI存储到Redis失败，JTI可能已存在: " + newJti + "，不返回新Token");
+                                            // JTI存储失败时不返回新Token，让客户端继续使用原Token
                                         }
                                     })
-                                    .doOnError(error -> System.err.println("💥 [Token刷新] Redis存储新JTI异常: " + error.getMessage()))
-                                    .subscribe(); // 异步执行，不阻塞响应
-                            }
-                        }
-                        
-                        ServerHttpResponse response = exchange.getResponse();
-                        response.getHeaders().add("X-Refreshed-Token", refreshedToken);
-
-                        // 详细的刷新成功日志
-                        System.out.println("🔄 [Token刷新] 用户 '" + username + "' (ID: " + userId + ") 的Token已成功刷新 | 请求路径: " + requestPath);
-
-                        // 记录刷新时间信息
-                        java.util.Date expiration = jwtUtil.getExpirationDateFromToken(authToken);
-                        if (expiration != null) {
-                            long timeToExpiry = expiration.getTime() - System.currentTimeMillis();
-                            if (timeToExpiry > 0) {
-                                System.out.println("📊 [Token刷新] 原Token剩余 " + (timeToExpiry / 1000 / 60) + " 分钟过期，提前刷新成功");
+                                    .doOnError(error -> {
+                                        System.err.println("💥 [Token刷新] Redis存储新JTI异常: " + error.getMessage() + "，不返回新Token");
+                                        // Redis异常时不返回新Token，让客户端继续使用原Token
+                                    })
+                                    .then(); // 转换为Mono<Void>
                             } else {
-                                System.out.println("📊 [Token刷新] 原Token已过期 " + (-timeToExpiry / 1000) + " 秒，宽限期内刷新成功");
+                                System.err.println("⚠️ [Token刷新] 无法获取新Token的过期时间，不返回新Token");
+                                return Mono.empty();
                             }
+                        } else {
+                            System.err.println("⚠️ [Token刷新] 无法从新Token中提取JTI，不返回新Token");
+                            return Mono.empty();
                         }
                     } else {
                         // 刷新失败但不抛异常
                         System.err.println("❌ [Token刷新] 用户 '" + username + "' Token刷新返回null | 请求路径: " + requestPath);
+                        return Mono.empty();
                     }
-                } else {
                 }
             } catch (Exception e) {
                 // 增强的错误处理和日志
