@@ -212,10 +212,27 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public Mono<Void> rebuildAllIndexes() {
+        log.info("🔄 开始重建 ES 索引...");
+        
         return conversationDocumentRepository.deleteAll()
+                .doOnSuccess(v -> log.info("✅ 清空现有索引完成"))
                 .then(conversationRepository.findAllConversationsFromRegisteredUsers()
-                        .flatMap(conversation -> indexConversation(conversation.getId()))
-                        .then());
+                        .doOnNext(conversation -> log.debug("正在处理对话: {}", conversation.getId()))
+                        .buffer(50) // 批处理，每次50个对话一批
+                        .flatMap(conversations -> {
+                            log.debug("正在处理一批 {} 个对话", conversations.size());
+                            return Flux.fromIterable(conversations)
+                                    .flatMap(conversation -> indexConversation(conversation.getId())
+                                            .onErrorResume(error -> {
+                                                log.warn("索引对话 {} 失败: {}", conversation.getId(), error.getMessage());
+                                                return Mono.empty(); // 失败时继续处理其他对话
+                                            }), 5); // 并发度限制为5
+                        })
+                        .count()
+                        .doOnSuccess(count -> log.info("✅ ES 索引重建完成，处理了 {} 个对话", count))
+                        .then()
+                )
+                .doOnError(error -> log.error("🚨 ES 索引重建失败", error));
     }
 
     @Override
