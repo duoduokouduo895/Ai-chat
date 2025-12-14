@@ -73,6 +73,10 @@ window.copyCode = function(button) {
   margin-bottom: 1rem;
 }
 
+.message-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
 .message-content :deep(h1, h2, h3, h4, h5) {
   margin-top: 1.5em;
   margin-bottom: 0.8em;
