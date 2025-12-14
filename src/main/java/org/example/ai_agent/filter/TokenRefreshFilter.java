@@ -36,12 +36,11 @@ public class TokenRefreshFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // 先执行请求链，然后在响应中检查并刷新token
-        return chain.filter(exchange)
-                .then(Mono.defer(() -> {
-                    // 请求处理完成后检查token刷新
-                    return checkAndRefreshToken(exchange);
-                }));
+        // 在响应提交前检查并刷新token
+        // 使用 beforeCommit 可以确保在响应头写入网络之前执行，避免因响应已提交导致无法修改 Header 的问题
+        exchange.getResponse().beforeCommit(() -> checkAndRefreshToken(exchange));
+        
+        return chain.filter(exchange);
     }
 
     /**
