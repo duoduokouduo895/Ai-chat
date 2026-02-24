@@ -61,6 +61,13 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .exceptionHandling(exceptionHandling -> exceptionHandling
+                        .authenticationEntryPoint((swe, e) -> 
+                                reactor.core.publisher.Mono.fromRunnable(() -> 
+                                        swe.getResponse().setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                                )
+                        )
+                )
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
@@ -128,6 +135,8 @@ public class SecurityConfig {
         // 允许本地开发和本地HTML文件访问
         configuration.setAllowedOrigins(Arrays.asList(
             "http://localhost:3000",      // 前端开发服务器
+            "http://dduo.chat",           // 生产环境域名
+            "https://dduo.chat",          // 生产环境域名(HTTPS)
             "http://localhost:8080",      // 后端服务器
             "http://localhost:63342",     // IntelliJ IDEA内置Web服务器
             "null"                       // 允许file://协议的本地HTML文件

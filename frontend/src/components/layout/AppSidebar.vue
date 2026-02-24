@@ -53,7 +53,13 @@
             <div class="conv-title">{{ conversation.title || 'New Conversation' }}</div>
             <div class="conv-preview">{{ getConversationPreview(conversation) }}</div>
           </div>
-          <div class="conv-time">{{ formatTime(conversation.updatedAt) }}</div>
+          <div class="conv-time">
+             {{ formatTime(conversation.updatedAt) }}
+          </div>
+          <div class="conv-actions">
+            <!-- 删除对话按钮 -->
+            <span class="delete-btn" @click.stop="deleteConversation(conversation)" title="删除对话">🗑️</span>
+          </div>
         </button>
       </div>
 
@@ -93,6 +99,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { userApiService } from '@/services/userApi.js';
+import { aiApiService } from '@/services/aiApi.js'; // 导入 aiApi 服务
 
 // Props
 const props = defineProps({
@@ -114,7 +121,8 @@ const props = defineProps({
 const emit = defineEmits([
   'switchView',
   'newConversation',
-  'openConversation'
+  'openConversation',
+  'conversationDeleted' // 通知父组件已删除
 ]);
 
 const router = useRouter();
@@ -139,6 +147,22 @@ const handleAuth = async () => {
 // 打开 GitHub 链接
 const openGitHub = () => {
   window.open('https://gitee.com/duo-duo-kou-duo', '_blank');
+};
+
+// 删除对话
+const deleteConversation = async (conversation) => {
+  const convId = conversation.conversationId || conversation.id;
+  if (!window.confirm('确定要删除这个对话记录及其所有的消息吗？\n此操作不可恢复！')) {
+    return;
+  }
+  
+  try {
+    await aiApiService.deleteConversation(convId);
+    // 触发父组件更新侧边栏对话列表及处理当前激活的视图清理
+    emit('conversationDeleted', convId);
+  } catch (err) {
+    alert('删除对话失败: ' + (err.message || '网络错误'));
+  }
 };
 
 // 工具方法
@@ -329,6 +353,38 @@ const getConversationPreview = (conversation) => {
   border-radius: var(--border-radius-sm);
   backdrop-filter: blur(4px);
   font-weight: 500;
+}
+
+.conv-actions {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  display: flex;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.conversation-item:hover .conv-actions {
+  opacity: 1; /* hover 时显示操作按钮 */
+}
+
+.delete-btn {
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--border-radius-sm);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(0, 0, 0, 0.2);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-btn:hover {
+  background: rgba(220, 53, 69, 0.8);
+  color: #fff;
+  transform: scale(1.1);
 }
 
 .conversation-history {

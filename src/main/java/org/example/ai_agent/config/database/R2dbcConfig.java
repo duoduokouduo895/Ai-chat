@@ -26,7 +26,7 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
     @Value("${spring.r2dbc.password}")
     private String password;
 
-    @Value("${spring.r2dbc.host:113.45.11.64}")
+    @Value("${spring.r2dbc.host:111.230.243.93}")
     private String host;
 
     @Value("${spring.r2dbc.port:3306}")

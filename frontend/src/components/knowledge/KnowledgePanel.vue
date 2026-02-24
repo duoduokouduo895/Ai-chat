@@ -180,6 +180,8 @@ const handleSaveKnowledgeBase = async (kbData) => {
     closeModals()
   } catch (error) {
     console.error('保存知识库失败:', error)
+    const errorMsg = error.response?.data?.message || error.message || '保存失败，请重试'
+    alert(errorMsg)
   }
 }
 
