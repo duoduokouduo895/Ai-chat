@@ -3,8 +3,8 @@ package org.example.ai_agent.config.database;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.elasticsearch.client.ClientConfiguration;
-import org.springframework.data.elasticsearch.client.elc.ElasticsearchConfiguration;
-import org.springframework.data.elasticsearch.repository.config.EnableReactiveElasticsearchRepositories; // Changed
+import org.springframework.data.elasticsearch.client.elc.ReactiveElasticsearchConfiguration;
+import org.springframework.data.elasticsearch.repository.config.EnableReactiveElasticsearchRepositories;
 
 import jakarta.annotation.PostConstruct;
 import java.net.URI;
@@ -14,10 +14,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 @Configuration
-@EnableReactiveElasticsearchRepositories(basePackages = "org.example.ai_agent.repository") // Changed
-public class ElasticsearchConfig extends ElasticsearchConfiguration {
+@EnableReactiveElasticsearchRepositories(basePackages = "org.example.ai_agent.repository")
+public class ElasticsearchConfig extends ReactiveElasticsearchConfiguration {
 
-    @Value("${spring.elasticsearch.uris:http://112.74.98.163:9200}")
+    @Value("${spring.elasticsearch.uris:http://111.230.243.93:9200}")
     private String elasticsearchUri;
 
     @Value("${spring.elasticsearch.connection-timeout:10000}")
@@ -39,6 +39,7 @@ public class ElasticsearchConfig extends ElasticsearchConfiguration {
     public void testConnection() {
         try {
             HttpClient client = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
                     .connectTimeout(Duration.ofMillis(connectionTimeout))
                     .build();
 
@@ -49,7 +50,7 @@ public class ElasticsearchConfig extends ElasticsearchConfiguration {
                     .build();
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
             if (response.statusCode() == 200) {
                 System.out.println("✅ Elasticsearch连接成功: " + elasticsearchUri);
                 System.out.println("📊 ES服务器信息: " + response.body());
@@ -62,16 +63,16 @@ public class ElasticsearchConfig extends ElasticsearchConfiguration {
             System.err.println("💡 建议: 确保ES服务正在运行且网络可达");
         }
     }
-    
+
     // 为KnowledgeBaseConfig提供获取URI的方法
     public String getElasticsearchUri() {
         return elasticsearchUri;
     }
-    
+
     public int getConnectionTimeout() {
         return connectionTimeout;
     }
-    
+
     public int getSocketTimeout() {
         return socketTimeout;
     }

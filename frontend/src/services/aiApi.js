@@ -104,5 +104,28 @@ export const aiApiService = {
             if (onError) onError(error);
             console.error('Error during chat stream fetch:', error);
         }
+    },
+
+    // 新增：删除整个对话及消息
+    async deleteConversation(conversationId) {
+        const token = localStorage.getItem('token');
+        try {
+            const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: "Failed to delete conversation." }));
+                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+            }
+            // 返回无内容响应状态
+            return true;
+        } catch (error) {
+            console.error('Error deleting conversation:', error);
+            throw error;
+        }
     }
 };

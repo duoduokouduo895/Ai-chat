@@ -15,7 +15,7 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
-@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
 public class AiController {
 
     private final AiModelRegistry aiModelRegistry;

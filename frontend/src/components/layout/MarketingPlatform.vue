@@ -11,6 +11,7 @@
       @newConversation="startNewConversation"
       @openConversation="openSearchedConversation"
       @authAction="handleAuthAction"
+      @conversationDeleted="handleConversationDeleted"
     />
 
     <!-- 主内容区域 -->
@@ -111,6 +112,15 @@ const handleAuthAction = async () => {
   } else {
     router.push('/login')
   }
+}
+
+const handleConversationDeleted = async (deletedId) => {
+  // 如果当前选中的对话正好是被删除的对话，则清空当前聊天面板
+  if (String(conversationId.value) === String(deletedId)) {
+    startNewConversation()
+  }
+  // 重新加载近期的对话列表
+  await loadRecentConversations()
 }
 
 

@@ -140,10 +140,8 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return knowledgeBaseRepository.findById(id)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
             .flatMap(kb -> {
-                // 软删除：更新状态为DELETED
-                kb.setStatus("DELETED");
-                kb.setUpdatedAt(LocalDateTime.now());
-                return knowledgeBaseRepository.save(kb);
+                // 硬删除：直接在数据库层面删除物理数据
+                return knowledgeBaseRepository.delete(kb);
             })
             .then()
             .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))

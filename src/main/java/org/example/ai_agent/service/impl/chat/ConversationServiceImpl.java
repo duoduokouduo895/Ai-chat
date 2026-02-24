@@ -275,6 +275,11 @@ public class ConversationServiceImpl implements ConversationService {
                     // 先删除该对话下的所有消息，然后删除对话本身
                     return messageRepository.deleteByConversationId(conversationId)
                             .then(conversationRepository.deleteById(conversationId))
+                            // 同步删除 ES 中的索引
+                            .then(searchService.deleteConversationIndex(conversationId)
+                                    .doOnError(e -> logger.error("删除对话索引失败，但不影响主流: ", e))
+                                    .onErrorResume(e -> Mono.empty())
+                            )
                             .doOnSuccess(v -> logger.info("对话 {} 及其所有消息已成功删除。", conversationId));
                 })
                 .then(); // 转换为 Mono<Void>

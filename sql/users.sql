@@ -4,7 +4,7 @@
  Source Server         : 华为云
  Source Server Type    : MySQL
  Source Server Version : 80030 (8.0.30)
- Source Host           : 113.45.11.64:3306
+ Source Host           : 111.230.243.93:3306
  Source Schema         : ai_agent_db
 
  Target Server Type    : MySQL

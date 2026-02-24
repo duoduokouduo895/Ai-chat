@@ -24,6 +24,6 @@ public interface ConversationRepository extends R2dbcRepository<Conversation, Lo
      * 查找所有用户的对话（用于搜索索引）
      * @return 所有对话列表的响应式流
      */
-    @Query("SELECT c.* FROM conversation c INNER JOIN users u ON c.user_id = u.user_id")
+    @Query("SELECT c.id, c.title, c.created_at, c.updated_at, c.user_id FROM conversation c INNER JOIN users u ON c.user_id = u.user_id")
     Flux<Conversation> findAllConversationsFromRegisteredUsers();
 }

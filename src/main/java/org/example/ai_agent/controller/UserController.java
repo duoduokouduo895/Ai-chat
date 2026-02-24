@@ -15,7 +15,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
 public class UserController {
 
     private final UserService userService;
@@ -64,6 +64,7 @@ public class UserController {
                     return Mono.just(ResponseEntity.status(401).body(response));
                 })
                 .onErrorResume(e -> {
+                    org.slf4j.LoggerFactory.getLogger(UserController.class).error("Unexpected error during login", e);
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", false);
                     response.put("message", "An unexpected error occurred: " + e.getMessage());
