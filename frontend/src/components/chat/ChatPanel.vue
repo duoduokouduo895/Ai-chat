@@ -51,6 +51,7 @@
         @send="handleSendMessage"
         @clear="$emit('clearContext')"
         @mode-change="handleModeChange"
+        @stop="$emit('stopGeneration')"
       />
     </div>
   </div>
@@ -86,7 +87,8 @@ const props = defineProps({
 const emit = defineEmits([
   'sendMessage',
   'newConversation', 
-  'clearContext'
+  'clearContext',
+  'stopGeneration'
 ])
 
 // 本地状态

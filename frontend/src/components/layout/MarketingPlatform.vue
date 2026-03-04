@@ -26,6 +26,7 @@
         @sendMessage="handleSendMessage"
         @newConversation="startNewConversation"
         @clearContext="clearContext"
+        @stopGeneration="stopGeneration"
       />
       
       <!-- 知识库面板 -->
@@ -52,7 +53,6 @@ import { useRouter } from 'vue-router'
 import { userApiService } from '@/services/userApi.js'
 import { aiApiService } from '@/services/aiApi.js'
 import apiClient from '@/services/apiClient.js'
-import { formatMessage } from '@/utils/messageFormatter.js'
 import heartbeatService from '@/services/heartbeatService.js'
 
 // 导入组件
@@ -69,6 +69,7 @@ const messages = ref([])
 const conversationId = ref(null)
 const isLoading = ref(false)
 const showGuestLimitModal = ref(false)
+const abortController = ref(null)
 
 // 用户状态
 const isLoggedIn = ref(false)
@@ -178,16 +179,25 @@ const startNewConversation = async () => {
 const clearContext = () => {
   messages.value = [{
     id: 1,
-    sender: 'system',
-    type: 'system',
-    text: '欢迎使用AI助手！我可以帮助您解决各种问题。',
-    timestamp: new Date().toLocaleTimeString()
+    sender: 'ai',
+    text: '请问有什么需要帮助的吗？',
+    timestamp: new Date().toLocaleString(),
+    type: 'chat'
   }]
   conversationId.value = null
 }
 
 const switchView = (view) => {
   currentView.value = view
+}
+
+const stopGeneration = () => {
+  if (abortController.value && isLoading.value) {
+    abortController.value.abort()
+    abortController.value = null
+    isLoading.value = false
+    console.log('用户已手动终止AI输出')
+  }
 }
 
 const handleSendMessage = async (data) => {
@@ -233,6 +243,9 @@ const handleSendMessage = async (data) => {
   let lastUpdateTime = 0
   const UPDATE_THROTTLE = 50 // 50ms 节流
   let responseCompleted = false // 添加响应完成标识
+  
+  // 创建信令控制器以支持停止生成
+  abortController.value = new AbortController()
 
   await aiApiService.chatStream(
     chatRequest,
@@ -246,7 +259,7 @@ const handleSendMessage = async (data) => {
       if (now - lastUpdateTime > UPDATE_THROTTLE) {
         const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
         if (currentAiMessageIndex !== -1) {
-          messages.value[currentAiMessageIndex].text = formatMessage(aiResponseText)
+          messages.value[currentAiMessageIndex].text = aiResponseText
         }
         lastUpdateTime = now
       }
@@ -257,7 +270,7 @@ const handleSendMessage = async (data) => {
       // 流式响应完成，确保最终消息被正确更新
       const currentAiMessageIndex = messages.value.findIndex(m => m.id === aiMessage.id)
       if (currentAiMessageIndex !== -1 && aiResponseText.trim()) {
-        messages.value[currentAiMessageIndex].text = formatMessage(aiResponseText)
+        messages.value[currentAiMessageIndex].text = aiResponseText
         messages.value[currentAiMessageIndex].completed = true // 添加完成标记
       }
       
@@ -278,7 +291,8 @@ const handleSendMessage = async (data) => {
       if (metadata && metadata.conversationId) {
         conversationId.value = metadata.conversationId
       }
-    }
+    },
+    abortController.value
   )
 }
 
