@@ -45,7 +45,7 @@ public class AiController {
      * @return 响应内容的流
      */
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> streamChat(@RequestBody ChatRequest chatRequest, @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+    public Flux<org.springframework.http.codec.ServerSentEvent<String>> streamChat(@RequestBody ChatRequest chatRequest, @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
         String token = authorizationHeader.substring(7).trim(); // 去除token中的空白字符
         
         // 从Token中获取用户信息

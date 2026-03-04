@@ -16,6 +16,7 @@ import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.provider.ChatMemoryProvider;
 import org.example.ai_agent.service.registry.AiModelRegistry;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -45,7 +46,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     @Override
-    public Flux<String> chat(ChatRequest chatRequest) {
+    public Flux<ServerSentEvent<String>> chat(ChatRequest chatRequest) {
         // 智能路由：根据是否提供知识库ID来选择聊天模式
         if (chatRequest.isRagMode()) {
             log.info("🔄 [路由决策] 检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}",
@@ -60,7 +61,7 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 处理RAG模式对话
      */
-    private Flux<String> handleRagChat(ChatRequest chatRequest) {
+    private Flux<ServerSentEvent<String>> handleRagChat(ChatRequest chatRequest) {
         return Mono.just(chatRequest)
                 .flatMap(this::ensureConversationExists)
                 .flatMapMany(request -> {
@@ -74,7 +75,12 @@ public class AiChatServiceImpl implements AiChatService {
                                         "mode", "rag"
                                 );
                                 String metadataJson = JSON.toJSONString(metadata);
-                                Flux<String> metadataFlux = Flux.just("[METADATA]" + metadataJson);
+                                Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
+                                        ServerSentEvent.<String>builder()
+                                                .event("metadata")
+                                                .data(metadataJson)
+                                                .build()
+                                );
 
                                 // 3. 使用RAG服务进行对话并收集AI响应
                                 RagChatDto ragDto = request.toRagChatDto();
@@ -82,8 +88,12 @@ public class AiChatServiceImpl implements AiChatService {
                                         ragDto.getQuestion(), ragDto.getKnowledgeBaseIds(), ragDto.getMinSimilarity());
                                 
                                 StringBuilder aiResponseBuilder = new StringBuilder();
-                                Flux<String> ragFlux = ragService.ragChatStream(ragDto)
+                                Flux<ServerSentEvent<String>> ragFlux = ragService.ragChatStream(ragDto)
                                         .doOnNext(chunk -> aiResponseBuilder.append(chunk))
+                                        .map(chunk -> ServerSentEvent.<String>builder()
+                                                .event("message")
+                                                .data(chunk)
+                                                .build())
                                         .doOnComplete(() -> {
                                             // 流式响应完成后保存AI消息
                                             if (aiResponseBuilder.length() > 0) {
@@ -106,7 +116,7 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 处理普通对话模式
      */
-    private Flux<String> handleNormalChat(ChatRequest chatRequest) {
+    private Flux<ServerSentEvent<String>> handleNormalChat(ChatRequest chatRequest) {
         return Mono.just(chatRequest)
                 .flatMap(this::ensureConversationExists)
                 .flatMapMany(request -> {
@@ -117,10 +127,15 @@ public class AiChatServiceImpl implements AiChatService {
                             "mode", "normal"
                     );
                     String metadataJson = JSON.toJSONString(metadata);
-                    Flux<String> metadataFlux = Flux.just("[METADATA]" + metadataJson);
+                    Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
+                            ServerSentEvent.<String>builder()
+                                    .event("metadata")
+                                    .data(metadataJson)
+                                    .build()
+                    );
 
                     // 2. 获取真实的AI聊天流
-                    Flux<String> conversationFlux = performNormalChat(request);
+                    Flux<ServerSentEvent<String>> conversationFlux = performNormalChat(request);
 
                     return Flux.concat(metadataFlux, conversationFlux);
                 })
@@ -130,7 +145,7 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 统一的错误处理
      */
-    private Flux<String> handleChatError(Throwable ex) {
+    private Flux<ServerSentEvent<String>> handleChatError(Throwable ex) {
         log.error("聊天处理失败", ex);
         Map<String, Object> errorPayload = Map.of(
                 "type", "error",
@@ -138,7 +153,12 @@ public class AiChatServiceImpl implements AiChatService {
                 "message", "聊天处理失败：" + ex.getMessage()
         );
         String errorJson = JSON.toJSONString(errorPayload);
-        return Flux.just("[ERROR]" + errorJson);
+        return Flux.just(
+                ServerSentEvent.<String>builder()
+                        .event("error")
+                        .data(errorJson)
+                        .build()
+        );
     }
     /**
      * 确保对话存在
@@ -163,7 +183,7 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 执行普通聊天
      */
-    private Flux<String> performNormalChat(ChatRequest chatRequest) {
+    private Flux<ServerSentEvent<String>> performNormalChat(ChatRequest chatRequest) {
         // 1. 创建并保存用户消息，这将触发游客限制检查
         Message userMessage = new Message();
         userMessage.setConversationId(chatRequest.getConversationId());
@@ -179,14 +199,17 @@ public class AiChatServiceImpl implements AiChatService {
                         ChatMemory chatMemory = chatMemoryProvider.get(String.valueOf(chatRequest.getConversationId()));
                         chatMemory.add(UserMessage.from(chatRequest.getPrompt()));
 
-                        return Flux.create(sink -> {
+                        return Flux.<ServerSentEvent<String>>create(sink -> {
                             model.chat(chatMemory.messages(), new StreamingChatResponseHandler() {
                                 private final StringBuilder responseBuilder = new StringBuilder();
 
                                 @Override
                                 public void onPartialResponse(String partialResponse) {
                                     responseBuilder.append(partialResponse);
-                                    sink.next(partialResponse);
+                                    sink.next(ServerSentEvent.<String>builder()
+                                            .event("message")
+                                            .data(partialResponse)
+                                            .build());
                                 }
 
                                 @Override
@@ -208,7 +231,7 @@ public class AiChatServiceImpl implements AiChatService {
                                     sink.error(error);
                                 }
                             });
-                        });
+                        }).subscribeOn(Schedulers.boundedElastic());
                     } catch (Exception e) {
                         log.error("聊天服务执行失败", e);
                         return Flux.error(e);

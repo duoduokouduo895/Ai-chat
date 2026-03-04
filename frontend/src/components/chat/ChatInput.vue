@@ -32,12 +32,20 @@
       
       <div class="send-button-container">
         <button 
+          v-if="!isLoading"
           class="btn-base btn-primary"
           @click="handleSend"
-          :disabled="!localMessage.trim() || isLoading"
+          :disabled="!localMessage.trim()"
         >
-          <span v-if="isLoading" class="loading"></span>
-          {{ isLoading ? '发送中...' : '发送(Ctrl+Enter)' }}
+          发送(Ctrl+Enter)
+        </button>
+        <button 
+          v-else
+          class="btn-base btn-danger"
+          @click="$emit('stop')"
+        >
+          <span class="loading"></span>
+          停止生成
         </button>
       </div>
     </div>
@@ -74,7 +82,7 @@ const props = defineProps({
 })
 
 // Emits
-const emit = defineEmits(['update:message', 'update:selectedModel', 'update:selectedKnowledgeBaseIds', 'send', 'clear', 'mode-change'])
+const emit = defineEmits(['update:message', 'update:selectedModel', 'update:selectedKnowledgeBaseIds', 'send', 'clear', 'mode-change', 'stop'])
 
 // 本地状态
 const textareaRef = ref(null)
@@ -164,6 +172,27 @@ watch(localMessage, adjustHeight)
 .send-button-container .btn-base {
   min-width: 140px;
   gap: var(--spacing-sm);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px rgba(220, 38, 38, 0.2);
+}
+
+.btn-danger:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.3);
+}
+
+.btn-danger:active {
+  transform: translateY(1px);
 }
 
 /* 响应式设计 */
