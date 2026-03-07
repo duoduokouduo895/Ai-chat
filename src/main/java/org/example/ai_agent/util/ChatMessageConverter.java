@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  *
  * @author AI Agent
  * @version 1.0
- * @since 2024
+ * @since 2025
  */
 public class ChatMessageConverter {
 
