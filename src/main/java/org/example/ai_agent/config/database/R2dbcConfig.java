@@ -6,18 +6,24 @@ import io.r2dbc.pool.ConnectionPool;
 import io.r2dbc.pool.ConnectionPoolConfiguration;
 import io.r2dbc.spi.ConnectionFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
+import org.example.ai_agent.repository.search.ConversationDocumentRepository;
 import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
-import org.springframework.data.r2dbc.dialect.MySqlDialect;
-import org.springframework.r2dbc.core.DatabaseClient;
 
 import java.time.Duration;
 
 @Configuration
-@EnableR2dbcRepositories(basePackages = "org.example.ai_agent.repository")
+@EnableR2dbcRepositories(
+        basePackages = "org.example.ai_agent.repository",
+        excludeFilters = @ComponentScan.Filter(
+                type = FilterType.ASSIGNABLE_TYPE,
+                classes = ConversationDocumentRepository.class
+        )
+)
 public class R2dbcConfig extends AbstractR2dbcConfiguration {
 
     @Value("${spring.r2dbc.username}")
@@ -26,13 +32,13 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
     @Value("${spring.r2dbc.password}")
     private String password;
 
-    @Value("${spring.r2dbc.host:111.230.243.93}")
+    @Value("${spring.r2dbc.host}")
     private String host;
 
-    @Value("${spring.r2dbc.port:3306}")
+    @Value("${spring.r2dbc.port}")
     private int port;
 
-    @Value("${spring.r2dbc.database:ai_agent_db}")
+    @Value("${spring.r2dbc.database}")
     private String database;
 
     @Override

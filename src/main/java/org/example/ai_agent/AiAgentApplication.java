@@ -2,16 +2,15 @@ package org.example.ai_agent;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
-import org.springframework.context.annotation.PropertySource;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = RedisRepositoriesAutoConfiguration.class)
 @EnableScheduling
-@RefreshScope  // 允许 Nacos 配置热更新
+@RefreshScope
 public class AiAgentApplication {
     public static void main(String[] args) {
         SpringApplication.run(AiAgentApplication.class, args);
     }
-
 }

@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
  * 
  * @author AI Agent
  * @version 1.0
- * @since 2024
+ * @since 2025
  */
 @Configuration
 public class DocumentProcessingRabbitConfig {
