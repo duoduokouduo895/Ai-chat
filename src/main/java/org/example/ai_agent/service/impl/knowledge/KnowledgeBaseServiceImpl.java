@@ -77,9 +77,9 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public Flux<KnowledgeBaseDto> getKnowledgeBases(Boolean publicOnly, Integer page, Integer size) {
+    public Flux<KnowledgeBaseDto> getKnowledgeBases(Long creatorId, Boolean publicOnly, Integer page, Integer size) {
         return Mono.fromCallable(() -> {
-            log.info("查询知识库列表: publicOnly={}, page={}, size={}", publicOnly, page, size);
+            log.info("查询知识库列表: creatorId={}, publicOnly={}, page={}, size={}", creatorId, publicOnly, page, size);
 
             final int finalPage = page != null && page >= 0 ? page : 0;
             final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
@@ -88,8 +88,12 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
             if (publicOnly != null && publicOnly) {
                 return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
+            } else if (creatorId != null) {
+                // Return user's private bases + all public bases
+                return knowledgeBaseRepository.findByCreatorIdOrIsPublicAndStatusOrderByCreatedAtDesc(creatorId, true, "ACTIVE", pageable);
             } else {
-                return knowledgeBaseRepository.findByStatusOrderByCreatedAtDesc("ACTIVE", pageable);
+                // If no user is logged in, only return public bases
+                return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
             }
         })
         .flatMapMany(flux -> flux)

@@ -111,25 +111,36 @@ public class SearchController {
 
     @PostMapping("/history")
     public Mono<Void> recordSearchHistory(@RequestBody SearchHistoryDto searchHistoryDto) {
-        // 在服务层处理空值，这里保持控制器简洁，也可以在这里加一层基础校验
         if (searchHistoryDto == null || searchHistoryDto.getQuery() == null || searchHistoryDto.getQuery().isEmpty()) {
-            return Mono.empty(); // 静默处理无效请求
+            return Mono.empty(); 
         }
-        return searchService.recordSearchHistory(searchHistoryDto.getQuery(), searchHistoryDto.getType());
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication().getName())
+                .flatMap(userRepository::findByUsername)
+                .flatMap(user -> searchService.recordSearchHistory(user.getUserId(), searchHistoryDto.getQuery(), searchHistoryDto.getType()));
     }
 
     @GetMapping("/history")
     public Flux<ConversationDocument> getSearchHistory(@RequestParam(defaultValue = "20") int size) {
-        return searchService.getSearchHistory(size);
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication().getName())
+                .flatMap(userRepository::findByUsername)
+                .flatMapMany(user -> searchService.getSearchHistory(user.getUserId(), size));
     }
 
     @DeleteMapping("/history")
     public Mono<Void> clearSearchHistory() {
-        return searchService.clearSearchHistory();
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication().getName())
+                .flatMap(userRepository::findByUsername)
+                .flatMap(user -> searchService.clearSearchHistory(user.getUserId()));
     }
 
     @PostMapping("/history/cleanup")
     public Mono<String> cleanupDuplicateSearchHistory() {
-        return searchService.cleanupDuplicateSearchHistory();
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication().getName())
+                .flatMap(userRepository::findByUsername)
+                .flatMap(user -> searchService.cleanupDuplicateSearchHistory(user.getUserId()));
     }
 }
