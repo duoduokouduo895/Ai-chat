@@ -1,6 +1,7 @@
 // src/services/apiClient.js
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.js';
+import guestSessionService from './guestSessionService.js';
 
 // 此处不再导入router，以避免循环依赖
 // import router from '../router/index.js';
@@ -45,6 +46,8 @@ apiClient.interceptors.response.use(
       const cleanToken = refreshedToken.trim();
       localStorage.setItem('token', cleanToken);
     }
+
+    guestSessionService.enforceIfExpired();
     return response;
   },
   (error) => {
@@ -65,6 +68,9 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('guestId');
+        localStorage.removeItem('isGuest');
+        localStorage.removeItem('guestMessageCount');
+        guestSessionService.clearGuestSession();
 
         // **关键改动**：动态导入router以解决循环依赖问题
         import('../router/index.js').then(routerModule => {

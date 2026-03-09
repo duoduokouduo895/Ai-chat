@@ -1,14 +1,14 @@
 <template>
-  <div class="message-content" v-html="renderedHtml"></div>
+  <div ref="contentRef" class="message-content" v-html="renderedHtml"></div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import DOMPurify from 'dompurify';
 import { marked } from 'marked';
-import hljs from 'highlight.js';
+import hljs from '@/utils/highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 
-// Define props
 const props = defineProps({
   text: {
     type: String,
@@ -16,45 +16,108 @@ const props = defineProps({
   }
 });
 
-// Configure marked to use highlight.js for syntax highlighting
+const contentRef = ref(null);
+let purifierHooksRegistered = false;
+
 marked.setOptions({
-  highlight: function(code, lang) {
+  highlight(code, lang) {
     const language = hljs.getLanguage(lang) ? lang : 'plaintext';
     return hljs.highlight(code, { language }).value;
   },
-  langPrefix: 'hljs language-', // for CSS classes
-  gfm: true,      // Enable GitHub Flavored Markdown
-  breaks: true,   // Convert GFM line breaks to <br>
+  langPrefix: 'hljs language-',
+  gfm: true,
+  breaks: true
 });
 
-// Create a computed property to render markdown
-const renderedHtml = computed(() => {
-  if (props.text) {
-    // Add a copy button to each code block
-    const rawHtml = marked.parse(props.text);
-    const withCopyButton = rawHtml.replace(/<pre><code class="(.*?)">/g, 
-      `<div class="code-container">
-         <div class="code-header">
-           <span class="code-language">$1</span>
-           <button class="copy-btn" onclick="copyCode(this)">复制</button>
-         </div>
-         <pre><code class="$1">`);
-    return withCopyButton.replace(/<\/code><\/pre>/g, '</code></pre></div>');
-  }
-  return '';
-});
-
-// Make copyCode function available globally on the window object
-window.copyCode = function(button) {
-  const container = button.closest('.code-container');
-  const code = container.querySelector('pre code');
-  navigator.clipboard.writeText(code.innerText).then(() => {
-    button.innerText = '已复制!';
-    setTimeout(() => {
-      button.innerText = '复制';
-    }, 2000);
-  });
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
+
+function isSafeUrl(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('mailto:') ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('#');
+}
+
+if (!purifierHooksRegistered) {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.nodeName === 'A') {
+      const href = node.getAttribute('href');
+      if (href && !isSafeUrl(href)) {
+        node.removeAttribute('href');
+      }
+      if (node.hasAttribute('href')) {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+  });
+  purifierHooksRegistered = true;
+}
+
+const renderedHtml = computed(() => {
+  if (!props.text) {
+    return '';
+  }
+
+  const rawHtml = marked.parse(escapeHtml(props.text));
+  const withCopyButton = rawHtml.replace(
+    /<pre><code class="(.*?)">/g,
+    `<div class="code-container">
+       <div class="code-header">
+         <span class="code-language">$1</span>
+         <button class="copy-btn" type="button" data-copy-code="true">复制</button>
+       </div>
+       <pre><code class="$1">`
+  );
+
+  return DOMPurify.sanitize(
+    withCopyButton.replace(/<\/code><\/pre>/g, '</code></pre></div>'),
+    {
+      ALLOWED_TAGS: [
+        'a', 'b', 'blockquote', 'br', 'button', 'code', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5',
+        'h6', 'hr', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody', 'td', 'th',
+        'thead', 'tr', 'ul'
+      ],
+      ALLOWED_ATTR: ['class', 'data-copy-code', 'href', 'rel', 'target', 'type'],
+      FORBID_ATTR: [/^on/i]
+    }
+  );
+});
+
+async function handleCopyClick(event) {
+  const button = event.target.closest('[data-copy-code="true"]');
+  if (!button || !contentRef.value?.contains(button)) {
+    return;
+  }
+
+  const code = button.closest('.code-container')?.querySelector('pre code');
+  if (!code) {
+    return;
+  }
+
+  await navigator.clipboard.writeText(code.innerText);
+  button.innerText = '已复制';
+  window.setTimeout(() => {
+    button.innerText = '复制';
+  }, 2000);
+}
+
+onMounted(() => {
+  contentRef.value?.addEventListener('click', handleCopyClick);
+});
+
+onBeforeUnmount(() => {
+  contentRef.value?.removeEventListener('click', handleCopyClick);
+});
 </script>
 
 <style scoped>
@@ -68,7 +131,6 @@ window.copyCode = function(button) {
   user-select: text;
 }
 
-/* General Markdown elements styling */
 .message-content :deep(p) {
   margin-bottom: 1rem;
 }
@@ -84,9 +146,12 @@ window.copyCode = function(button) {
   line-height: 1.3;
 }
 
-.message-content :deep(h3) { font-size: 1.25em; }
+.message-content :deep(h3) {
+  font-size: 1.25em;
+}
 
-.message-content :deep(ul), .message-content :deep(ol) {
+.message-content :deep(ul),
+.message-content :deep(ol) {
   padding-left: 2em;
   margin-bottom: 1rem;
 }
@@ -119,7 +184,8 @@ window.copyCode = function(button) {
   overflow-x: auto;
 }
 
-.message-content :deep(th, td) {
+.message-content :deep(th),
+.message-content :deep(td) {
   border: 1px solid var(--border-light);
   padding: 0.6em 1em;
 }
@@ -129,7 +195,6 @@ window.copyCode = function(button) {
   font-weight: 600;
 }
 
-/* Inline code */
 .message-content :deep(code) {
   background: var(--bg-tertiary, #f0f0f0);
   color: var(--text-accent, #c7254e);
@@ -139,7 +204,6 @@ window.copyCode = function(button) {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
 }
 
-/* Ensure raw PRE blocks (during streaming) are dark */
 .message-content :deep(pre) {
   margin: 1em 0;
   padding: 0;
@@ -148,13 +212,11 @@ window.copyCode = function(button) {
   color: #ccc;
 }
 
-/* Reset PRE margin when fully wrapped in code-container */
 .message-content :deep(.code-container pre) {
   margin: 0;
   border-radius: 0;
 }
 
-/* Code block container generated by the script */
 .message-content :deep(.code-container) {
   margin: 1em 0;
   border-radius: 8px;
@@ -193,8 +255,8 @@ window.copyCode = function(button) {
   background: #666;
 }
 
-/* Highlight.js styles override and Block Code Override */
-.message-content :deep(pre code), .message-content :deep(pre code.hljs) {
+.message-content :deep(pre code),
+.message-content :deep(pre code.hljs) {
   padding: 1em !important;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 14px;
@@ -202,12 +264,12 @@ window.copyCode = function(button) {
   display: block;
   overflow-x: auto;
   max-height: 500px;
-  background: transparent !important; /* Override inline code bg */
-  color: inherit !important;          /* Override inline code color */
+  background: transparent !important;
+  color: inherit !important;
 }
 
-/* Text selection style */
-.message-content::selection, .message-content :deep(::selection) {
+.message-content::selection,
+.message-content :deep(::selection) {
   background-color: var(--accent-color, #007acc);
   color: white;
 }

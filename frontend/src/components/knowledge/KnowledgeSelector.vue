@@ -10,7 +10,7 @@
     >
       <template #empty>
         <div style="padding: 20px; text-align: center; color: #999;">
-          {{ isGuest ? '登录即可使用' : '无数据' }}
+          {{ isGuest ? '登录后可用' : '暂无数据' }}
         </div>
       </template>
       <el-option
@@ -21,7 +21,7 @@
       >
         <div class="knowledge-option">
           <span class="kb-name">{{ kb.name }}</span>
-          <span class="kb-info">{{ kb.documentCount || 0 }}个文档</span>
+          <span class="kb-info">{{ kb.documentCount || 0 }} 个文档</span>
         </div>
       </el-option>
     </el-select>
@@ -29,7 +29,8 @@
 </template>
 
 <script>
-import { knowledgeApiService } from '@/services/knowledgeApi'
+import { ElMessage } from 'element-plus';
+import { knowledgeApiService } from '@/services/knowledgeApi';
 
 export default {
   name: 'KnowledgeSelector',
@@ -46,63 +47,60 @@ export default {
       knowledgeBases: [],
       loading: false,
       isGuest: localStorage.getItem('isGuest') === 'true'
-    }
+    };
   },
   watch: {
     modelValue: {
       handler(newVal) {
-        this.selectedKnowledgeBaseIds = newVal || []
+        this.selectedKnowledgeBaseIds = newVal || [];
       },
       immediate: true
     }
   },
   async mounted() {
-    await this.loadKnowledgeBases()
+    await this.loadKnowledgeBases();
   },
   methods: {
     async loadKnowledgeBases() {
       try {
-        this.loading = true
-        // 添加时间戳参数避免缓存
-        const timestamp = new Date().getTime()
-        const response = await knowledgeApiService.getKnowledgeBases({ _t: timestamp })
-        this.knowledgeBases = response.data || []
-        console.log('加载知识库列表:', this.knowledgeBases)
+        this.loading = true;
+        const timestamp = Date.now();
+        const response = await knowledgeApiService.getKnowledgeBases({ _t: timestamp });
+        this.knowledgeBases = response.data || [];
       } catch (error) {
-        console.error('加载知识库列表失败:', error)
-        this.$message.error('加载知识库列表失败')
+        console.error('Failed to load knowledge bases:', error);
+        ElMessage.error('加载知识库列表失败');
       } finally {
-        this.loading = false
+        this.loading = false;
       }
     },
-    
+
     handleModeChange() {
-      // 自动根据是否选择了知识库来切换模式
-      const mode = this.selectedKnowledgeBaseIds.length > 0 ? 'rag' : 'normal'
-      this.$emit('mode-change', mode)
+      const mode = this.selectedKnowledgeBaseIds.length > 0 ? 'rag' : 'normal';
+      this.$emit('mode-change', mode);
     },
-    
+
     handleSelectionChange() {
-      this.emitChange()
-      this.handleModeChange() // 选择变化时自动切换模式
+      this.emitChange();
+      this.handleModeChange();
     },
-    
+
     removeKnowledgeBase(kbId) {
-      this.selectedKnowledgeBaseIds = this.selectedKnowledgeBaseIds.filter(id => id !== kbId)
-      this.emitChange()
-      this.handleModeChange()
+      this.selectedKnowledgeBaseIds = this.selectedKnowledgeBaseIds.filter(id => id !== kbId);
+      this.emitChange();
+      this.handleModeChange();
     },
-    
+
     emitChange() {
-      this.$emit('update:modelValue', this.selectedKnowledgeBaseIds)
+      this.$emit('update:modelValue', this.selectedKnowledgeBaseIds);
     },
-    
+
     getKnowledgeBaseName(kbId) {
-      const kb = this.knowledgeBases.find(k => k.id === kbId)
-      return kb ? kb.name : `知识库${kbId}`
+      const kb = this.knowledgeBases.find(item => item.id === kbId);
+      return kb ? kb.name : `知识库 ${kbId}`;
     }
   }
-}
+};
 </script>
 
 <style scoped>

@@ -2,6 +2,7 @@
 import apiClient from './apiClient'; // 导入统一的apiClient
 import router from '../router/index.js';
 import heartbeatService from './heartbeatService.js';
+import guestSessionService from './guestSessionService.js';
 
 // 用户API服务
 export const userApiService = {
@@ -30,6 +31,9 @@ export const userApiService = {
       // 存储token（去除空白字符）
       const cleanToken = token.trim();
       localStorage.setItem('token', cleanToken);
+      localStorage.removeItem('isGuest');
+      localStorage.removeItem('guestMessageCount');
+      guestSessionService.clearGuestSession();
 
       // 登录成功后启动心跳服务
       console.log('用户登录成功，启动JWT心跳服务');
@@ -58,9 +62,11 @@ export const userApiService = {
       // 存储游客标记和消息计数
       localStorage.setItem('isGuest', 'true');
       localStorage.setItem('guestMessageCount', '0');
+      guestSessionService.markGuestSessionStarted();
 
       console.log('游客登录成功，启动JWT心跳服务');
       heartbeatService.start();
+      guestSessionService.start();
 
       return {
         success: true,
@@ -96,6 +102,7 @@ export const userApiService = {
       localStorage.removeItem('user');
       localStorage.removeItem('isGuest');
       localStorage.removeItem('guestMessageCount');
+      guestSessionService.clearGuestSession();
       router.push('/login');
     }
   },

@@ -12,86 +12,58 @@ import reactor.core.publisher.Mono;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 全局异常处理器
- * 
- * @author AI Agent
- * @version 1.0
- * @since 2025
- */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    
-    /**
-     * 处理参数验证异常
-     */
+
     @ExceptionHandler(IllegalArgumentException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleIllegalArgumentException(
             IllegalArgumentException ex, ServerWebExchange exchange) {
-        
-        log.error("参数验证失败: {}", ex.getMessage(), ex);
-        
-        Map<String, Object> error = new HashMap<>();
-        error.put("code", 400);
-        error.put("message", ex.getMessage());
-        error.put("timestamp", System.currentTimeMillis());
-        error.put("path", exchange.getRequest().getPath().value());
-        
-        return Mono.just(ResponseEntity.badRequest().body(error));
+
+        log.error("Parameter validation failed: {}", ex.getMessage(), ex);
+        return Mono.just(ResponseEntity.badRequest().body(buildError(400, ex.getMessage(), exchange)));
     }
-    
-    /**
-     * 处理文件上传大小超限异常
-     */
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleMaxUploadSizeExceededException(
             MaxUploadSizeExceededException ex, ServerWebExchange exchange) {
-        
-        log.error("文件上传大小超限: {}", ex.getMessage(), ex);
-        
-        Map<String, Object> error = new HashMap<>();
-        error.put("code", 400);
-        error.put("message", "文件大小超过限制，最大允许50MB");
-        error.put("timestamp", System.currentTimeMillis());
-        error.put("path", exchange.getRequest().getPath().value());
-        
-        return Mono.just(ResponseEntity.badRequest().body(error));
+
+        log.error("Upload exceeded max size: {}", ex.getMessage(), ex);
+        return Mono.just(ResponseEntity.badRequest().body(buildError(400, "File size exceeds the allowed limit", exchange)));
     }
-    
-    /**
-     * 处理运行时异常
-     */
+
+    @ExceptionHandler(SecurityException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleSecurityException(
+            SecurityException ex, ServerWebExchange exchange) {
+
+        log.warn("Forbidden request: {}", ex.getMessage());
+        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(buildError(403, ex.getMessage(), exchange)));
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleRuntimeException(
             RuntimeException ex, ServerWebExchange exchange) {
-        
-        log.error("运行时异常: {}", ex.getMessage(), ex);
-        
-        Map<String, Object> error = new HashMap<>();
-        error.put("code", 500);
-        error.put("message", "服务器内部错误: " + ex.getMessage());
-        error.put("timestamp", System.currentTimeMillis());
-        error.put("path", exchange.getRequest().getPath().value());
-        
-        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error));
+
+        log.error("Runtime exception: {}", ex.getMessage(), ex);
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(buildError(500, "Internal server error: " + ex.getMessage(), exchange)));
     }
-    
-    /**
-     * 处理通用异常
-     */
+
     @ExceptionHandler(Exception.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleException(
             Exception ex, ServerWebExchange exchange) {
-        
-        log.error("未处理的异常: {}", ex.getMessage(), ex);
-        
+
+        log.error("Unhandled exception: {}", ex.getMessage(), ex);
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(buildError(500, "Internal server error", exchange)));
+    }
+
+    private Map<String, Object> buildError(int code, String message, ServerWebExchange exchange) {
         Map<String, Object> error = new HashMap<>();
-        error.put("code", 500);
-        error.put("message", "服务器内部错误");
+        error.put("code", code);
+        error.put("message", message);
         error.put("timestamp", System.currentTimeMillis());
         error.put("path", exchange.getRequest().getPath().value());
-        
-        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error));
+        return error;
     }
 }

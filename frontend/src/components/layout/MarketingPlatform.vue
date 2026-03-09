@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="ai-platform">
     
     <!-- 侧边栏 -->
@@ -48,18 +48,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { userApiService } from '@/services/userApi.js'
 import { aiApiService } from '@/services/aiApi.js'
 import apiClient from '@/services/apiClient.js'
-import heartbeatService from '@/services/heartbeatService.js'
 
 // 导入组件
 import AppSidebar from './AppSidebar.vue'
 import ChatPanel from '../chat/ChatPanel.vue'
-import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
-import SearchPanel from '../search/SearchPanel.vue'
+const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'))
+const SearchPanel = defineAsyncComponent(() => import('../search/SearchPanel.vue'))
 
 const router = useRouter()
 
@@ -99,9 +98,6 @@ const checkUserStatus = () => {
 const handleAuthAction = async () => {
   if (isLoggedIn.value) {
     try {
-      // 停止心跳服务
-      heartbeatService.stop()
-      
       await userApiService.logout()
       checkUserStatus()
       messages.value = []
@@ -391,13 +387,7 @@ onMounted(async () => {
     checkUserStatus()
     await loadAvailableModels()
     await loadRecentConversations()
-    
-    // 如果用户已登录，启动心跳服务
-    if (isLoggedIn.value) {
-      console.log('用户已登录，启动JWT心跳服务')
-      heartbeatService.start()
-    }
-    
+
     messages.value = [{
       id: 1,
       sender: 'ai',
@@ -408,12 +398,6 @@ onMounted(async () => {
   } catch (error) {
     console.error('初始化失败:', error)
   }
-})
-
-// 组件卸载
-onUnmounted(() => {
-  // 停止心跳服务
-  heartbeatService.stop()
 })
 </script>
 

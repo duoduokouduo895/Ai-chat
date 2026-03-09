@@ -11,8 +11,10 @@ import reactor.core.publisher.Mono;
     Mono<Conversation> createConversation(Conversation conversation);
     Mono<Message> addMessageToConversation(Message message);
     Flux<Message> getMessagesByConversationId(Long conversationId);
+    Flux<Message> getMessagesByConversationId(Long conversationId, Long userId);
     Flux<ConversationWithPreview> getRecentConversationsWithPreview(Long userId);
     Mono<Conversation> getConversationById(Long conversationId);
+    Mono<Conversation> getConversationById(Long conversationId, Long userId);
     Mono<Void> deleteConversation(Long conversationId, Long userId);
 }
 

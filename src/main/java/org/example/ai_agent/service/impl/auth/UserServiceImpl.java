@@ -75,45 +75,7 @@ public class UserServiceImpl implements UserService {
                 .flatMap(user -> {
                     // 1. 验证密码
                     if (passwordEncoder.matches(password, user.getPassword())) {
-                        // 2. 生成包含 JTI 的 token
-                                            // 2. 生成包含 JTI 的 token
-                    String token = jwtUtil.generateToken(user.getUsername(), user.getUserId());
-                        String jti = jwtUtil.getIdFromToken(token);
-                        Date expiration = jwtUtil.getExpirationDateFromToken(token);
-
-                        if (jti == null || expiration == null) {
-                            return Mono.error(new IllegalStateException("无法生成有效的 token。"));
-                        }
-
-                        // 3. 计算 Redis key 的 TTL (存活时间)
-                        Duration ttl = Duration.ofMillis(expiration.getTime() - System.currentTimeMillis());
-                        if (ttl.isNegative() || ttl.isZero()) {
-                             return Mono.error(new IllegalStateException("Token 的过期时间无效。"));
-                        }
-
-                        // 4. 将 JTI 存入 Redis "白名单"
-                        String redisKey = "token:jti:" + jti;
-                        log.info("尝试将JTI存储到Redis，key: {}, value: {}, ttl: {}ms", redisKey, user.getUsername(), ttl.toMillis());
-                        
-                        // 添加更详细的调试信息
-                        log.debug("Redis操作详情 - key类型: {}, value类型: {}, TTL类型: {}", 
-                                redisKey.getClass().getSimpleName(), 
-                                user.getUsername().getClass().getSimpleName(),
-                                ttl.getClass().getSimpleName());
-                        
-                        return redisTemplate.opsForValue().set(redisKey, user.getUsername(), ttl)
-                                .doOnSuccess(result -> log.info("JTI成功存储到Redis，key: {}, result: {}", redisKey, result))
-                                .doOnError(error -> {
-                                    log.error("JTI存储到Redis失败，key: {}, 错误类型: {}, 错误消息: {}", 
-                                            redisKey, error.getClass().getSimpleName(), error.getMessage());
-                                    log.error("完整错误堆栈:", error);
-                                })
-                                .onErrorResume(throwable -> {
-                                    log.error("处理Redis存储错误，尝试降级处理: {}", throwable.getMessage());
-                                    // 可以选择返回token或者抛出错误，这里我们选择返回token但记录错误
-                                    return Mono.error(new RuntimeException("无法将认证信息存储到Redis，登录失败", throwable));
-                                })
-                                .thenReturn(token); // 只有在 Redis 写入成功后才返回 token
+                        return issueToken(user);
                     } else {
                         return Mono.error(new SecurityException("用户名或密码无效"));
                     }
@@ -147,25 +109,62 @@ public class UserServiceImpl implements UserService {
         // 1. 生成游客用户名: Duog_ + UUID的前8位字符
         String shortUuid = UUID.randomUUID().toString().substring(0, 8);
         String guestUsername = "Duog_" + shortUuid;
+        String guestPassword = UUID.randomUUID().toString();
         
         // 2. 构造游客实体
         User guestUser = new User();
         guestUser.setUsername(guestUsername);
-        guestUser.setPassword(passwordEncoder.encode("duo123")); // 游客统一使用默认密码
+        guestUser.setPassword(passwordEncoder.encode(guestPassword));
         guestUser.setEmail(null); // 游客没有邮箱
+        guestUser.setLastActiveAt(LocalDateTime.now());
         guestUser.setIsGuest(true); // 标记这是一个游客账号
         
         // 记录日志
         log.info("开始创建游客账号: {}", guestUsername);
         
-        // 3. 将游客信息保存到数据库，并在成功后直接调用已有的loginUser完成登录
+        // 3. 将游客信息保存到数据库，并在成功后直接签发游客 token
         return userRepository.save(guestUser)
                 .doOnSuccess(savedUser -> log.info("游客账号创建成功, user_id: {}", savedUser.getUserId()))
-                .flatMap(savedUser -> loginUser(guestUsername, "duo123")) // 创建成功后，内部调用正常的登录逻辑获取 Token
+                .flatMap(this::issueToken)
                 .onErrorResume(e -> {
                     log.error("创建游客账号失败: {}", e.getMessage(), e);
                     return Mono.error(new RuntimeException("无法创建游客账户，请稍后重试"));
                 });
+    }
+
+    private Mono<String> issueToken(User user) {
+        String token = jwtUtil.generateToken(user.getUsername(), user.getUserId());
+        String jti = jwtUtil.getIdFromToken(token);
+        Date expiration = jwtUtil.getExpirationDateFromToken(token);
+
+        if (jti == null || expiration == null) {
+            return Mono.error(new IllegalStateException("无法生成有效的 token。"));
+        }
+
+        Duration ttl = Duration.ofMillis(expiration.getTime() - System.currentTimeMillis());
+        if (ttl.isNegative() || ttl.isZero()) {
+            return Mono.error(new IllegalStateException("Token 的过期时间无效。"));
+        }
+
+        String redisKey = "token:jti:" + jti;
+        log.info("尝试将JTI存储到Redis，key: {}, value: {}, ttl: {}ms", redisKey, user.getUsername(), ttl.toMillis());
+        log.debug("Redis操作详情 - key类型: {}, value类型: {}, TTL类型: {}",
+                redisKey.getClass().getSimpleName(),
+                user.getUsername().getClass().getSimpleName(),
+                ttl.getClass().getSimpleName());
+
+        return redisTemplate.opsForValue().set(redisKey, user.getUsername(), ttl)
+                .doOnSuccess(result -> log.info("JTI成功存储到Redis，key: {}, result: {}", redisKey, result))
+                .doOnError(error -> {
+                    log.error("JTI存储到Redis失败，key: {}, 错误类型: {}, 错误消息: {}",
+                            redisKey, error.getClass().getSimpleName(), error.getMessage());
+                    log.error("完整错误堆栈:", error);
+                })
+                .onErrorResume(throwable -> {
+                    log.error("处理Redis存储错误，尝试降级处理: {}", throwable.getMessage());
+                    return Mono.error(new RuntimeException("无法将认证信息存储到Redis，登录失败", throwable));
+                })
+                .thenReturn(token);
     }
 
 }

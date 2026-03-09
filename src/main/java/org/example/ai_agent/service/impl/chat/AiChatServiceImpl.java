@@ -165,7 +165,8 @@ public class AiChatServiceImpl implements AiChatService {
      */
     private Mono<ChatRequest> ensureConversationExists(ChatRequest request) {
         if (request.getConversationId() != null) {
-            return Mono.just(request);
+            return conversationService.getConversationById(request.getConversationId(), request.getUserId())
+                    .thenReturn(request);
         }
 
         log.info("会话ID为空，为用户 {} 创建新会话。", request.getUserId());
@@ -243,7 +244,7 @@ public class AiChatServiceImpl implements AiChatService {
      */
     private Mono<Message> checkAndSaveUserMessage(ChatRequest request) {
         // 检查最近的消息是否与当前消息相同
-        return conversationService.getMessagesByConversationId(request.getConversationId())
+        return conversationService.getMessagesByConversationId(request.getConversationId(), request.getUserId())
                 .filter(message -> "user".equals(message.getSender()))
                 .takeLast(1)
                 .singleOrEmpty()

@@ -62,7 +62,7 @@ public class AiModelConfig {
     /**
      * 根据模型类型获取对应的配置
      * 严格按照ai-model-config.properties中定义的支持模型列表进行匹配
-     * 支持的模型：zai-org/GLM-4.5-Air, deepseek-ai/DeepSeek-V3, Tongyi-Zhiwen/QwenLong-L1-32B
+     * 支持的模型：zai-org/GLM-4.5-Air, Pro/deepseek-ai/DeepSeek-R1, Qwen/Qwen3-Coder-30B-A3B-Instruct
      * 
      * @param modelType 模型类型，必须是完整的模型名称
      * @return 模型配置
@@ -84,15 +84,15 @@ public class AiModelConfig {
                         .maxTokens(glmAir.getMaxTokens())
                         .build();
                         
-            // DeepSeek-V3模型 - 完整名称：deepseek-ai/DeepSeek-V3
-            case "deepseek-ai/DeepSeek-V3":
+            // DeepSeek模型 - 完整名称：Pro/deepseek-ai/DeepSeek-R1
+            case "Pro/deepseek-ai/DeepSeek-R1":
                 return ModelConfigDto.builder()
                         .temperature(deepSeekV3.getTemperature())
                         .maxTokens(deepSeekV3.getMaxTokens())
                         .build();
                         
-            // QwenLong-L1-32B模型 - 完整名称：Tongyi-Zhiwen/QwenLong-L1-32B
-            case "Tongyi-Zhiwen/QwenLong-L1-32B":
+            // Qwen模型 - 完整名称：Qwen/Qwen3-Coder-30B-A3B-Instruct
+            case "Qwen/Qwen3-Coder-30B-A3B-Instruct":
                 return ModelConfigDto.builder()
                         .temperature(qwenLong.getTemperature())
                         .maxTokens(qwenLong.getMaxTokens())

@@ -4,8 +4,11 @@ import org.example.ai_agent.entity.Conversation;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 public interface ConversationRepository extends R2dbcRepository<Conversation, Long> {
+    Mono<Conversation> findByIdAndUserId(Long id, Long userId);
+
     /**
      * 根据用户ID查找最近5个对话，按更新时间降序排序
      * @param userId 用户ID

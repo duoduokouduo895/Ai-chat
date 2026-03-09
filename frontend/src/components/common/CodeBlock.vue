@@ -24,8 +24,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import hljs from 'highlight.js';
+import { ref, computed } from 'vue';
+import hljs from '@/utils/highlight.js';
 
 const props = defineProps({
   code: {
