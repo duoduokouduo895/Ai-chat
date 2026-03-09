@@ -1,9 +1,9 @@
 <template>
   <div class="filters-section">
     <button @click="showAdvanced = !showAdvanced" class="toggle-advanced">
-      {{ showAdvanced ? '隐藏' : '显示' }}高级筛选 {{ showAdvanced ? '▲' : '▼' }}
+      {{ showAdvanced ? '隐藏' : '显示' }}高级筛选{{ showAdvanced ? ' ▲' : ' ▼' }}
     </button>
-    
+
     <div v-if="showAdvanced" class="advanced-filters">
       <div class="filter-row">
         <div class="filter-group">
@@ -13,7 +13,7 @@
           <input v-model="managedFilters.endTime" type="datetime-local" class="filter-input" />
         </div>
       </div>
-      
+
       <div class="filter-row">
         <div class="filter-group">
           <label>AI模型:</label>
@@ -23,17 +23,17 @@
               {{ model.label }}
             </option>
           </select>
-          <span v-if="modelsError" class="error-text" :title="modelsError">⚠️</span>
+          <span v-if="modelsError" class="error-text" :title="modelsError">!</span>
         </div>
-        
+
         <div class="filter-group">
           <label>消息数量:</label>
-          <input v-model="managedFilters.minMessageCount" type="number" placeholder="最少" class="filter-input-small" />
+          <input v-model="managedFilters.minMessageCount" type="number" placeholder="最小" class="filter-input-small" />
           <span>-</span>
-          <input v-model="managedFilters.maxMessageCount" type="number" placeholder="最多" class="filter-input-small" />
+          <input v-model="managedFilters.maxMessageCount" type="number" placeholder="最大" class="filter-input-small" />
         </div>
       </div>
-      
+
       <div class="filter-actions">
         <button @click="applyFilters" class="apply-filters-btn">应用筛选</button>
         <button @click="clearFilters" class="clear-filters-btn">清空筛选</button>
@@ -43,10 +43,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import apiClient from '../../services/apiClient.js'
 
-// Props
 const props = defineProps({
   filters: {
     type: Object,
@@ -54,79 +53,65 @@ const props = defineProps({
   }
 })
 
-// Emits
 const emit = defineEmits(['apply-filters', 'clear-filters', 'update:filters'])
 
-// 响应式数据
 const showAdvanced = ref(false)
 const availableModels = ref([])
 const modelsLoading = ref(false)
 const modelsError = ref('')
 
-// 使用计算属性来代理props，这是v-model在组件上使用的标准做法
 const managedFilters = computed({
   get() {
-    return props.filters;
+    return props.filters
   },
   set(value) {
-    emit('update:filters', value);
+    emit('update:filters', value)
   }
-});
+})
 
-// 应用筛选
 const applyFilters = () => {
-  // managedFilters已经是最新状态，直接触发父组件的搜索
   emit('apply-filters')
 }
 
-// 清空筛选条件
 const clearFilters = () => {
-  // 创建一个空的对象来更新，而不是直接修改
-  const clearedFilters = {
-    ...props.filters, // 保留其他可能存在的字段
+  emit('update:filters', {
+    ...props.filters,
     startTime: '',
     endTime: '',
     model: '',
     minMessageCount: '',
     maxMessageCount: ''
-  };
-  emit('update:filters', clearedFilters);
-  // 也可以选择立即触发一次搜索
-  // emit('apply-filters'); 
+  })
 }
 
-// 获取可用模型列表
 const loadAvailableModels = async () => {
   modelsLoading.value = true
   modelsError.value = ''
-  
+
   try {
-    const response = await apiClient.get('/models');
+    const response = await apiClient.get('/models')
     if (response.data && Array.isArray(response.data)) {
-      availableModels.value = response.data;
+      availableModels.value = response.data
     } else {
-      throw new Error('获取模型列表失败：数据格式错误');
+      throw new Error('获取模型列表失败：返回数据格式错误')
     }
   } catch (error) {
-    console.error('获取模型列表失败:', error);
-    modelsError.value = error.message || '获取模型列表失败，请稍后重试';
-    // 设置默认模型列表作为备选
+    console.error('获取模型列表失败:', error)
+    modelsError.value = error.message || '获取模型列表失败，请稍后重试'
     availableModels.value = [
       { value: 'zai-org/GLM-4.5-Air', label: 'GLM-4' },
-      { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
-      { value: 'Tongyi-Zhiwen/QwenLong-L1-32B', label: '通义千问-32B' }
-    ];
+      { value: 'Pro/deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
+      { value: 'Qwen/Qwen3-Coder-30B-A3B-Instruct', label: 'Qwen3 Coder 30B' }
+    ]
   } finally {
-    modelsLoading.value = false;
+    modelsLoading.value = false
   }
 }
 
-// 组件挂载时获取模型列表
 onMounted(() => {
   loadAvailableModels()
 })
 
-// 暴露方法
 defineExpose({
   showAdvanced
 })
@@ -152,7 +137,6 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 触摸优化 */
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -193,12 +177,12 @@ defineExpose({
   white-space: nowrap;
 }
 
-.filter-input, .filter-select {
+.filter-input,
+.filter-select {
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  /* 移动端优化 */
   -webkit-appearance: none;
   appearance: none;
 }
@@ -209,7 +193,6 @@ defineExpose({
   border-radius: 4px;
   font-size: 14px;
   width: 80px;
-  /* 移动端优化 */
   -webkit-appearance: none;
   appearance: none;
 }
@@ -233,7 +216,6 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 触摸优化 */
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -258,7 +240,6 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 触摸优化 */
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -277,55 +258,55 @@ defineExpose({
   margin-left: 4px;
 }
 
-/* 响应式设计 */
 @media (max-width: 768px) {
   .filters-section {
     padding: 12px 16px;
   }
-  
+
   .toggle-advanced {
     width: 100%;
     padding: 12px 16px;
     font-size: 15px;
   }
-  
+
   .advanced-filters {
     padding: 12px;
   }
-  
+
   .filter-row {
     flex-direction: column;
     gap: 12px;
   }
-  
+
   .filter-group {
     min-width: auto;
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
   }
-  
+
   .filter-group label {
     font-size: 14px;
   }
-  
-  .filter-input, .filter-select {
+
+  .filter-input,
+  .filter-select {
     width: 100%;
     padding: 10px 12px;
-    font-size: 16px; /* 防止iOS缩放 */
+    font-size: 16px;
   }
-  
+
   .filter-input-small {
     width: 100%;
     padding: 10px 12px;
     font-size: 16px;
   }
-  
+
   .filter-actions {
     flex-direction: column;
     gap: 8px;
   }
-  
+
   .apply-filters-btn,
   .clear-filters-btn {
     width: 100%;
@@ -338,30 +319,31 @@ defineExpose({
   .filters-section {
     padding: 10px 12px;
   }
-  
+
   .toggle-advanced {
     padding: 10px 14px;
     font-size: 14px;
   }
-  
+
   .advanced-filters {
     padding: 10px;
   }
-  
+
   .filter-group label {
     font-size: 13px;
   }
-  
-  .filter-input, .filter-select {
+
+  .filter-input,
+  .filter-select {
     padding: 8px 10px;
     font-size: 16px;
   }
-  
+
   .filter-input-small {
     padding: 8px 10px;
     font-size: 16px;
   }
-  
+
   .apply-filters-btn,
   .clear-filters-btn {
     padding: 10px 16px;

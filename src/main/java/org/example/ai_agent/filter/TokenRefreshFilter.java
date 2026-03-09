@@ -1,11 +1,11 @@
 package org.example.ai_agent.filter;
 
 import org.example.ai_agent.util.JwtUtil;
+import org.example.ai_agent.repository.auth.UserRepository;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -26,12 +26,18 @@ import java.util.Date;
 @Component
 public class TokenRefreshFilter implements WebFilter {
 
+    private static final Duration GUEST_ACTIVITY_WRITE_INTERVAL = Duration.ofMinutes(5);
+
     private final JwtUtil jwtUtil;
     private final ReactiveStringRedisTemplate redisTemplate;
+    private final UserRepository userRepository;
 
-    public TokenRefreshFilter(JwtUtil jwtUtil, ReactiveStringRedisTemplate redisTemplate) {
+    public TokenRefreshFilter(JwtUtil jwtUtil,
+                              ReactiveStringRedisTemplate redisTemplate,
+                              UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
         this.redisTemplate = redisTemplate;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -55,85 +61,8 @@ public class TokenRefreshFilter implements WebFilter {
             String authToken = authHeader.substring(7).trim(); // 去除token中的空白字符
 
             try {
-                // 检查token是否需要刷新（包括即将过期的情况）
-                if (jwtUtil.shouldRefreshToken(authToken)) {
-                    String username = jwtUtil.getUsernameFromToken(authToken);
-                    Long userId = jwtUtil.getUserIdFromToken(authToken);
-
-                    // 尝试刷新token
-                    String refreshedToken = jwtUtil.refreshToken(authToken);
-                    if (refreshedToken != null) {
-                        // 在给客户端返回新Token之前，必须先将新Token的JTI同步存储到Redis白名单
-                        String newJti = jwtUtil.getIdFromToken(refreshedToken);
-                        if (newJti != null) {
-                            String redisKey = "token:jti:" + newJti;
-                            Date expiration = jwtUtil.getExpirationDateFromToken(refreshedToken);
-                            if (expiration != null) {
-                                long ttlMillis = expiration.getTime() - System.currentTimeMillis();
-                                Duration ttl = Duration.ofMillis(ttlMillis);
-                                
-                                // 使用响应式方式存储新JTI到Redis，确保在返回Token前完成存储
-                                return redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
-                                    .timeout(Duration.ofSeconds(2)) // 设置2秒超时
-                                    .doOnSuccess(saved -> {
-                                        if (Boolean.TRUE.equals(saved)) {
-                                            System.out.println("🔄 [Token刷新] 新JTI已成功存储到Redis: " + newJti);
-                                            
-                                            // 清理旧Token的JTI（异步执行，不影响新Token返回）
-                                            String oldJti = jwtUtil.getIdFromToken(authToken);
-                                            if (oldJti != null && !oldJti.equals(newJti)) {
-                                                String oldRedisKey = "token:jti:" + oldJti;
-                                                redisTemplate.delete(oldRedisKey)
-                                                    .doOnSuccess(deleted -> {
-                                                        if (Boolean.TRUE.equals(deleted)) {
-                                                            System.out.println("🗋 [Token清理] 旧JTI已从白名单中移除: " + oldJti);
-                                                        }
-                                                    })
-                                                    .doOnError(error -> System.err.println("⚠️ [Token清理] 清理旧JTI异常: " + error.getMessage()))
-                                                    .subscribe();
-                                            }
-                                            
-                                            // 只有在JTI成功存储后才返回新Token
-                                            ServerHttpResponse response = exchange.getResponse();
-                                            response.getHeaders().add("X-Refreshed-Token", refreshedToken);
-                                            
-                                            // 详细的刷新成功日志
-                                            System.out.println("🔄 [Token刷新] 用户 '" + username + "' (ID: " + userId + ") 的Token已成功刷新 | 请求路径: " + requestPath);
-
-                                            // 记录刷新时间信息
-                                            java.util.Date exp = jwtUtil.getExpirationDateFromToken(authToken);
-                                            if (exp != null) {
-                                                long timeToExpiry = exp.getTime() - System.currentTimeMillis();
-                                                if (timeToExpiry > 0) {
-                                                    System.out.println("📊 [Token刷新] 原Token剩余 " + (timeToExpiry / 1000 / 60) + " 分钟过期，提前刷新成功");
-                                                } else {
-                                                    System.out.println("📊 [Token刷新] 原Token已过期 " + (-timeToExpiry / 1000) + " 秒，宽限期内刷新成功");
-                                                }
-                                            }
-                                        } else {
-                                            System.err.println("⚠️ [Token刷新] 新JTI存储到Redis失败，JTI可能已存在: " + newJti + "，不返回新Token");
-                                            // JTI存储失败时不返回新Token，让客户端继续使用原Token
-                                        }
-                                    })
-                                    .doOnError(error -> {
-                                        System.err.println("💥 [Token刷新] Redis存储新JTI异常: " + error.getMessage() + "，不返回新Token");
-                                        // Redis异常时不返回新Token，让客户端继续使用原Token
-                                    })
-                                    .then(); // 转换为Mono<Void>
-                            } else {
-                                System.err.println("⚠️ [Token刷新] 无法获取新Token的过期时间，不返回新Token");
-                                return Mono.empty();
-                            }
-                        } else {
-                            System.err.println("⚠️ [Token刷新] 无法从新Token中提取JTI，不返回新Token");
-                            return Mono.empty();
-                        }
-                    } else {
-                        // 刷新失败但不抛异常
-                        System.err.println("❌ [Token刷新] 用户 '" + username + "' Token刷新返回null | 请求路径: " + requestPath);
-                        return Mono.empty();
-                    }
-                }
+                return touchGuestActivity(authToken)
+                        .then(refreshTokenIfNeeded(exchange, requestPath, authToken));
             } catch (Exception e) {
                 // 增强的错误处理和日志
                 String username = "unknown";
@@ -163,6 +92,92 @@ public class TokenRefreshFilter implements WebFilter {
             }
         }
         return Mono.empty();
+    }
+
+    private Mono<Void> touchGuestActivity(String authToken) {
+        Long userId = jwtUtil.getUserIdFromToken(authToken);
+        if (userId == null) {
+            return Mono.empty();
+        }
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.time.LocalDateTime writeThreshold = now.minus(GUEST_ACTIVITY_WRITE_INTERVAL);
+        return userRepository.touchGuestLastActiveAt(userId, now, writeThreshold)
+                .onErrorResume(error -> {
+                    System.err.println("⚠️ [游客活跃时间] 更新失败: " + error.getMessage());
+                    return Mono.empty();
+                })
+                .then();
+    }
+
+    private Mono<Void> refreshTokenIfNeeded(ServerWebExchange exchange, String requestPath, String authToken) {
+        if (!jwtUtil.shouldRefreshToken(authToken)) {
+            return Mono.empty();
+        }
+
+        String username = jwtUtil.getUsernameFromToken(authToken);
+        Long userId = jwtUtil.getUserIdFromToken(authToken);
+
+        String refreshedToken = jwtUtil.refreshToken(authToken);
+        if (refreshedToken == null) {
+            System.err.println("❌ [Token刷新] 用户 '" + username + "' Token刷新返回null | 请求路径: " + requestPath);
+            return Mono.empty();
+        }
+
+        String newJti = jwtUtil.getIdFromToken(refreshedToken);
+        if (newJti == null) {
+            System.err.println("⚠️ [Token刷新] 无法从新Token中提取JTI，不返回新Token");
+            return Mono.empty();
+        }
+
+        Date expiration = jwtUtil.getExpirationDateFromToken(refreshedToken);
+        if (expiration == null) {
+            System.err.println("⚠️ [Token刷新] 无法获取新Token的过期时间，不返回新Token");
+            return Mono.empty();
+        }
+
+        String redisKey = "token:jti:" + newJti;
+        long ttlMillis = expiration.getTime() - System.currentTimeMillis();
+        Duration ttl = Duration.ofMillis(ttlMillis);
+
+        return redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
+                .timeout(Duration.ofSeconds(2))
+                .doOnSuccess(saved -> {
+                    if (Boolean.TRUE.equals(saved)) {
+                        System.out.println("🔄 [Token刷新] 新JTI已成功存储到Redis: " + newJti);
+
+                        String oldJti = jwtUtil.getIdFromToken(authToken);
+                        if (oldJti != null && !oldJti.equals(newJti)) {
+                            String oldRedisKey = "token:jti:" + oldJti;
+                            redisTemplate.delete(oldRedisKey)
+                                    .doOnSuccess(deleted -> {
+                                        if (Boolean.TRUE.equals(deleted)) {
+                                            System.out.println("🗋 [Token清理] 旧JTI已从白名单中移除: " + oldJti);
+                                        }
+                                    })
+                                    .doOnError(error -> System.err.println("⚠️ [Token清理] 清理旧JTI异常: " + error.getMessage()))
+                                    .subscribe();
+                        }
+
+                        ServerHttpResponse response = exchange.getResponse();
+                        response.getHeaders().add("X-Refreshed-Token", refreshedToken);
+                        System.out.println("🔄 [Token刷新] 用户 '" + username + "' (ID: " + userId + ") 的Token已成功刷新 | 请求路径: " + requestPath);
+
+                        Date exp = jwtUtil.getExpirationDateFromToken(authToken);
+                        if (exp != null) {
+                            long timeToExpiry = exp.getTime() - System.currentTimeMillis();
+                            if (timeToExpiry > 0) {
+                                System.out.println("📊 [Token刷新] 原Token剩余 " + (timeToExpiry / 1000 / 60) + " 分钟过期，提前刷新成功");
+                            } else {
+                                System.out.println("📊 [Token刷新] 原Token已过期 " + (-timeToExpiry / 1000) + " 秒，宽限期内刷新成功");
+                            }
+                        }
+                    } else {
+                        System.err.println("⚠️ [Token刷新] 新JTI存储到Redis失败，JTI可能已存在: " + newJti + "，不返回新Token");
+                    }
+                })
+                .doOnError(error -> System.err.println("💥 [Token刷新] Redis存储新JTI异常: " + error.getMessage() + "，不返回新Token"))
+                .then();
     }
 
     /**

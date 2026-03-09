@@ -1,11 +1,14 @@
 package org.example.ai_agent.controller;
 
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.Arrays;
 
 @RestController
 @RequestMapping("/api/models")
@@ -15,9 +18,9 @@ public class ModelController {
     @GetMapping
     public List<Map<String, String>> getAvailableModels() {
         return Arrays.asList(
-            createModelInfo("zai-org/GLM-4.5-Air", "GLM-4", "超快响应模型，适合快速对话（推荐）", "fast"),
-            createModelInfo("deepseek-ai/DeepSeek-V3", "DeepSeek V3", "高性能推理模型，适合复杂对话", "medium"),
-            createModelInfo("Tongyi-Zhiwen/QwenLong-L1-32B", "通义千问-32B", "长文本处理模型，响应较慢但适合长对话", "slow")
+                createModelInfo("zai-org/GLM-4.5-Air", "GLM-4", "快速响应模型，适合日常对话", "fast"),
+                createModelInfo("Pro/deepseek-ai/DeepSeek-R1", "DeepSeek R1", "推理能力更强，适合复杂对话", "medium"),
+                createModelInfo("Qwen/Qwen3-Coder-30B-A3B-Instruct", "Qwen3 Coder 30B", "长文本与代码能力更强，适合复杂任务", "slow")
         );
     }
 

@@ -1,20 +1,25 @@
 package org.example.ai_agent.controller;
 
-import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
+import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.ConversationService;
-import org.example.ai_agent.service.SearchService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.security.Principal;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/conversations")
@@ -22,57 +27,59 @@ import java.util.Map;
 public class ConversationController {
 
     private final ConversationService conversationService;
-    private final SearchService searchService;
     private final UserRepository userRepository;
 
-    public ConversationController(ConversationService conversationService, SearchService searchService, UserRepository userRepository) {
+    public ConversationController(ConversationService conversationService, UserRepository userRepository) {
         this.conversationService = conversationService;
-        this.searchService = searchService;
         this.userRepository = userRepository;
     }
 
     @PostMapping
     public Mono<Conversation> createConversation(Principal principal) {
-        String principalName = principal.getName();
-        // 只支持注册用户创建对话
-        return userRepository.findByUsername(principalName)
+        return userRepository.findByUsername(principal.getName())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
                 .flatMap(user -> {
                     Conversation conversation = new Conversation();
                     conversation.setUserId(user.getUserId());
-                    conversation.setTitle("New Conversation"); // 可以设置为一个更动态的标题
+                    conversation.setTitle("New Conversation");
                     return conversationService.createConversation(conversation);
-                })
-                .switchIfEmpty(Mono.error(new IllegalStateException("无法为 principal 创建会话: " + principalName)));
+                });
     }
 
     @PostMapping("/{conversationId}/messages")
-    public Mono<Message> addMessage(@PathVariable Long conversationId, @RequestBody MessageDto messageDto) {
-        Message message = new Message();
-        message.setConversationId(conversationId);
-        message.setSender(messageDto.getSender());
-        message.setContent((String) messageDto.getContent());
-        message.setModel(messageDto.getModel());
-        return conversationService.addMessageToConversation(message);
+    public Mono<Message> addMessage(@PathVariable Long conversationId, @RequestBody MessageDto messageDto, Principal principal) {
+        return userRepository.findByUsername(principal.getName())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
+                .flatMap(user -> conversationService.getConversationById(conversationId, user.getUserId()))
+                .flatMap(conversation -> {
+                    Message message = new Message();
+                    message.setConversationId(conversation.getId());
+                    message.setSender(messageDto.getSender());
+                    message.setContent((String) messageDto.getContent());
+                    message.setModel(messageDto.getModel());
+                    return conversationService.addMessageToConversation(message);
+                });
     }
 
     @GetMapping("/{conversationId}/messages")
-    public Flux<Message> getMessages(@PathVariable Long conversationId) {
-        return conversationService.getMessagesByConversationId(conversationId);
+    public Flux<Message> getMessages(@PathVariable Long conversationId, Principal principal) {
+        return userRepository.findByUsername(principal.getName())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
+                .flatMapMany(user -> conversationService.getMessagesByConversationId(conversationId, user.getUserId()));
     }
 
     @GetMapping("/recent")
     public Flux<ConversationWithPreview> getRecentConversations(Principal principal) {
-        // 根据用户名查找用户，然后获取该用户的最近会话（包含预览信息）
         return userRepository.findByUsername(principal.getName())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
                 .flatMapMany(user -> conversationService.getRecentConversationsWithPreview(user.getUserId()));
     }
 
     @DeleteMapping("/{conversationId}")
     public Mono<ResponseEntity<Void>> deleteConversation(@PathVariable Long conversationId, Principal principal) {
         return userRepository.findByUsername(principal.getName())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
                 .flatMap(user -> conversationService.deleteConversation(conversationId, user.getUserId()))
-                .then(Mono.just(new ResponseEntity<Void>(HttpStatus.NO_CONTENT)))
-                .defaultIfEmpty(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+                .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
     }
-
 }

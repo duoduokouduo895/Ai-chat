@@ -89,8 +89,8 @@ const filters = reactive({
 
 // 可用模型列表
 const availableModels = ref([
-  'deepseek-ai/DeepSeek-V3',
-  'Tongyi-Zhiwen/QwenLong-L1-32B',
+  'Pro/deepseek-ai/DeepSeek-R1',
+  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
 ])
 
 // 事件处理器
