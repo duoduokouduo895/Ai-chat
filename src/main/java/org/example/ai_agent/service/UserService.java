@@ -10,6 +10,8 @@ public interface UserService {
 
     Mono<String> loginUser(String username, String password);
 
+    Mono<String> createGuestAndLogin();
+
     /**
      * 用户登出。
      * @param authorizationHeader 完整的 "Authorization" 请求头 (例如, "Bearer ...")。

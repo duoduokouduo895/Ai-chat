@@ -250,7 +250,7 @@ public class SearchServiceImpl implements SearchService {
     }
 
     @Override
-    public Mono<Void> recordSearchHistory(String query, String type) {
+    public Mono<Void> recordSearchHistory(Long userId, String query, String type) {
         if (query == null || query.trim().isEmpty()) {
             return Mono.empty();
         }
@@ -258,36 +258,37 @@ public class SearchServiceImpl implements SearchService {
         String trimmedQuery = query.trim();
 
         // 检查是否已存在相同的查询（使用最新记录）
-        return searchHistoryRepository.findLatestByQuery(trimmedQuery)
+        return searchHistoryRepository.findLatestByUserIdAndQuery(userId, trimmedQuery)
                 .flatMap(existingHistory -> {
                     // 如果存在，更新时间戳
                     existingHistory.setTimestamp(LocalDateTime.now());
                     return searchHistoryRepository.save(existingHistory)
-                            .doOnSuccess(updated -> log.debug("搜索历史已更新: query={}, id={}", trimmedQuery, updated.getId()))
+                            .doOnSuccess(updated -> log.debug("搜索历史已更新: userId={}, query={}, id={}", userId, trimmedQuery, updated.getId()))
                             .then();
                 })
                 .switchIfEmpty(
                     // 如果不存在，创建新记录
                     Mono.fromCallable(() -> {
                         org.example.ai_agent.entity.SearchHistory searchHistory = new org.example.ai_agent.entity.SearchHistory();
+                        searchHistory.setUserId(userId);
                         searchHistory.setQuery(trimmedQuery);
                         searchHistory.setType(type != null ? type : "GENERAL");
                         searchHistory.setTimestamp(LocalDateTime.now());
                         return searchHistory;
                     })
                     .flatMap(searchHistoryRepository::save)
-                    .doOnSuccess(saved -> log.debug("搜索历史记录已保存: query={}, type={}, id={}", trimmedQuery, type, saved.getId()))
+                    .doOnSuccess(saved -> log.debug("搜索历史记录已保存: userId={}, query={}, type={}, id={}", userId, trimmedQuery, type, saved.getId()))
                     .then()
                 )
                 .doOnError(error -> log.error("保存搜索历史失败: query={}", trimmedQuery, error));
     }
 
     @Override
-    public Flux<ConversationDocument> getSearchHistory(int size) {
-        log.debug("开始获取去重搜索历史, size={}", size);
+    public Flux<ConversationDocument> getSearchHistory(Long userId, int size) {
+        log.debug("开始获取去重搜索历史, userId={}, size={}", userId, size);
 
         // 优先使用改进的去重查询
-        return searchHistoryRepository.findDistinctByQueryOrderByTimestampDesc(Math.max(1, size))
+        return searchHistoryRepository.findDistinctByUserIdOrderByTimestampDesc(userId, Math.max(1, size))
                 .doOnNext(history -> log.debug("找到去重历史记录: id={}, query={}, timestamp={}",
                     history.getId(), history.getQuery(), history.getTimestamp()))
                 .map(searchHistory -> {
@@ -309,21 +310,21 @@ public class SearchServiceImpl implements SearchService {
     }
 
     @Override
-    public Mono<Void> clearSearchHistory() {
-        return searchHistoryRepository.deleteAll()
-                .doOnSuccess(v -> log.info("搜索历史已清空"))
-                .doOnError(error -> log.error("清空搜索历史失败", error));
+    public Mono<Void> clearSearchHistory(Long userId) {
+        return searchHistoryRepository.deleteByUserId(userId)
+                .doOnSuccess(v -> log.info("用户 {} 搜索历史已清空", userId))
+                .doOnError(error -> log.error("用户 {} 清空搜索历史失败", userId, error));
     }
 
     @Override
-    public Mono<String> cleanupDuplicateSearchHistory() {
-        return searchHistoryRepository.findAllOrderByTimestampDesc()
+    public Mono<String> cleanupDuplicateSearchHistory(Long userId) {
+        return searchHistoryRepository.findAllByUserIdOrderByTimestampDesc(userId)
                 .doOnNext(history -> log.debug("处理历史记录: id={}, query={}, timestamp={}",
                     history.getId(), history.getQuery(), history.getTimestamp()))
                 .count()
                 .doOnNext(totalBefore -> log.info("清理前总记录数: {}", totalBefore))
-                .then(searchHistoryRepository.cleanupDuplicateHistory())
-                .then(searchHistoryRepository.findAllOrderByTimestampDesc().count())
+                .then(searchHistoryRepository.cleanupDuplicateHistoryByUserId(userId))
+                .then(searchHistoryRepository.findAllByUserIdOrderByTimestampDesc(userId).count())
                 .doOnNext(totalAfter -> log.info("清理后总记录数: {}", totalAfter))
                 .map(totalAfter -> "清理重复搜索历史完成，剩余记录数: " + totalAfter)
                 .doOnError(error -> log.error("清理重复搜索历史失败", error));

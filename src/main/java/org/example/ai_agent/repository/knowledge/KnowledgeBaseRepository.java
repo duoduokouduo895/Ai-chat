@@ -69,6 +69,17 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
     Flux<KnowledgeBase> findByIsPublicAndStatusOrderByCreatedAtDesc(Boolean isPublic, String status, Pageable pageable);
     
     /**
+     * 查询指定用户创建的或公开的活跃知识库
+     * 
+     * @param creatorId 创建者ID
+     * @param isPublic 是否公开
+     * @param status 状态
+     * @param pageable 分页信息
+     * @return 知识库列表
+     */
+    Flux<KnowledgeBase> findByCreatorIdOrIsPublicAndStatusOrderByCreatedAtDesc(Long creatorId, Boolean isPublic, String status, Pageable pageable);
+    
+    /**
      * 统计知识库数量
      * 
      * @param status 状态

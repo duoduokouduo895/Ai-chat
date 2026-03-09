@@ -114,28 +114,32 @@ public interface SearchService {
 
     /**
      * 记录搜索历史
+     * @param userId 这名用户的ID
      * @param query 搜索关键词
      * @param type 搜索类型
      * @return 操作完成的信号
      */
-    Mono<Void> recordSearchHistory(String query, String type);
+    Mono<Void> recordSearchHistory(Long userId, String query, String type);
 
     /**
      * 获取搜索历史对话
+     * @param userId 这名用户的ID
      * @param size 历史记录数量
      * @return 包含完整对话信息的搜索历史列表
      */
-    Flux<ConversationDocument> getSearchHistory(int size);
+    Flux<ConversationDocument> getSearchHistory(Long userId, int size);
 
     /**
      * 清除搜索历史
+     * @param userId 这名用户的ID
      * @return 操作完成的信号
      */
-    Mono<Void> clearSearchHistory();
+    Mono<Void> clearSearchHistory(Long userId);
     
     /**
      * 清理重复的搜索历史记录
+     * @param userId 这名用户的ID
      * @return 清理结果信息
      */
-    Mono<String> cleanupDuplicateSearchHistory();
+    Mono<String> cleanupDuplicateSearchHistory(Long userId);
 }

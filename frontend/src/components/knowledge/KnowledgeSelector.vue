@@ -8,6 +8,11 @@
       size="small"
       @change="handleSelectionChange"
     >
+      <template #empty>
+        <div style="padding: 20px; text-align: center; color: #999;">
+          {{ isGuest ? '登录即可使用' : '无数据' }}
+        </div>
+      </template>
       <el-option
         v-for="kb in knowledgeBases"
         :key="kb.id"
@@ -39,7 +44,8 @@ export default {
     return {
       selectedKnowledgeBaseIds: [],
       knowledgeBases: [],
-      loading: false
+      loading: false,
+      isGuest: localStorage.getItem('isGuest') === 'true'
     }
   },
   watch: {

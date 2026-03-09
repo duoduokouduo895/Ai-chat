@@ -63,6 +63,7 @@ public class UserServiceImpl implements UserService {
                     user.setUsername(dto.getUsername());
                     user.setEmail(dto.getEmail());
                     user.setPassword(passwordEncoder.encode(dto.getPassword()));
+                    user.setIsGuest(false); // 明确标记非游客
                     return userRepository.save(user);
                 })
                 .then();
@@ -141,9 +142,30 @@ public class UserServiceImpl implements UserService {
         return redisTemplate.delete(redisKey).then();
     }
 
-
-
-
-    
+    @Override
+    public Mono<String> createGuestAndLogin() {
+        // 1. 生成游客用户名: Duog_ + UUID的前8位字符
+        String shortUuid = UUID.randomUUID().toString().substring(0, 8);
+        String guestUsername = "Duog_" + shortUuid;
+        
+        // 2. 构造游客实体
+        User guestUser = new User();
+        guestUser.setUsername(guestUsername);
+        guestUser.setPassword(passwordEncoder.encode("duo123")); // 游客统一使用默认密码
+        guestUser.setEmail(null); // 游客没有邮箱
+        guestUser.setIsGuest(true); // 标记这是一个游客账号
+        
+        // 记录日志
+        log.info("开始创建游客账号: {}", guestUsername);
+        
+        // 3. 将游客信息保存到数据库，并在成功后直接调用已有的loginUser完成登录
+        return userRepository.save(guestUser)
+                .doOnSuccess(savedUser -> log.info("游客账号创建成功, user_id: {}", savedUser.getUserId()))
+                .flatMap(savedUser -> loginUser(guestUsername, "duo123")) // 创建成功后，内部调用正常的登录逻辑获取 Token
+                .onErrorResume(e -> {
+                    log.error("创建游客账号失败: {}", e.getMessage(), e);
+                    return Mono.error(new RuntimeException("无法创建游客账户，请稍后重试"));
+                });
+    }
 
 }

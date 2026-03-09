@@ -27,6 +27,9 @@ public class User {
     @Column("created_at")
     private LocalDateTime createdAt;
 
+    @Column("is_guest")
+    private Boolean isGuest;
+
 
     
     /**

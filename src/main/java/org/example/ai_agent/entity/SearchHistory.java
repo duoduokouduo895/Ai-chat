@@ -17,6 +17,8 @@ public class SearchHistory {
     @Id
     private Long id;
 
+    private Long userId;
+
     private String query;
 
     private String type;

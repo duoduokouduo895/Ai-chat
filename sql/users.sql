@@ -1,7 +1,7 @@
 /*
  Navicat Premium Data Transfer
 
- Source Server         : 华为云
+ Source Server         : 腾讯云2
  Source Server Type    : MySQL
  Source Server Version : 80030 (8.0.30)
  Source Host           : 111.230.243.93:3306
@@ -11,7 +11,7 @@
  Target Server Version : 80030 (8.0.30)
  File Encoding         : 65001
 
- Date: 08/09/2025 08:07:10
+ Date: 09/03/2026 07:25:30
 */
 
 SET NAMES utf8mb4;
@@ -27,17 +27,18 @@ CREATE TABLE `users`  (
   `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `is_guest` tinyint(1) NULL DEFAULT 0 COMMENT '是否为游客账号',
   PRIMARY KEY (`user_id`) USING BTREE,
   UNIQUE INDEX `uk_username`(`username` ASC) USING BTREE,
   UNIQUE INDEX `uk_email`(`email` ASC) USING BTREE,
   UNIQUE INDEX `idx_users_username`(`username` ASC) USING BTREE,
   UNIQUE INDEX `idx_users_email`(`email` ASC) USING BTREE,
   INDEX `idx_users_created_at`(`created_at` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 20 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 21 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of users
 -- ----------------------------
-INSERT INTO `users` VALUES (19, 'Dduo', '$2a$10$67nI/Ctm5rcSJO9K.IrcmOsi0m3cBMZGAT7l5S6rz8xaKIMkk8yme', '123456@qq.com', '2025-09-06 23:00:01');
+INSERT INTO `users` VALUES (20, 'Dduo', '$2a$10$O7e.7ozLzgNxGwAGL6XPse7tUmyJePuz8NhZaGskdM0M3pd6B4fwS', '123456@qq.com', '2025-09-08 23:45:48', 0);
 
 SET FOREIGN_KEY_CHECKS = 1;

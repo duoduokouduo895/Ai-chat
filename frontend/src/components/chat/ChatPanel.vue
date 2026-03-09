@@ -59,6 +59,8 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ChatMessage from './ChatMessage.vue'
 import SystemMessage from './SystemMessage.vue'
 import ChatInput from './ChatInput.vue'
@@ -98,6 +100,8 @@ const selectedModel = ref('zai-org/GLM-4.5-Air')
 const selectedKnowledgeBaseIds = ref([])
 const chatMode = ref('normal') // 'normal' | 'rag'
 
+const router = useRouter()
+
 // 计算属性
 const conversationTitle = computed(() => {
   const baseTitle = '新的对话'  // 固定显示"新的对话"
@@ -107,6 +111,61 @@ const conversationTitle = computed(() => {
 
 // 发送消息处理
 const handleSendMessage = (message, model, knowledgeBaseIds) => {
+  // --- 游客模式拦截逻辑开始 ---
+  const isGuest = localStorage.getItem('isGuest') === 'true'
+  
+  if (isGuest) {
+    // 拦截 1: 游客不可使用知识库
+    if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
+      ElMessage.warning('游客模式下无法使用知识库系统，请登录以继续使用。')
+      return // 阻止发送
+    }
+    
+    // 拦截 2: 限制消息发送次数
+    let guestMessageCount = parseInt(localStorage.getItem('guestMessageCount') || '0', 10)
+    
+    if (guestMessageCount >= 2) {
+      ElMessageBox.alert(
+        '体验次数已用尽！请创建账户或登录以继续使用 Dduo AI-Chat 更多高级功能。', 
+        '提示', 
+        {
+          confirmButtonText: '确定',
+          type: 'warning',
+          showClose: false,
+          closeOnClickModal: false,
+          closeOnPressEscape: false,
+          callback: () => {
+            // 跳转前强制清理本地域的游客数据
+            localStorage.removeItem('token');
+            localStorage.removeItem('isGuest');
+            localStorage.removeItem('guestMessageCount');
+            // 使用 router 跳转并兜底 location
+            router.push('/login').catch(() => {
+              window.location.href = '/login'
+            })
+          }
+        }
+      )
+      return // 阻止发送
+    }
+    
+    // 如果还没用尽，增加计数
+    guestMessageCount++
+    localStorage.setItem('guestMessageCount', guestMessageCount.toString())
+    
+    // 发送后给出 Element Plus 提示
+    if (guestMessageCount < 2) {
+      setTimeout(() => {
+        ElMessage({
+          message: `您当前为游客模式，还可以发送 ${2 - guestMessageCount} 条信息。`,
+          type: 'info',
+          duration: 3000
+        })
+      }, 500)
+    }
+  }
+  // --- 游客模式拦截逻辑结束 ---
+
   const chatRequest = {
     message,
     model,

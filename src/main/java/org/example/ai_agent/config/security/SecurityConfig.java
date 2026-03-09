@@ -73,7 +73,7 @@ public class SecurityConfig {
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.POST, "/api/search/**").permitAll()
-                        .pathMatchers("/api/users/register", "/api/users/login", "/api/search/**", "/api/test/**").permitAll()
+                        .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/search/**", "/api/test/**").permitAll()
                         .pathMatchers("/actuator/**").permitAll() // 开放 Actuator 端点访问
                         .pathMatchers("/api/diagnostic/**").permitAll() // 开放诊断端点访问
                         .anyExchange().authenticated()

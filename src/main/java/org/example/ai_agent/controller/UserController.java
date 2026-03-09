@@ -73,6 +73,30 @@ public class UserController {
     }
 
     /**
+     * 游客一键体验登录。
+     * 后台将自动生成游客账号，并返回可用的 JWT Token。
+     * @return 包含生成的 token 的响应
+     */
+    @PostMapping("/guest")
+    public Mono<ResponseEntity<Map<String, Object>>> createGuestAndLogin() {
+        return userService.createGuestAndLogin()
+                .map(token -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", true);
+                    response.put("token", token);
+                    response.put("message", "游客账号创建成功");
+                    return ResponseEntity.ok().body(response);
+                })
+                .onErrorResume(e -> {
+                    org.slf4j.LoggerFactory.getLogger(UserController.class).error("Unexpected error during guest login", e);
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", false);
+                    response.put("message", "创建游客账户失败: " + e.getMessage());
+                    return Mono.just(ResponseEntity.status(500).body(response));
+                });
+    }
+
+    /**
      * 用户登出。
      * @param authorizationHeader 包含 "Bearer " token 的认证头。
      * @return 成功或失败的响应。

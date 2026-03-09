@@ -10,49 +10,47 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
     
     /**
      * 根据查询内容查找最新的搜索历史记录
-     * @param query 查询内容
-     * @return 最新的搜索历史记录
      */
-    @Query("SELECT * FROM search_history WHERE query = :query ORDER BY timestamp DESC LIMIT 1")
-    Mono<SearchHistory> findLatestByQuery(String query);
+    @Query("SELECT * FROM search_history WHERE user_id = :userId AND query = :query ORDER BY timestamp DESC LIMIT 1")
+    Mono<SearchHistory> findLatestByUserIdAndQuery(Long userId, String query);
     
     /**
      * 按时间倒序获取去重的搜索历史（MySQL版本）
-     * @param limit 限制数量
-     * @return 去重的搜索历史列表
      */
     @Query("SELECT s1.* FROM search_history s1 " +
            "WHERE s1.id IN (" +
            "  SELECT MAX(s2.id) FROM search_history s2 " +
+           "  WHERE s2.user_id = :userId " +
            "  GROUP BY s2.query" +
            ") " +
            "ORDER BY s1.timestamp DESC LIMIT :limit")
-    Flux<SearchHistory> findDistinctByQueryOrderByTimestampDesc(int limit);
+    Flux<SearchHistory> findDistinctByUserIdOrderByTimestampDesc(Long userId, int limit);
     
     /**
      * 删除指定查询的旧记录
-     * @param query 查询内容
-     * @param keepId 要保留的记录ID
-     * @return 删除完成信号
      */
-    @Query("DELETE FROM search_history WHERE query = :query AND id != :keepId")
-    Mono<Void> deleteOldRecordsByQuery(String query, Long keepId);
+    @Query("DELETE FROM search_history WHERE user_id = :userId AND query = :query AND id != :keepId")
+    Mono<Void> deleteOldRecordsByUserIdAndQuery(Long userId, String query, Long keepId);
     
     /**
      * 获取所有搜索历史用于调试
-     * @return 所有搜索历史记录
      */
-    @Query("SELECT * FROM search_history ORDER BY timestamp DESC")
-    Flux<SearchHistory> findAllOrderByTimestampDesc();
+    @Query("SELECT * FROM search_history WHERE user_id = :userId ORDER BY timestamp DESC")
+    Flux<SearchHistory> findAllByUserIdOrderByTimestampDesc(Long userId);
     
     /**
      * 清理重复的搜索历史，保留每个查询的最新记录
-     * @return 清理完成信号
      */
-    @Query("DELETE FROM search_history WHERE id NOT IN (" +
+    @Query("DELETE FROM search_history WHERE user_id = :userId AND id NOT IN (" +
            "  SELECT max_id FROM (" +
-           "    SELECT MAX(id) as max_id FROM search_history GROUP BY query" +
+           "    SELECT MAX(id) as max_id FROM search_history WHERE user_id = :userId GROUP BY query" +
            "  ) AS temp" +
            ")")
-    Mono<Void> cleanupDuplicateHistory();
+    Mono<Void> cleanupDuplicateHistoryByUserId(Long userId);
+
+    /**
+     * 清理用户的所有搜索历史
+     */
+    @Query("DELETE FROM search_history WHERE user_id = :userId")
+    Mono<Void> deleteByUserId(Long userId);
 }

@@ -149,10 +149,17 @@ public class KnowledgeController {
     public Flux<KnowledgeBaseDto> getKnowledgeBases(
             @RequestParam(required = false) Boolean publicOnly,
             @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+            @RequestParam(defaultValue = "10") Integer size,
+            @RequestHeader(value = org.springframework.http.HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
         log.info("查询知识库列表: publicOnly={}, page={}, size={}", publicOnly, page, size);
 
-        return knowledgeBaseService.getKnowledgeBases(publicOnly, page, size)
+        Long creatorId = null;
+        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+            String token = authorizationHeader.substring(7).trim();
+            creatorId = jwtUtil.getUserIdFromToken(token);
+        }
+
+        return knowledgeBaseService.getKnowledgeBases(creatorId, publicOnly, page, size)
                 .doOnComplete(() -> log.info("知识库列表查询完成"))
                 .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()));
     }

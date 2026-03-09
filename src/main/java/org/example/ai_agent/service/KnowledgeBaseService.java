@@ -30,12 +30,13 @@ public interface KnowledgeBaseService {
     /**
      * 获取知识库列表
      * 
+     * @param creatorId 当前用户ID
      * @param publicOnly 是否只获取公开知识库
      * @param page 页码
      * @param size 页大小
      * @return 知识库列表
      */
-    Flux<KnowledgeBaseDto> getKnowledgeBases(Boolean publicOnly, Integer page, Integer size);
+    Flux<KnowledgeBaseDto> getKnowledgeBases(Long creatorId, Boolean publicOnly, Integer page, Integer size);
     
     /**
      * 获取知识库详情

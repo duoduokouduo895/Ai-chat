@@ -11,6 +11,15 @@
         💬
       </button>
       <button
+          v-if="isGuest"
+          class="icon-btn"
+          @click="handleAuth"
+          title="去登录/注册"
+      >
+        🔑
+      </button>
+      <button
+          v-if="!isGuest"
           class="icon-btn"
           :class="{ active: currentView === 'knowledge' }"
           @click="$emit('switchView', 'knowledge')"
@@ -19,6 +28,7 @@
         📚
       </button>
       <button
+          v-if="!isGuest"
           class="icon-btn"
           :class="{ active: currentView === 'search' }"
           @click="$emit('switchView', 'search')"
@@ -132,6 +142,11 @@ const isUserLoggedIn = computed(() => {
   return userApiService.isLoggedIn();
 });
 
+// 计算属性，判断是否游客
+const isGuest = computed(() => {
+  return localStorage.getItem('isGuest') === 'true';
+});
+
 // 处理认证操作
 const handleAuth = async () => {
   if (isUserLoggedIn.value) {
@@ -214,23 +229,11 @@ const getConversationPreview = (conversation) => {
 }
 
 .sidebar-icons {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: var(--spacing-xl) var(--spacing-lg);
   border-bottom: 1px solid var(--border-dark);
-}
-
-.sidebar-icons .icon-btn:first-child {
-  justify-self: start;
-}
-
-.sidebar-icons .icon-btn:nth-child(2) {
-  justify-self: center;
-}
-
-.sidebar-icons .icon-btn:last-child {
-  justify-self: end;
 }
 
 .icon-btn {
