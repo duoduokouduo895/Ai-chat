@@ -20,6 +20,15 @@ public interface MessageRepository extends R2dbcRepository<Message, Long> {
     @Query("SELECT * FROM message WHERE conversation_id = :conversationId AND sender = :sender ORDER BY timestamp ASC LIMIT 1")
     Mono<Message> findFirstByConversationIdAndSenderOrderByTimestampAsc(@Param("conversationId") Long conversationId, @Param("sender") String sender);
 
+    /**
+     * 根据对话ID查询最后一条消息
+     *
+     * @param conversationId 对话ID
+     * @return 最后一条消息
+     */
+    @Query("SELECT * FROM message WHERE conversation_id = :conversationId ORDER BY timestamp DESC LIMIT 1")
+    Mono<Message> findFirstByConversationIdOrderByTimestampDesc(@Param("conversationId") Long conversationId);
+
 
 
     /**

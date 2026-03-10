@@ -37,6 +37,25 @@ public interface KnowledgeBaseService {
      * @return 知识库列表
      */
     Flux<KnowledgeBaseDto> getKnowledgeBases(Long creatorId, Boolean publicOnly, Integer page, Integer size);
+
+    /**
+     * 管理员视角获取全站知识库列表
+     *
+     * @param page 页码
+     * @param size 页大小
+     * @return 全站知识库列表
+     */
+    Flux<KnowledgeBaseDto> getAllKnowledgeBases(Integer page, Integer size);
+
+    /**
+     * 管理员视角获取指定用户创建的知识库
+     *
+     * @param creatorId 用户ID
+     * @param page 页码
+     * @param size 页大小
+     * @return 知识库列表
+     */
+    Flux<KnowledgeBaseDto> getKnowledgeBasesByCreatorId(Long creatorId, Integer page, Integer size);
     
     /**
      * 获取知识库详情

@@ -33,6 +33,16 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
      * @return 文档列表
      */
     Flux<KnowledgeDocument> findByKnowledgeBaseIdOrderByCreatedAtDesc(Long knowledgeBaseId, Pageable pageable);
+
+    Flux<KnowledgeDocument> findByUploaderIdOrderByCreatedAtDesc(Long uploaderId, Pageable pageable);
+
+    /**
+     * 查询全站文档（分页）
+     *
+     * @param pageable 分页信息
+     * @return 文档列表
+     */
+    Flux<KnowledgeDocument> findAllByOrderByUpdatedAtDesc(Pageable pageable);
     
     /**
      * 根据解析状态查询文档

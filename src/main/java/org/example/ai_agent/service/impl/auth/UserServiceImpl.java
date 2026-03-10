@@ -105,6 +105,20 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    public Mono<Void> deleteRegisteredUserAsAdmin(Long userId) {
+        return userRepository.findById(userId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("用户不存在")))
+                .flatMap(user -> {
+                    if (Boolean.TRUE.equals(user.getIsGuest())) {
+                        return Mono.error(new IllegalArgumentException("游客账号不允许在此处删除"));
+                    }
+
+                    return userRepository.deleteById(userId);
+                });
+    }
+
+    @Override
     public Mono<String> createGuestAndLogin() {
         // 1. 生成游客用户名: Duog_ + UUID的前8位字符
         String shortUuid = UUID.randomUUID().toString().substring(0, 8);

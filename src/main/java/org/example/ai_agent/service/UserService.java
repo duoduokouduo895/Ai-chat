@@ -19,5 +19,6 @@ public interface UserService {
      */
     Mono<Void> logoutUser(String authorizationHeader);
 
+    Mono<Void> deleteRegisteredUserAsAdmin(Long userId);
 
 }

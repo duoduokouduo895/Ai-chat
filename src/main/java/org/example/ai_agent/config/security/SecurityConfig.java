@@ -1,6 +1,7 @@
 package org.example.ai_agent.config.security;
 
 import org.example.ai_agent.filter.TokenRefreshFilter;
+import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.TicketService;
 import org.example.ai_agent.util.JwtUtil;
@@ -38,17 +39,20 @@ public class SecurityConfig {
     private final JwtUtil jwtUtil;
     private final TokenRefreshFilter tokenRefreshFilter;
     private final UserRepository userRepository;
+    private final AdminUserRepository adminUserRepository;
     private final TicketService ticketService;
     private final ReactiveStringRedisTemplate redisTemplate;
 
     public SecurityConfig(JwtUtil jwtUtil,
                           TokenRefreshFilter tokenRefreshFilter,
                           UserRepository userRepository,
+                          AdminUserRepository adminUserRepository,
                           TicketService ticketService,
                           ReactiveStringRedisTemplate redisTemplate) {
         this.jwtUtil = jwtUtil;
         this.tokenRefreshFilter = tokenRefreshFilter;
         this.userRepository = userRepository;
+        this.adminUserRepository = adminUserRepository;
         this.ticketService = ticketService;
         this.redisTemplate = redisTemplate;
     }
@@ -74,6 +78,8 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.POST, "/api/search/**").permitAll()
                         .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/search/**", "/api/test/**").permitAll()
+                        .pathMatchers("/api/admin/auth/login").permitAll()
+                        .pathMatchers("/api/admin/**", "/api/knowledge/admin/**", "/api/conversations/admin/**").hasRole("ADMIN")
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/api/diagnostic/**").permitAll()
                         .anyExchange().authenticated()
@@ -90,6 +96,7 @@ public class SecurityConfig {
                 String token = (String) authentication.getCredentials();
                 String username = jwtUtil.getUsernameFromToken(token);
                 String jti = jwtUtil.getIdFromToken(token);
+                String principalType = jwtUtil.getPrincipalTypeFromToken(token);
 
                 if (username == null || jti == null) {
                     return Mono.error(new BadCredentialsException("Invalid token format"));
@@ -99,6 +106,9 @@ public class SecurityConfig {
                 return redisTemplate.hasKey(redisKey)
                         .flatMap(hasKey -> {
                             if (hasKey) {
+                                if ("ADMIN".equalsIgnoreCase(principalType)) {
+                                    return loadAuthenticatedAdmin(username, token);
+                                }
                                 return loadAuthenticatedUser(username, token);
                             }
                             return Mono.error(new BadCredentialsException("Token is invalid or revoked"));
@@ -122,6 +132,12 @@ public class SecurityConfig {
                 .map(user -> createAuthenticatedToken(user.getUsername(), user.getUserId(), credentials));
     }
 
+    private Mono<Authentication> loadAuthenticatedAdmin(String username, String credentials) {
+        return adminUserRepository.findByUsername(username)
+                .switchIfEmpty(Mono.error(new BadCredentialsException("Authenticated admin does not exist")))
+                .map(admin -> createAdminAuthenticationToken(admin.getUsername(), admin.getAdminId(), credentials));
+    }
+
     private Authentication createAuthenticatedToken(String username, Long userId, String credentials) {
         UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
                 username,
@@ -132,11 +148,22 @@ public class SecurityConfig {
         return authenticationToken;
     }
 
+    private Authentication createAdminAuthenticationToken(String username, Long adminId, String credentials) {
+        UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
+                username,
+                credentials,
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN"))
+        );
+        authenticationToken.setDetails(adminId);
+        return authenticationToken;
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:3000",
+                "http://localhost:5173",
                 "http://dduo.chat",
                 "https://dduo.chat",
                 "http://localhost:8080",

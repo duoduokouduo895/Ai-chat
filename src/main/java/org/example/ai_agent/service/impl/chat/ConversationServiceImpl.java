@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -111,7 +112,11 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     public Flux<Message> getMessagesByConversationId(Long conversationId, Long userId) {
         return getConversationById(conversationId, userId)
-                .flatMapMany(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId()));
+                .flatMapMany(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId())
+                        .switchIfEmpty(Flux.defer(() -> {
+                            logger.warn("Conversation {} for user {} exists but has no message records", conversation.getId(), userId);
+                            return Flux.empty();
+                        })));
     }
 
     @Override
@@ -143,11 +148,53 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public Flux<ConversationWithPreview> getAllRecentConversations(Integer page, Integer size) {
+        logger.info("Loading admin conversation list, page={}, size={}", page, size);
+
+        return Mono.fromCallable(() -> {
+                    int finalPage = page != null && page >= 0 ? page : 0;
+                    int finalSize = size != null && size > 0 && size <= 200 ? size : 20;
+                    return PageRequest.of(finalPage, finalSize);
+                })
+                .flatMapMany(conversationRepository::findAllByOrderByUpdatedAtDesc)
+                .flatMap(this::buildConversationPreview)
+                .doOnError(error -> logger.error("Failed to load admin conversation list", error));
+    }
+
+    @Override
+    public Flux<ConversationWithPreview> getConversationsForAdminByUserId(Long userId, Integer page, Integer size) {
+        logger.info("Loading admin conversation list for user {}, page={}, size={}", userId, page, size);
+
+        return Mono.fromCallable(() -> {
+                    int finalPage = page != null && page >= 0 ? page : 0;
+                    int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
+                    return PageRequest.of(finalPage, finalSize);
+                })
+                .flatMapMany(pageable -> conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId, pageable))
+                .flatMap(this::buildConversationPreview)
+                .doOnError(error -> logger.error("Failed to load admin conversation list for user {}", userId, error));
+    }
+
+    @Override
     @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
     public Mono<Void> deleteConversation(Long conversationId, Long userId) {
         logger.info("Deleting conversation {} for user {}", conversationId, userId);
 
         return getConversationById(conversationId, userId)
+                .flatMap(conversation -> messageRepository.deleteByConversationId(conversation.getId())
+                        .then(conversationRepository.deleteById(conversation.getId()))
+                        .then(searchService.deleteConversationIndex(conversation.getId())
+                                .doOnError(error -> logger.error("Failed to delete conversation index {}", conversation.getId(), error))
+                                .onErrorResume(error -> Mono.empty())))
+                .then();
+    }
+
+    @Override
+    @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
+    public Mono<Void> deleteConversationAsAdmin(Long conversationId) {
+        logger.info("Admin deleting conversation {}", conversationId);
+
+        return getConversationById(conversationId)
                 .flatMap(conversation -> messageRepository.deleteByConversationId(conversation.getId())
                         .then(conversationRepository.deleteById(conversation.getId()))
                         .then(searchService.deleteConversationIndex(conversation.getId())
@@ -198,5 +245,28 @@ public class ConversationServiceImpl implements ConversationService {
         preview.setUserId(conversation.getUserId());
         preview.setFirstUserMessage(firstUserMessage);
         return preview;
+    }
+
+    private Mono<ConversationWithPreview> buildConversationPreview(Conversation conversation) {
+        Mono<String> firstUserMessageMono = messageRepository
+                .findFirstByConversationIdAndSenderOrderByTimestampAsc(conversation.getId(), "user")
+                .map(Message::getContent)
+                .defaultIfEmpty("");
+
+        Mono<String> lastMessageMono = messageRepository
+                .findFirstByConversationIdOrderByTimestampDesc(conversation.getId())
+                .map(Message::getContent)
+                .defaultIfEmpty("");
+
+        return Mono.zip(firstUserMessageMono, lastMessageMono)
+                .map(tuple -> {
+                    ConversationWithPreview preview = toPreview(conversation, tuple.getT1());
+                    preview.setLastMessage(tuple.getT2());
+                    return preview;
+                })
+                .onErrorResume(error -> {
+                    logger.warn("Failed to build admin preview for conversation {}", conversation.getId(), error);
+                    return Mono.just(toPreview(conversation, "Preview unavailable"));
+                });
     }
 }

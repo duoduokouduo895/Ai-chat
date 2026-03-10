@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -145,8 +147,25 @@ public class JwtUtil {
     }
 
     public String generateToken(String username, Long userId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("principalType", "USER");
+        if (userId != null) {
+            claims.put("userId", userId);
+        }
+        return generateToken(username, claims);
+    }
+
+    public String generateAdminToken(String username, Long adminId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("principalType", "ADMIN");
+        claims.put("adminId", adminId);
+        claims.put("role", "ROLE_ADMIN");
+        return generateToken(username, claims);
+    }
+
+    private String generateToken(String username, Map<String, Object> claims) {
         try {
-            log.info("开始生成JWT Token，用户名: {}, 用户ID: {}", username, userId);
+            log.info("开始生成JWT Token，用户名: {}", username);
             
             if (username == null || username.trim().isEmpty()) {
                 throw new IllegalArgumentException("用户名不能为空");
@@ -168,10 +187,9 @@ public class JwtUtil {
                     .subject(username)
                     .issuedAt(issuedAt)
                     .expiration(expiration);
-            
-            // 如果userId不为空，添加到声明中
-            if (userId != null) {
-                tokenBuilder.claim("userId", userId);
+
+            if (claims != null) {
+                claims.forEach(tokenBuilder::claim);
             }
             
             String token = tokenBuilder.signWith(key).compact();
@@ -200,30 +218,8 @@ public class JwtUtil {
                         .subject(claims.getSubject())
                         .issuedAt(issuedAt)
                         .expiration(expiration);
-                
-                // 安全地保留原有的用户ID声明
-                try {
-                    Object userId = claims.get("userId");
-                    if (userId != null) {
-                        tokenBuilder.claim("userId", userId);
-                        log.debug("刷新Token时保留用户ID: {}", userId);
-                    }
-                } catch (UnsupportedOperationException e) {
-                    // 如果claims是不可修改的（比如来自ExpiredJwtException），
-                    // 尝试使用更安全的方式获取userId
-                    log.debug("从不可修改的Claims中获取userId时出现UnsupportedOperationException，尝试其他方式");
-                    
-                    // 尝试重新解析token来获取userId（即使token已过期）
-                    try {
-                        Long userIdFromToken = getUserIdFromToken(token);
-                        if (userIdFromToken != null) {
-                            tokenBuilder.claim("userId", userIdFromToken);
-                            log.debug("通过重新解析获取到用户ID: {}", userIdFromToken);
-                        }
-                    } catch (Exception ex) {
-                        log.warn("无法获取用户ID，刷新的Token将不包含userId声明: {}", ex.getMessage());
-                    }
-                }
+
+                copyCustomClaims(claims, tokenBuilder);
                 
                 String newToken = tokenBuilder.signWith(key).compact();
                 
@@ -362,6 +358,44 @@ public class JwtUtil {
         } catch (Exception e) {
             log.error("从Token中提取用户ID失败: {}", e.getMessage(), e);
             return null;
+        }
+    }
+
+    public Long getAdminIdFromToken(String token) {
+        try {
+            return getClaimFromToken(token, claims -> {
+                Object adminId = claims.get("adminId");
+                if (adminId instanceof Number) {
+                    return ((Number) adminId).longValue();
+                }
+                if (adminId instanceof String) {
+                    return Long.parseLong((String) adminId);
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            log.error("从Token中提取管理员ID失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    public String getPrincipalTypeFromToken(String token) {
+        try {
+            String principalType = getClaimFromToken(token, claims -> claims.get("principalType", String.class));
+            return principalType != null ? principalType : "USER";
+        } catch (Exception e) {
+            log.error("从Token中提取principalType失败: {}", e.getMessage(), e);
+            return "USER";
+        }
+    }
+
+    private void copyCustomClaims(Claims claims, io.jsonwebtoken.JwtBuilder tokenBuilder) {
+        for (Map.Entry<String, Object> entry : claims.entrySet()) {
+            String key = entry.getKey();
+            if (Claims.SUBJECT.equals(key) || Claims.EXPIRATION.equals(key) || Claims.ISSUED_AT.equals(key) || Claims.ID.equals(key)) {
+                continue;
+            }
+            tokenBuilder.claim(key, entry.getValue());
         }
     }
 }

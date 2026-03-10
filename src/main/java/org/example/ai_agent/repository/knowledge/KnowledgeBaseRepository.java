@@ -24,6 +24,8 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
      * @return 知识库列表
      */
     Flux<KnowledgeBase> findByCreatorId(Long creatorId);
+
+    Flux<KnowledgeBase> findByCreatorIdOrderByCreatedAtDesc(Long creatorId, Pageable pageable);
     
     /**
      * 根据是否公开查询知识库

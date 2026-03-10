@@ -13,8 +13,11 @@ import reactor.core.publisher.Mono;
     Flux<Message> getMessagesByConversationId(Long conversationId);
     Flux<Message> getMessagesByConversationId(Long conversationId, Long userId);
     Flux<ConversationWithPreview> getRecentConversationsWithPreview(Long userId);
+    Flux<ConversationWithPreview> getAllRecentConversations(Integer page, Integer size);
+    Flux<ConversationWithPreview> getConversationsForAdminByUserId(Long userId, Integer page, Integer size);
     Mono<Conversation> getConversationById(Long conversationId);
     Mono<Conversation> getConversationById(Long conversationId, Long userId);
     Mono<Void> deleteConversation(Long conversationId, Long userId);
+    Mono<Void> deleteConversationAsAdmin(Long conversationId);
 }
 

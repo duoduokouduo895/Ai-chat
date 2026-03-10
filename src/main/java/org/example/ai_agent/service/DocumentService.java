@@ -40,7 +40,26 @@ public interface DocumentService {
      * @return 文档列表
      */
     Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size);
-    
+
+    /**
+     * 获取全站文档列表（管理员视角）
+     *
+     * @param page 页码
+     * @param size 页大小
+     * @return 文档列表
+     */
+    Flux<DocumentDto> getAllDocuments(Integer page, Integer size);
+
+    /**
+     * 获取指定上传用户的文档列表（管理员视角）
+     *
+     * @param uploaderId 上传用户ID
+     * @param page 页码
+     * @param size 页大小
+     * @return 文档列表
+     */
+    Flux<DocumentDto> getDocumentsByUploaderId(Long uploaderId, Integer page, Integer size);
+
     /**
      * 获取文档详情
      * 

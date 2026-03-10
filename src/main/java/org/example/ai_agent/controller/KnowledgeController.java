@@ -48,7 +48,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
-@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
 public class KnowledgeController {
 
     @Autowired
@@ -162,6 +162,19 @@ public class KnowledgeController {
         return knowledgeBaseService.getKnowledgeBases(creatorId, publicOnly, page, size)
                 .doOnComplete(() -> log.info("知识库列表查询完成"))
                 .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()));
+    }
+
+    /**
+     * 管理员视角获取全站知识库列表
+     */
+    @GetMapping("/admin/bases")
+    public Flux<KnowledgeBaseDto> getAllKnowledgeBasesForAdmin(@RequestParam(defaultValue = "0") Integer page,
+                                                               @RequestParam(defaultValue = "100") Integer size) {
+        log.info("管理员查询全站知识库列表: page={}, size={}", page, size);
+
+        return knowledgeBaseService.getAllKnowledgeBases(page, size)
+                .doOnComplete(() -> log.info("管理员全站知识库列表查询完成"))
+                .doOnError(error -> log.error("管理员全站知识库列表查询失败: error={}", error.getMessage()));
     }
 
     /**
@@ -378,6 +391,19 @@ public class KnowledgeController {
         return documentService.getDocuments(knowledgeBaseId, page, size)
                 .doOnComplete(() -> log.info("知识库文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
                 .doOnError(error -> log.error("知识库文档列表查询失败: knowledgeBaseId={}, error={}", knowledgeBaseId, error.getMessage()));
+    }
+
+    /**
+     * 管理员视角查询全站文档列表
+     */
+    @GetMapping("/admin/documents")
+    public Flux<DocumentDto> getAllDocumentsForAdmin(@RequestParam(defaultValue = "0") Integer page,
+                                                     @RequestParam(defaultValue = "20") Integer size) {
+        log.info("管理员查询全站文档列表: page={}, size={}", page, size);
+
+        return documentService.getAllDocuments(page, size)
+                .doOnComplete(() -> log.info("管理员全站文档列表查询完成"))
+                .doOnError(error -> log.error("管理员全站文档列表查询失败: error={}", error.getMessage()));
     }
 
     /**

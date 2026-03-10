@@ -2,7 +2,10 @@ package org.example.ai_agent.service.impl.document;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.document.DocumentDto;
+import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.entity.KnowledgeDocument;
+import org.example.ai_agent.entity.User;
+import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.DocumentProcessingService;
@@ -46,6 +49,9 @@ public class DocumentServiceImpl implements DocumentService {
     
     @Autowired
     private DocumentProcessingService documentProcessingService;
+
+    @Autowired
+    private UserRepository userRepository;
     
     @Value("${knowledge-base.document.supported-types:pdf,docx,doc,txt,md,pptx,xlsx}")
     private String[] supportedTypes;
@@ -124,8 +130,34 @@ public class DocumentServiceImpl implements DocumentService {
             return PageRequest.of(finalPage, finalSize);
         })
         .flatMapMany(pageable -> documentRepository.findByKnowledgeBaseIdOrderByCreatedAtDesc(knowledgeBaseId, pageable))
-        .map(this::toDto)
+        .flatMap(this::toEnrichedDto)
         .doOnComplete(() -> log.info("文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
+        .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Flux<DocumentDto> getAllDocuments(Integer page, Integer size) {
+        return Mono.fromCallable(() -> {
+            final int finalPage = page != null && page >= 0 ? page : 0;
+            final int finalSize = size != null && size > 0 && size <= 200 ? size : 20;
+            return PageRequest.of(finalPage, finalSize);
+        })
+        .flatMapMany(documentRepository::findAllByOrderByUpdatedAtDesc)
+        .flatMap(this::toEnrichedDto)
+        .doOnComplete(() -> log.info("全站文档列表查询完成: page={}, size={}", page, size))
+        .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Flux<DocumentDto> getDocumentsByUploaderId(Long uploaderId, Integer page, Integer size) {
+        return Mono.fromCallable(() -> {
+            final int finalPage = page != null && page >= 0 ? page : 0;
+            final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
+            return PageRequest.of(finalPage, finalSize);
+        })
+        .flatMapMany(pageable -> documentRepository.findByUploaderIdOrderByCreatedAtDesc(uploaderId, pageable))
+        .flatMap(this::toEnrichedDto)
+        .doOnComplete(() -> log.info("按上传用户查询文档完成: uploaderId={}, page={}, size={}", uploaderId, page, size))
         .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -133,7 +165,7 @@ public class DocumentServiceImpl implements DocumentService {
     public Mono<DocumentDto> getDocument(Long id) {
         return documentRepository.findById(id)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
-            .map(this::toDto)
+            .flatMap(this::toEnrichedDto)
             .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -244,6 +276,37 @@ public class DocumentServiceImpl implements DocumentService {
         dto.setUpdatedAt(entity.getUpdatedAt());
         
         return dto;
+    }
+
+    private Mono<DocumentDto> toEnrichedDto(KnowledgeDocument entity) {
+        DocumentDto dto = toDto(entity);
+
+        Mono<String> knowledgeBaseNameMono = Mono.justOrEmpty(entity.getKnowledgeBaseId())
+                .flatMap(knowledgeBaseService::getKnowledgeBase)
+                .map(KnowledgeBaseDto::getName)
+                .onErrorResume(error -> {
+                    log.warn("补全文档知识库名称失败: documentId={}, knowledgeBaseId={}, error={}",
+                            entity.getId(), entity.getKnowledgeBaseId(), error.getMessage());
+                    return Mono.empty();
+                })
+                .defaultIfEmpty("未知知识库");
+
+        Mono<String> uploaderNameMono = Mono.justOrEmpty(entity.getUploaderId())
+                .flatMap(userRepository::findById)
+                .map(User::getUsername)
+                .onErrorResume(error -> {
+                    log.warn("补全文档上传者名称失败: documentId={}, uploaderId={}, error={}",
+                            entity.getId(), entity.getUploaderId(), error.getMessage());
+                    return Mono.empty();
+                })
+                .defaultIfEmpty("未知用户");
+
+        return Mono.zip(knowledgeBaseNameMono, uploaderNameMono)
+                .map(tuple -> {
+                    dto.setKnowledgeBaseName(tuple.getT1());
+                    dto.setUploaderName(tuple.getT2());
+                    return dto;
+                });
     }
     
     /**

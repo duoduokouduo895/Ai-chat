@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,7 +24,7 @@ import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/conversations")
-@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
 public class ConversationController {
 
     private final ConversationService conversationService;
@@ -75,11 +76,23 @@ public class ConversationController {
                 .flatMapMany(user -> conversationService.getRecentConversationsWithPreview(user.getUserId()));
     }
 
+    @GetMapping("/admin")
+    public Flux<ConversationWithPreview> getAllConversationsForAdmin(@RequestParam(defaultValue = "0") Integer page,
+                                                                     @RequestParam(defaultValue = "20") Integer size) {
+        return conversationService.getAllRecentConversations(page, size);
+    }
+
     @DeleteMapping("/{conversationId}")
     public Mono<ResponseEntity<Void>> deleteConversation(@PathVariable Long conversationId, Principal principal) {
         return userRepository.findByUsername(principal.getName())
                 .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
                 .flatMap(user -> conversationService.deleteConversation(conversationId, user.getUserId()))
+                .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
+    }
+
+    @DeleteMapping("/admin/{conversationId}")
+    public Mono<ResponseEntity<Void>> deleteConversationForAdmin(@PathVariable Long conversationId) {
+        return conversationService.deleteConversationAsAdmin(conversationId)
                 .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
     }
 }

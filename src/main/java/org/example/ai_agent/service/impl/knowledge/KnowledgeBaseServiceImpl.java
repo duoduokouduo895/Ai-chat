@@ -104,6 +104,42 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
+    public Flux<KnowledgeBaseDto> getAllKnowledgeBases(Integer page, Integer size) {
+        return Mono.fromCallable(() -> {
+            log.info("管理员查询全站知识库列表: page={}, size={}", page, size);
+
+            final int finalPage = page != null && page >= 0 ? page : 0;
+            final int finalSize = size != null && size > 0 && size <= 100 ? size : 20;
+
+            Pageable pageable = PageRequest.of(finalPage, finalSize);
+            return knowledgeBaseRepository.findByStatusOrderByCreatedAtDesc("ACTIVE", pageable);
+        })
+        .flatMapMany(flux -> flux)
+        .flatMap(this::toDtoWithDocumentCount)
+        .doOnComplete(() -> log.info("管理员全站知识库列表查询完成"))
+        .doOnError(error -> log.error("管理员全站知识库列表查询失败: error={}", error.getMessage()))
+        .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Flux<KnowledgeBaseDto> getKnowledgeBasesByCreatorId(Long creatorId, Integer page, Integer size) {
+        return Mono.fromCallable(() -> {
+            log.info("管理员查询用户知识库列表: creatorId={}, page={}, size={}", creatorId, page, size);
+
+            final int finalPage = page != null && page >= 0 ? page : 0;
+            final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
+
+            Pageable pageable = PageRequest.of(finalPage, finalSize);
+            return knowledgeBaseRepository.findByCreatorIdOrderByCreatedAtDesc(creatorId, pageable);
+        })
+        .flatMapMany(flux -> flux)
+        .flatMap(this::toDtoWithDocumentCount)
+        .doOnComplete(() -> log.info("管理员用户知识库列表查询完成: creatorId={}", creatorId))
+        .doOnError(error -> log.error("管理员用户知识库列表查询失败: creatorId={}, error={}", creatorId, error.getMessage()))
+        .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
     public Mono<KnowledgeBaseDto> getKnowledgeBase(Long id) {
         return knowledgeBaseRepository.findById(id)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))

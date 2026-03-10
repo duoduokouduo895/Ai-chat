@@ -3,6 +3,7 @@ package org.example.ai_agent.repository.chat;
 import org.example.ai_agent.entity.Conversation;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
+import org.springframework.data.domain.Pageable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -22,6 +23,16 @@ public interface ConversationRepository extends R2dbcRepository<Conversation, Lo
      * @return 对话列表的响应式流
      */
     Flux<Conversation> findByUserIdOrderByUpdatedAtDesc(Long userId);
+
+    Flux<Conversation> findByUserIdOrderByUpdatedAtDesc(Long userId, Pageable pageable);
+
+    /**
+     * 查询全站会话（分页）
+     *
+     * @param pageable 分页信息
+     * @return 会话列表
+     */
+    Flux<Conversation> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
     /**
      * 查找所有用户的对话（用于搜索索引）

@@ -337,10 +337,10 @@ const openSearchedConversation = async (conversation) => {
       if (response.data.length === 0) {
         messages.value = [{
           id: Date.now(),
-          sender: 'ai',
-          text: '欢迎使用AI助手！请问有什么需要帮助的吗？',
+          sender: 'system',
+          text: '该会话当前没有消息内容。若这不是新建会话，说明消息记录可能已被清理或保存失败。',
           timestamp: new Date().toLocaleString(),
-          type: 'chat',
+          type: 'system',
           completed: true
         }]
       } else {

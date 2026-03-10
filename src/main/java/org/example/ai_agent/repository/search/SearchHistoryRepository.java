@@ -3,6 +3,7 @@ package org.example.ai_agent.repository.search;
 import org.example.ai_agent.entity.SearchHistory;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.data.r2dbc.repository.Query;
+import org.springframework.data.repository.query.Param;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -37,7 +38,20 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
      */
     @Query("SELECT * FROM search_history WHERE user_id = :userId ORDER BY timestamp DESC")
     Flux<SearchHistory> findAllByUserIdOrderByTimestampDesc(Long userId);
-    
+
+    @Query("SELECT * FROM search_history " +
+           "WHERE (:keyword IS NULL OR :keyword = '' OR query LIKE CONCAT('%', :keyword, '%')) " +
+           "ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    Flux<SearchHistory> findAdminHistory(@Param("keyword") String keyword,
+                                         @Param("limit") long limit,
+                                         @Param("offset") long offset);
+
+    @Query("SELECT COUNT(*) FROM search_history " +
+           "WHERE (:keyword IS NULL OR :keyword = '' OR query LIKE CONCAT('%', :keyword, '%'))")
+    Mono<Long> countAdminHistory(@Param("keyword") String keyword);
+
+    Mono<Long> countByTimestampAfter(java.time.LocalDateTime timestamp);
+
     /**
      * 清理重复的搜索历史，保留每个查询的最新记录
      */
