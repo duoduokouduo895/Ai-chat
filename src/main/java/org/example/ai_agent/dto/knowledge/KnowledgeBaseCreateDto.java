@@ -1,5 +1,6 @@
 package org.example.ai_agent.dto.knowledge;
 
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -15,11 +16,13 @@ public class KnowledgeBaseCreateDto {
     /**
      * 知识库名称
      */
+    @Size(max = 100, message = "知识库名称长度不能超过100个字符")
     private String name;
     
     /**
      * 知识库描述
      */
+    @Size(max = 1000, message = "知识库描述长度不能超过1000个字符")
     private String description;
     
     /**
@@ -30,5 +33,6 @@ public class KnowledgeBaseCreateDto {
     /**
      * 使用的向量化模型
      */
+    @Size(max = 120, message = "向量化模型名称长度不能超过120个字符")
     private String embeddingModel;
 }

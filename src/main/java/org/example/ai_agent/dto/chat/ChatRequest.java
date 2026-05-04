@@ -1,12 +1,15 @@
 package org.example.ai_agent.dto.chat;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-
-// import javax.validation.constraints.NotBlank;
-// import javax.validation.constraints.NotNull;
 
 /**
  * AI聊天请求DTO
@@ -28,13 +31,13 @@ public class ChatRequest {
      * 用户ID
      * 必填字段，用于标识发送消息的用户
      */
-    // @NotNull(message = "用户ID不能为空")
     private Long userId;
     
     /**
      * 会话ID
      * 可选字段，如果为空则创建新会话
      */
+    @Positive(message = "会话ID必须为正数")
     private Long conversationId;
     
     /**
@@ -42,7 +45,8 @@ public class ChatRequest {
      * 必填字段，不能为空或空白字符串
      * 前端字段名：prompt
      */
-    // @NotBlank(message = "消息内容不能为空")
+    @NotBlank(message = "消息内容不能为空")
+    @Size(max = 20000, message = "消息内容长度不能超过20000个字符")
     private String prompt;
     
     /**
@@ -50,6 +54,8 @@ public class ChatRequest {
      * 可选字段，如果为空则使用默认模型
      * 前端字段名：model
      */
+    @NotBlank(message = "模型ID不能为空")
+    @Size(max = 120, message = "模型ID长度不能超过120个字符")
     private String model;
     
     /**
@@ -86,6 +92,7 @@ public class ChatRequest {
      * 会话标题
      * 可选字段，用于创建新会话时设置标题
      */
+    @Size(max = 200, message = "会话标题长度不能超过200个字符")
     private String title;
     
     /**
@@ -101,17 +108,27 @@ public class ChatRequest {
      */
     @Builder.Default
     private Boolean streaming = true;
+
+    /**
+     * 是否为管理员上下文。
+     * 由后端根据认证信息写入，前端无需传递。
+     */
+    @Builder.Default
+    private Boolean adminRequest = false;
     
     /**
      * 知识库ID列表
      * 可选字段，如果提供则使用RAG模式进行对话
      */
+    @Size(max = 20, message = "知识库数量不能超过20个")
     private java.util.List<Long> knowledgeBaseIds;
     
     /**
      * 最大检索文档数
      * RAG模式下的参数，默认为5
      */
+    @Max(value = 20, message = "最大检索文档数不能超过20")
+    @Positive(message = "最大检索文档数必须为正数")
     @Builder.Default
     private Integer maxRetrievedDocs = 5;
     
@@ -119,6 +136,8 @@ public class ChatRequest {
      * 最小相似度
      * RAG模式下的参数，默认为0.3
      */
+    @DecimalMin(value = "0.0", message = "最小相似度不能小于0")
+    @DecimalMax(value = "1.0", message = "最小相似度不能大于1")
     @Builder.Default
     private Double minSimilarity = 0.3;
     
@@ -165,6 +184,10 @@ public class ChatRequest {
      */
     public boolean isRagMode() {
         return knowledgeBaseIds != null && !knowledgeBaseIds.isEmpty();
+    }
+
+    public boolean isAdminRequest() {
+        return Boolean.TRUE.equals(adminRequest);
     }
     
     /**

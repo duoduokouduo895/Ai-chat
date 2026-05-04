@@ -1,11 +1,10 @@
 package org.example.ai_agent.controller;
 
 import lombok.extern.slf4j.Slf4j;
-import org.example.ai_agent.service.DocumentProcessingRecordService;
-import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.service.DocumentIngestionService;
+import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
-import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -26,22 +25,22 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/diagnostic")
-@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class DiagnosticController {
 
     private final DocumentProcessingRecordService recordService;
-    private final DocumentProcessingService processingService;
+    private final DocumentIngestionService ingestionService;
     private final KnowledgeDocumentRepository documentRepository;
     private final RabbitTemplate rabbitTemplate;
     private final AmqpAdmin amqpAdmin;
 
     public DiagnosticController(DocumentProcessingRecordService recordService,
-                              DocumentProcessingService processingService,
+                              DocumentIngestionService ingestionService,
                               KnowledgeDocumentRepository documentRepository,
                               RabbitTemplate rabbitTemplate,
                               AmqpAdmin amqpAdmin) {
         this.recordService = recordService;
-        this.processingService = processingService;
+        this.ingestionService = ingestionService;
         this.documentRepository = documentRepository;
         this.rabbitTemplate = rabbitTemplate;
         this.amqpAdmin = amqpAdmin;
@@ -172,22 +171,13 @@ public class DiagnosticController {
                         return Mono.just(result);
                     }
 
-                    // 发送分块消息（带向量化选项）
-                    DocumentProcessingMessage chunkMessage = DocumentProcessingMessage.createChunkMessage(
-                        documentId, document.getKnowledgeBaseId(), true);
-
-                    return processingService.sendProcessingMessage(chunkMessage,
-                            DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK)
-                            .map(chunkResult -> {
-                                if (chunkResult) {
-                                    result.put("success", true);
-                                    result.put("message", "分块消息已发送，将自动触发向量化流程");
-                                    result.put("chunkMessageSent", true);
-                                } else {
-                                    result.put("success", false);
-                                    result.put("error", "发送分块消息失败");
-                                    result.put("chunkMessageSent", false);
-                                }
+                    return ingestionService.resumeChunkAndEmbed(documentId, document.getKnowledgeBaseId())
+                            .map(task -> {
+                                result.put("success", true);
+                                result.put("message", "文档 ingestion 已从分块阶段恢复，将继续自动触发向量化流程");
+                                result.put("chunkMessageSent", true);
+                                result.put("action", task.action());
+                                result.put("firstStage", task.firstStage());
                                 result.put("timestamp", System.currentTimeMillis());
                                 return result;
                             });
@@ -270,3 +260,5 @@ public class DiagnosticController {
         });
     }
 }
+
+

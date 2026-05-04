@@ -19,7 +19,7 @@ export const API_ENDPOINTS = {
   USER_GUEST: '/users/guest', // 新增：创建游客用户的端点
   
   // 模型相关
-  MODELS: '/models',
+  MODELS: '/ai/models',
   
   // 对话相关
   CONVERSATIONS: '/conversations',

@@ -11,6 +11,7 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
 import dev.langchain4j.store.embedding.filter.logical.And;
+import dev.langchain4j.store.embedding.filter.logical.Or;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.ai.AiModelProperties;
 import org.example.ai_agent.service.EmbeddingService;
@@ -171,15 +172,16 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 // 添加知识库过滤条件
                 if (knowledgeBaseIds != null && !knowledgeBaseIds.isEmpty()) {
                     List<Filter> filters = knowledgeBaseIds.stream()
-                        .map(id -> new IsEqualTo("knowledge_base_id", id.toString()))
-                        .map(filter -> (Filter) filter)
+                        .map(id -> (Filter) new IsEqualTo("knowledge_base_id", id.toString()))
                         .toList();
                     
-                    Filter combinedFilter = filters.size() == 1 ? 
-                        filters.get(0) : 
-                        new And(filters.get(0), filters.get(1)); // 简化版本，实际应该支持更多过滤条件
+                    Filter combinedFilter = filters.stream()
+                        .reduce((left, right) -> new Or(left, right))
+                        .orElse(null);
                     
-                    requestBuilder.filter(combinedFilter);
+                    if (combinedFilter != null) {
+                        requestBuilder.filter(combinedFilter);
+                    }
                 }
                 
                 dev.langchain4j.store.embedding.EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(requestBuilder.build());
@@ -194,6 +196,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return results;
                 
             } catch (Exception e) {
+                if (isIndexNotFound(e)) {
+                    log.warn("向量索引不存在，返回空检索结果: knowledgeBaseIds={}, error={}", knowledgeBaseIds, e.getMessage());
+                    return List.<EmbeddingService.EmbeddingSearchResult>of();
+                }
                 log.error("向量搜索失败: knowledgeBaseIds={}, error={}", knowledgeBaseIds, e.getMessage(), e);
                 throw new RuntimeException("向量搜索失败: " + e.getMessage(), e);
             }
@@ -211,6 +217,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return true;
                 
             } catch (Exception e) {
+                if (isIndexNotFound(e)) {
+                    log.warn("向量索引不存在，文档向量清理视为完成: documentId={}, error={}", documentId, e.getMessage());
+                    return true;
+                }
                 log.error("文档向量删除失败: documentId={}, error={}", documentId, e.getMessage(), e);
                 return false;
             }
@@ -275,4 +285,17 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             match.score()
         );
     }
+
+    private boolean isIndexNotFound(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("index_not_found_exception")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
 }
+

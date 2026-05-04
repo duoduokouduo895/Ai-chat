@@ -274,6 +274,8 @@ const getStatusText = (status) => {
 const getParseStatusClass = (status) => {
   const classes = {
     'PENDING': 'status-warning',
+    'PROCESSING': 'status-info',
+    'COMPLETED': 'status-success',
     'PARSING': 'status-info',
     'PARSED': 'status-success',
     'FAILED': 'status-danger'
@@ -285,6 +287,8 @@ const getParseStatusClass = (status) => {
 const getParseStatusText = (status) => {
   const texts = {
     'PENDING': '待解析',
+    'PROCESSING': '处理中',
+    'COMPLETED': '已完成',
     'PARSING': '解析中',
     'PARSED': '已解析',
     'FAILED': '解析失败'

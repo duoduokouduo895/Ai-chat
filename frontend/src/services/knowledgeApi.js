@@ -1,5 +1,10 @@
 import apiClient from './apiClient.js'
 
+const getBearerToken = () => {
+  const token = localStorage.getItem('token')
+  return token ? `Bearer ${token}` : null
+}
+
 export const knowledgeApiService = {
   // 获取知识库列表
   async getKnowledgeBases(params = {}) {
@@ -160,14 +165,18 @@ export const knowledgeApiService = {
   },
 
   // 重新向量化文档
-  async revectorizeDocument(id) {
+  async reEmbedDocument(id) {
     try {
-      const response = await apiClient.post(`/knowledge/documents/${id}/revectorize`)
+      const response = await apiClient.post(`/knowledge/documents/${id}/re-embed`)
       return response
     } catch (error) {
       console.error('重新向量化文档失败:', error)
       throw error
     }
+  },
+
+  async revectorizeDocument(id) {
+    return this.reEmbedDocument(id)
   },
 
   // 搜索知识库
@@ -181,7 +190,7 @@ export const knowledgeApiService = {
     }
   },
 
-  // RAG对话
+  // 旧 RAG 对话兼容接口，主推荐入口已收敛到统一 Assistant
   async ragChat(chatData) {
     try {
       const response = await apiClient.post('/knowledge/chat', chatData)
@@ -192,14 +201,15 @@ export const knowledgeApiService = {
     }
   },
 
-  // RAG流式对话
+  // 旧 RAG 流式对话兼容接口，主推荐入口已收敛到统一 Assistant
   async ragChatStream(chatData, onMessage, onComplete, onError) {
     try {
+      const token = getBearerToken()
       const response = await fetch(`${apiClient.defaults.baseURL}/knowledge/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...apiClient.defaults.headers.common
+          ...(token ? { Authorization: token } : {})
         },
         body: JSON.stringify(chatData)
       })
@@ -217,28 +227,12 @@ export const knowledgeApiService = {
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              onComplete && onComplete()
-              return
-            }
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.content) {
-                onMessage && onMessage(parsed.content)
-              }
-            } catch (e) {
-              console.warn('解析SSE数据失败:', e)
-            }
-          }
+        if (buffer) {
+          onMessage && onMessage(buffer)
+          buffer = ''
         }
       }
-      
+
       onComplete && onComplete()
     } catch (error) {
       console.error('RAG流式对话失败:', error)
@@ -246,10 +240,10 @@ export const knowledgeApiService = {
     }
   },
 
-  // 获取文档解析状态
-  async getDocumentStatus(id) {
+  // 获取文档向量化状态
+  async getDocumentEmbeddingStatus(id) {
     try {
-      const response = await apiClient.get(`/knowledge/documents/${id}/status`)
+      const response = await apiClient.get(`/knowledge/documents/${id}/embedding-status`)
       return response
     } catch (error) {
       console.error('获取文档状态失败:', error)
@@ -257,11 +251,29 @@ export const knowledgeApiService = {
     }
   },
 
+  async getDocumentStatus(id) {
+    return this.getDocumentEmbeddingStatus(id)
+  },
+
   // 获取知识库统计信息
   async getKnowledgeBaseStats(id) {
     try {
-      const response = await apiClient.get(`/knowledge/bases/${id}/stats`)
-      return response
+      const [knowledgeBaseResponse, documentsResponse] = await Promise.all([
+        this.getKnowledgeBase(id),
+        this.getDocuments(id, { page: 0, size: 1000 })
+      ])
+
+      const documents = documentsResponse.data || []
+      const stats = {
+        knowledgeBaseId: id,
+        knowledgeBaseName: knowledgeBaseResponse.data?.name || '',
+        documentCount: documents.length,
+        parsedDocumentCount: documents.filter((doc) => doc.parseStatus === 'COMPLETED').length,
+        failedDocumentCount: documents.filter((doc) => doc.parseStatus === 'FAILED').length,
+        embeddedDocumentCount: documents.filter((doc) => doc.isEmbedded).length
+      }
+
+      return { data: stats }
     } catch (error) {
       console.error('获取知识库统计失败:', error)
       throw error

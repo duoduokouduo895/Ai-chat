@@ -1,5 +1,6 @@
 package org.example.ai_agent.controller;
 
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.ai.AiModelProperties;
 import org.example.ai_agent.dto.chat.ChatRequest;
@@ -9,6 +10,7 @@ import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +25,7 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
-@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class AiController {
 
     private final AiModelRegistry aiModelRegistry;
@@ -41,11 +43,13 @@ public class AiController {
         return Mono.just(aiModelRegistry.getModelMetadata());
     }
 
-    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> streamChat(@RequestBody ChatRequest chatRequest, Authentication authentication) {
+    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8")
+    public Flux<ServerSentEvent<String>> streamChat(@Valid @RequestBody ChatRequest chatRequest,
+                                                    Authentication authentication) {
         return resolveCurrentUserId(authentication)
                 .flatMapMany(userId -> {
                     chatRequest.setUserId(userId);
+                    chatRequest.setAdminRequest(isAdmin(authentication));
 
                     log.info("Chat request from user {}, model={}, knowledgeBaseCount={}",
                             userId,
@@ -80,4 +84,15 @@ public class AiController {
                 .map(user -> user.getUserId())
                 .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")));
     }
+
+    private boolean isAdmin(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_ADMIN"::equals);
+    }
 }
+
+

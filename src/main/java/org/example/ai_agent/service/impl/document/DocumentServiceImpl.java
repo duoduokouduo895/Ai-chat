@@ -7,10 +7,11 @@ import org.example.ai_agent.entity.KnowledgeDocument;
 import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
+import org.example.ai_agent.service.DocumentIngestionService;
 import org.example.ai_agent.service.DocumentService;
-import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
+import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -48,16 +49,20 @@ public class DocumentServiceImpl implements DocumentService {
     private OssService ossService;
     
     @Autowired
-    private DocumentProcessingService documentProcessingService;
+    private DocumentIngestionService documentIngestionService;
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
     
     @Value("${knowledge-base.document.supported-types:pdf,docx,doc,txt,md,pptx,xlsx}")
     private String[] supportedTypes;
     
     @Override
-    public Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId, String parseMode, Boolean enableVectorization, Long uploaderId) {
+    public Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId, String parseMode,
+                                            Boolean enableVectorization, Long requesterUserId, boolean isAdmin) {
         return Mono.fromCallable(() -> {
             log.info("开始上传文档: fileName={}, knowledgeBaseId={}, parseMode={}, enableVectorization={}", 
                     file.getOriginalFilename(), knowledgeBaseId, parseMode, enableVectorization);
@@ -85,34 +90,29 @@ public class DocumentServiceImpl implements DocumentService {
             if (file.getSize() > 50 * 1024 * 1024) {
                 throw new IllegalArgumentException("文件大小不能超过50MB");
             }
+
+            if (!isAdmin && (requesterUserId == null || requesterUserId <= 0)) {
+                throw new SecurityException("当前用户无权上传文档");
+            }
             
             return file;
         })
         .flatMap(validatedFile -> {
-            // 检查知识库是否存在
-            return knowledgeBaseService.existsById(knowledgeBaseId)
-                .flatMap(exists -> {
-                    if (!exists) {
-                        return Mono.error(new IllegalArgumentException("知识库不存在: id=" + knowledgeBaseId));
-                    }
-                    return uploadToOss(validatedFile, knowledgeBaseId);
-                });
+            return knowledgeBaseService.getAuthorizedKnowledgeBase(knowledgeBaseId, requesterUserId, isAdmin, true)
+                .then(uploadToOss(validatedFile, knowledgeBaseId));
         })
         .flatMap(ossFileInfo -> {
             // 创建文档记录
             return saveDocumentRecord(file, knowledgeBaseId, parseMode, enableVectorization, 
-                    ossFileInfo.ossPath(), ossFileInfo.url(), uploaderId);
+                    ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId);
         })
         .flatMap(document -> {
-            // 启动自动处理流水线
-            return documentProcessingService.startDocumentProcessing(
+            // 启动统一 ingestion 流水线
+            return documentIngestionService.startIngestion(
                     document.getId(), knowledgeBaseId, parseMode, enableVectorization)
-                .map(processingStarted -> {
-                    if (processingStarted) {
-                        log.info("文档处理流水线启动成功: documentId={}", document.getId());
-                    } else {
-                        log.warn("文档处理流水线启动失败: documentId={}", document.getId());
-                    }
+                .map(task -> {
+                    log.info("文档 ingestion 流水线已受理: documentId={}, firstStage={}, action={}",
+                            task.documentId(), task.firstStage(), task.action());
                     return document;
                 });
         })
@@ -123,12 +123,14 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     @Override
-    public Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size) {
-        return Mono.fromCallable(() -> {
+    public Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size,
+                                          Long requesterUserId, boolean isAdmin) {
+        return knowledgeBaseService.getAuthorizedKnowledgeBase(knowledgeBaseId, requesterUserId, isAdmin, false)
+        .then(Mono.fromCallable(() -> {
             final int finalPage = page != null && page >= 0 ? page : 0;
             final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
             return PageRequest.of(finalPage, finalSize);
-        })
+        }))
         .flatMapMany(pageable -> documentRepository.findByKnowledgeBaseIdOrderByCreatedAtDesc(knowledgeBaseId, pageable))
         .flatMap(this::toEnrichedDto)
         .doOnComplete(() -> log.info("文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
@@ -162,43 +164,42 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     @Override
-    public Mono<DocumentDto> getDocument(Long id) {
-        return documentRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
+    public Mono<DocumentDto> getDocument(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedDocument(id, requesterUserId, isAdmin, false)
             .flatMap(this::toEnrichedDto)
             .subscribeOn(Schedulers.boundedElastic());
     }
     
     @Override
-    public Mono<Void> deleteDocument(Long id) {
-        return documentRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
+    public Mono<Void> deleteDocument(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
             .flatMap(document -> {
-                // 删除OSS文件
-                return ossService.deleteFile(document.getOssPath())
-                    .then(documentRepository.deleteById(id));
+                Long knowledgeBaseId = document.getKnowledgeBaseId();
+                return knowledgeAssetCleanupService.deleteDocumentAggregate(document)
+                    .then(syncKnowledgeBaseDocumentCount(knowledgeBaseId)
+                            .onErrorResume(error -> {
+                                log.warn("同步知识库文档数量失败: knowledgeBaseId={}, error={}",
+                                        knowledgeBaseId, error.getMessage());
+                                return Mono.empty();
+                            }));
             })
             .doOnSuccess(v -> log.info("文档删除成功: id={}", id))
             .subscribeOn(Schedulers.boundedElastic());
     }
     
     @Override
-    public Mono<DocumentDto> reparseDocument(Long id) {
-        return documentRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
+    public Mono<DocumentDto> reparseDocument(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
             .flatMap(document -> {
                 log.info("重新解析文档: id={}, fileName={}", id, document.getFileName());
                 
                 // 使用默认解析模式
                 String parseMode = "auto";
                 
-                return documentProcessingService.reparseDocument(id, parseMode)
-                    .map(success -> {
-                        if (success) {
-                            log.info("重新解析启动成功: documentId={}", id);
-                        } else {
-                            log.warn("重新解析启动失败: documentId={}", id);
-                        }
+                return documentIngestionService.reparseDocument(id, document.getKnowledgeBaseId(), parseMode)
+                    .map(task -> {
+                        log.info("重新解析已受理: documentId={}, firstStage={}, action={}",
+                                task.documentId(), task.firstStage(), task.action());
                         return document;
                     });
             })
@@ -209,19 +210,15 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     @Override
-    public Mono<DocumentDto> reEmbedDocument(Long id) {
-        return documentRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
+    public Mono<DocumentDto> reEmbedDocument(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
             .flatMap(document -> {
                 log.info("重新向量化文档: id={}, fileName={}", id, document.getFileName());
                 
-                return documentProcessingService.reEmbedDocument(id)
-                    .map(success -> {
-                        if (success) {
-                            log.info("重新向量化启动成功: documentId={}", id);
-                        } else {
-                            log.warn("重新向量化启动失败: documentId={}", id);
-                        }
+                return documentIngestionService.reEmbedDocument(id, document.getKnowledgeBaseId())
+                    .map(task -> {
+                        log.info("重新向量化已受理: documentId={}, firstStage={}, action={}",
+                                task.documentId(), task.firstStage(), task.action());
                         return document;
                     });
             })
@@ -376,7 +373,7 @@ public class DocumentServiceImpl implements DocumentService {
             document.setChunkCount(0);
             document.setIsEmbedded(false);
             document.setEmbeddingStatus("PENDING");
-            document.setUploaderId(uploaderId != null ? uploaderId : 1L); // 使用传入的用户ID，如果为空则使用默认值
+            document.setUploaderId(uploaderId);
             
             LocalDateTime now = LocalDateTime.now();
             document.setCreatedAt(now);
@@ -396,5 +393,24 @@ public class DocumentServiceImpl implements DocumentService {
             return "";
         }
         return fileName.substring(fileName.lastIndexOf(".") + 1);
+    }
+
+    private Mono<KnowledgeDocument> getAuthorizedDocument(Long id, Long requesterUserId,
+                                                          boolean isAdmin, boolean requireWriteAccess) {
+        return documentRepository.findById(id)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("文档不存在: id=" + id)))
+            .flatMap(document -> knowledgeBaseService
+                    .getAuthorizedKnowledgeBase(document.getKnowledgeBaseId(), requesterUserId, isAdmin, requireWriteAccess)
+                    .thenReturn(document));
+    }
+
+    private Mono<Void> syncKnowledgeBaseDocumentCount(Long knowledgeBaseId) {
+        if (knowledgeBaseId == null) {
+            return Mono.empty();
+        }
+
+        return documentRepository.countByKnowledgeBaseId(knowledgeBaseId)
+                .flatMap(count -> knowledgeBaseService.updateDocumentCount(knowledgeBaseId, count.intValue()))
+                .then();
     }
 }

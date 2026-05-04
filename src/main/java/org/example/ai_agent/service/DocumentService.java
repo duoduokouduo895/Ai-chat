@@ -28,8 +28,9 @@ public interface DocumentService {
      * @param uploaderId 上传者ID
      * @return 文档信息
      */
-    Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId, 
-                                   String parseMode, Boolean enableVectorization, Long uploaderId);
+    Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId,
+                                     String parseMode, Boolean enableVectorization,
+                                     Long requesterUserId, boolean isAdmin);
     
     /**
      * 获取知识库的文档列表
@@ -39,7 +40,8 @@ public interface DocumentService {
      * @param size 页大小
      * @return 文档列表
      */
-    Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size);
+    Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size,
+                                   Long requesterUserId, boolean isAdmin);
 
     /**
      * 获取全站文档列表（管理员视角）
@@ -66,7 +68,7 @@ public interface DocumentService {
      * @param id 文档ID
      * @return 文档详情
      */
-    Mono<DocumentDto> getDocument(Long id);
+    Mono<DocumentDto> getDocument(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 删除文档
@@ -74,7 +76,7 @@ public interface DocumentService {
      * @param id 文档ID
      * @return 删除结果
      */
-    Mono<Void> deleteDocument(Long id);
+    Mono<Void> deleteDocument(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 重新解析文档
@@ -82,7 +84,7 @@ public interface DocumentService {
      * @param id 文档ID
      * @return 文档信息
      */
-    Mono<DocumentDto> reparseDocument(Long id);
+    Mono<DocumentDto> reparseDocument(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 重新向量化文档
@@ -90,7 +92,7 @@ public interface DocumentService {
      * @param id 文档ID
      * @return 文档信息
      */
-    Mono<DocumentDto> reEmbedDocument(Long id);
+    Mono<DocumentDto> reEmbedDocument(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 检查文件类型是否支持

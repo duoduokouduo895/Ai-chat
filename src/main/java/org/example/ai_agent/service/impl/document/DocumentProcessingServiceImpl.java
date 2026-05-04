@@ -111,24 +111,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档解析处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> {
-                log.error("文档解析处理失败: documentId={}, error={}", 
-                        message.getDocumentId(), error.getMessage(), error);
-                
-                // 记录处理失败
-                recordService.failProcessing(
-                        message.getDocumentId(), 
-                        message.getProcessingType(), 
-                        error.getMessage(),
-                        getStackTrace(error))
-                    .subscribe();
-                
-                // 更新状态为失败
-                updateDocumentStatus(message.getDocumentId(), 
-                        DocumentProcessingConstants.Status.FAILED, null, error.getMessage())
-                    .subscribe();
-            })
-            .onErrorReturn(false);
+            .doOnError(error -> log.error("文档解析处理失败: documentId={}, error={}",
+                    message.getDocumentId(), error.getMessage(), error));
     }
     
     @Override
@@ -144,7 +128,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                             message.getDocumentId(), 
                             message.getProcessingType(), 
                             "Skipped - empty content")
-                        .then(Mono.just(false));
+                        .then(Mono.just(true));
                 }
                 
                 return documentChunkService.createDocumentChunks(
@@ -175,19 +159,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档分块处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> {
-                log.error("文档分块处理失败: documentId={}, error={}", 
-                        message.getDocumentId(), error.getMessage(), error);
-                
-                // 记录处理失败
-                recordService.failProcessing(
-                        message.getDocumentId(), 
-                        message.getProcessingType(), 
-                        error.getMessage(),
-                        getStackTrace(error))
-                    .subscribe();
-            })
-            .onErrorReturn(false);
+            .doOnError(error -> log.error("文档分块处理失败: documentId={}, error={}",
+                    message.getDocumentId(), error.getMessage(), error));
     }
     
     @Override
@@ -220,16 +193,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档向量化处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> {
-                log.error("文档向量化处理失败: documentId={}, error={}", 
-                        message.getDocumentId(), error.getMessage(), error);
-                
-                // 更新状态为失败
-                updateDocumentStatus(message.getDocumentId(), null, 
-                        DocumentProcessingConstants.Status.FAILED, error.getMessage())
-                    .subscribe();
-            })
-            .onErrorReturn(false);
+            .doOnError(error -> log.error("文档向量化处理失败: documentId={}, error={}",
+                    message.getDocumentId(), error.getMessage(), error));
     }
     
     @Override
@@ -411,17 +376,4 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             });
     }
     
-    /**
-     * 获取异常堆栈信息
-     */
-    private String getStackTrace(Throwable throwable) {
-        if (throwable == null) {
-            return null;
-        }
-        
-        java.io.StringWriter sw = new java.io.StringWriter();
-        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
-    }
 }

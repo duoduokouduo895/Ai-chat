@@ -38,6 +38,9 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Autowired
     private KnowledgeDocumentRepository documentRepository;
 
+    @Autowired
+    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+
     @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
     private String defaultEmbeddingModel;
 
@@ -150,9 +153,20 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public Mono<KnowledgeBaseDto> updateKnowledgeBase(Long id, KnowledgeBaseCreateDto updateDto) {
-        return knowledgeBaseRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
+    public Mono<KnowledgeBaseDto> getKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, false)
+            .map(this::toDto)
+            .doOnSuccess(dto -> log.info("知识库访问鉴权通过: id={}, requesterUserId={}, isAdmin={}",
+                    id, requesterUserId, isAdmin))
+            .doOnError(error -> log.warn("知识库访问鉴权失败: id={}, requesterUserId={}, error={}",
+                    id, requesterUserId, error.getMessage()))
+            .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<KnowledgeBaseDto> updateKnowledgeBase(Long id, KnowledgeBaseCreateDto updateDto,
+                                                      Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, true)
             .flatMap(existingKB -> {
                 // 检查名称是否重复（排除当前知识库）
                 if (!existingKB.getName().equals(updateDto.getName())) {
@@ -176,12 +190,11 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public Mono<Void> deleteKnowledgeBase(Long id) {
-        return knowledgeBaseRepository.findById(id)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
+    public Mono<Void> deleteKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, true)
             .flatMap(kb -> {
-                // 硬删除：直接在数据库层面删除物理数据
-                return knowledgeBaseRepository.delete(kb);
+                return knowledgeAssetCleanupService.deleteKnowledgeBaseAssets(kb)
+                        .then(knowledgeBaseRepository.delete(kb));
             })
             .then()
             .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))
@@ -193,6 +206,35 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     public Mono<Boolean> existsById(Long id) {
         return knowledgeBaseRepository.existsById(id)
             .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<KnowledgeBase> getAuthorizedKnowledgeBase(Long id, Long requesterUserId,
+                                                          boolean isAdmin, boolean requireWriteAccess) {
+        return knowledgeBaseRepository.findById(id)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
+            .flatMap(knowledgeBase -> {
+                if (isAdmin) {
+                    return Mono.just(knowledgeBase);
+                }
+
+                if (requesterUserId == null || requesterUserId <= 0) {
+                    return Mono.error(new SecurityException("当前用户无权访问该知识库"));
+                }
+
+                boolean owner = knowledgeBase.getCreatorId() != null
+                        && knowledgeBase.getCreatorId().equals(requesterUserId);
+                if (owner) {
+                    return Mono.just(knowledgeBase);
+                }
+
+                if (!requireWriteAccess && Boolean.TRUE.equals(knowledgeBase.getIsPublic())) {
+                    return Mono.just(knowledgeBase);
+                }
+
+                String message = requireWriteAccess ? "当前用户无权修改该知识库" : "当前用户无权访问该知识库";
+                return Mono.error(new SecurityException(message));
+            });
     }
 
     @Override

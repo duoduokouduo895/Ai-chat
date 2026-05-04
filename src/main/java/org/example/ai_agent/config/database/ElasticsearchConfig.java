@@ -1,5 +1,7 @@
 package org.example.ai_agent.config.database;
 
+import org.example.ai_agent.repository.search.ConversationDocumentRepository;
+import org.example.ai_agent.repository.search.SearchHistoryRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -7,14 +9,7 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.data.elasticsearch.client.ClientConfiguration;
 import org.springframework.data.elasticsearch.client.elc.ReactiveElasticsearchConfiguration;
 import org.springframework.data.elasticsearch.repository.config.EnableReactiveElasticsearchRepositories;
-import org.example.ai_agent.repository.search.ConversationDocumentRepository;
-import org.example.ai_agent.repository.search.SearchHistoryRepository;
 
-import jakarta.annotation.PostConstruct;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 
 @Configuration
@@ -45,36 +40,6 @@ public class ElasticsearchConfig extends ReactiveElasticsearchConfiguration {
                 .build();
     }
 
-    @PostConstruct
-    public void testConnection() {
-        try {
-            HttpClient client = HttpClient.newBuilder()
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .connectTimeout(Duration.ofMillis(connectionTimeout))
-                    .build();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(elasticsearchUri))
-                    .timeout(Duration.ofMillis(socketTimeout))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                System.out.println("✅ Elasticsearch连接成功: " + elasticsearchUri);
-                System.out.println("📊 ES服务器信息: " + response.body());
-            } else {
-                System.err.println("⚠️ Elasticsearch连接异常，状态码: " + response.statusCode());
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Elasticsearch连接失败: " + e.getMessage());
-            System.err.println("🔧 请检查ES服务器地址: " + elasticsearchUri);
-            System.err.println("💡 建议: 确保ES服务正在运行且网络可达");
-        }
-    }
-
-    // 为KnowledgeBaseConfig提供获取URI的方法
     public String getElasticsearchUri() {
         return elasticsearchUri;
     }

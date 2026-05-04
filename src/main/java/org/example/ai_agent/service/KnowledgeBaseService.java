@@ -64,6 +64,8 @@ public interface KnowledgeBaseService {
      * @return 知识库详情
      */
     Mono<KnowledgeBaseDto> getKnowledgeBase(Long id);
+
+    Mono<KnowledgeBaseDto> getKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 更新知识库
@@ -72,7 +74,8 @@ public interface KnowledgeBaseService {
      * @param updateDto 更新请求
      * @return 更新后的知识库
      */
-    Mono<KnowledgeBaseDto> updateKnowledgeBase(Long id, KnowledgeBaseCreateDto updateDto);
+    Mono<KnowledgeBaseDto> updateKnowledgeBase(Long id, KnowledgeBaseCreateDto updateDto,
+                                               Long requesterUserId, boolean isAdmin);
     
     /**
      * 删除知识库
@@ -80,7 +83,7 @@ public interface KnowledgeBaseService {
      * @param id 知识库ID
      * @return 删除结果
      */
-    Mono<Void> deleteKnowledgeBase(Long id);
+    Mono<Void> deleteKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 检查知识库是否存在
@@ -89,6 +92,9 @@ public interface KnowledgeBaseService {
      * @return 是否存在
      */
     Mono<Boolean> existsById(Long id);
+
+    Mono<KnowledgeBase> getAuthorizedKnowledgeBase(Long id, Long requesterUserId,
+                                                   boolean isAdmin, boolean requireWriteAccess);
     
     /**
      * 更新知识库文档数量

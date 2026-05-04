@@ -5,11 +5,11 @@ import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.TicketService;
 import org.example.ai_agent.util.JwtUtil;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
@@ -31,6 +31,8 @@ import reactor.core.publisher.Mono;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -42,19 +44,25 @@ public class SecurityConfig {
     private final AdminUserRepository adminUserRepository;
     private final TicketService ticketService;
     private final ReactiveStringRedisTemplate redisTemplate;
+    private final List<String> corsAllowedOrigins;
 
     public SecurityConfig(JwtUtil jwtUtil,
                           TokenRefreshFilter tokenRefreshFilter,
                           UserRepository userRepository,
                           AdminUserRepository adminUserRepository,
                           TicketService ticketService,
-                          ReactiveStringRedisTemplate redisTemplate) {
+                          ReactiveStringRedisTemplate redisTemplate,
+                          @Value("${app.security.cors.allowed-origins}") String corsAllowedOrigins) {
         this.jwtUtil = jwtUtil;
         this.tokenRefreshFilter = tokenRefreshFilter;
         this.userRepository = userRepository;
         this.adminUserRepository = adminUserRepository;
         this.ticketService = ticketService;
         this.redisTemplate = redisTemplate;
+        this.corsAllowedOrigins = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .collect(Collectors.toList());
     }
 
     @Bean
@@ -76,12 +84,11 @@ public class SecurityConfig {
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers(HttpMethod.POST, "/api/search/**").permitAll()
-                        .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/search/**", "/api/test/**").permitAll()
+                        .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/test/**").permitAll()
                         .pathMatchers("/api/admin/auth/login").permitAll()
                         .pathMatchers("/api/admin/**", "/api/knowledge/admin/**", "/api/conversations/admin/**").hasRole("ADMIN")
-                        .pathMatchers("/actuator/**").permitAll()
-                        .pathMatchers("/api/diagnostic/**").permitAll()
+                        .pathMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .pathMatchers("/api/diagnostic/**", "/actuator/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )
                 .addFilterAt(authFilter, SecurityWebFiltersOrder.AUTHENTICATION)
@@ -161,15 +168,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://dduo.chat",
-                "https://dduo.chat",
-                "http://localhost:8080",
-                "http://localhost:63342",
-                "null"
-        ));
+        configuration.setAllowedOrigins(corsAllowedOrigins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "OPTIONS", "DELETE", "PUT"));
         configuration.setAllowedHeaders(Collections.singletonList("*"));
         configuration.setExposedHeaders(Arrays.asList("X-Refreshed-Token"));

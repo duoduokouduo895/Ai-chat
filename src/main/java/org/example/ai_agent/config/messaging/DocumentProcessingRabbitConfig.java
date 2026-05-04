@@ -48,6 +48,19 @@ public class DocumentProcessingRabbitConfig {
             .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_DLQ)
             .build();
     }
+
+    /**
+     * 文档解析重试队列
+     */
+    @Bean
+    public Queue documentParseRetryQueue() {
+        return QueueBuilder
+            .durable(DocumentProcessingConstants.Queue.DOCUMENT_PARSE_RETRY)
+            .ttl((int) DocumentProcessingConstants.Retry.RETRY_DELAY_MS)
+            .deadLetterExchange(DocumentProcessingConstants.Exchange.DOCUMENT_PROCESSING)
+            .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE)
+            .build();
+    }
     
     /**
      * 文档分块队列
@@ -60,6 +73,19 @@ public class DocumentProcessingRabbitConfig {
             .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_DLQ)
             .build();
     }
+
+    /**
+     * 文档分块重试队列
+     */
+    @Bean
+    public Queue documentChunkRetryQueue() {
+        return QueueBuilder
+            .durable(DocumentProcessingConstants.Queue.DOCUMENT_CHUNK_RETRY)
+            .ttl((int) DocumentProcessingConstants.Retry.RETRY_DELAY_MS)
+            .deadLetterExchange(DocumentProcessingConstants.Exchange.DOCUMENT_PROCESSING)
+            .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK)
+            .build();
+    }
     
     /**
      * 文档向量化队列
@@ -70,6 +96,19 @@ public class DocumentProcessingRabbitConfig {
             .durable(DocumentProcessingConstants.Queue.DOCUMENT_EMBED)
             .deadLetterExchange(DocumentProcessingConstants.Exchange.DOCUMENT_DLX)
             .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_DLQ)
+            .build();
+    }
+
+    /**
+     * 文档向量化重试队列
+     */
+    @Bean
+    public Queue documentEmbedRetryQueue() {
+        return QueueBuilder
+            .durable(DocumentProcessingConstants.Queue.DOCUMENT_EMBED_RETRY)
+            .ttl((int) DocumentProcessingConstants.Retry.RETRY_DELAY_MS)
+            .deadLetterExchange(DocumentProcessingConstants.Exchange.DOCUMENT_PROCESSING)
+            .deadLetterRoutingKey(DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED)
             .build();
     }
     
@@ -93,6 +132,17 @@ public class DocumentProcessingRabbitConfig {
             .to(documentProcessingExchange())
             .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE);
     }
+
+    /**
+     * 绑定解析重试队列到交换机
+     */
+    @Bean
+    public Binding documentParseRetryBinding() {
+        return BindingBuilder
+            .bind(documentParseRetryQueue())
+            .to(documentProcessingExchange())
+            .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY);
+    }
     
     /**
      * 绑定分块队列到交换机
@@ -104,6 +154,17 @@ public class DocumentProcessingRabbitConfig {
             .to(documentProcessingExchange())
             .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK);
     }
+
+    /**
+     * 绑定分块重试队列到交换机
+     */
+    @Bean
+    public Binding documentChunkRetryBinding() {
+        return BindingBuilder
+            .bind(documentChunkRetryQueue())
+            .to(documentProcessingExchange())
+            .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK_RETRY);
+    }
     
     /**
      * 绑定向量化队列到交换机
@@ -114,6 +175,17 @@ public class DocumentProcessingRabbitConfig {
             .bind(documentEmbedQueue())
             .to(documentProcessingExchange())
             .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED);
+    }
+
+    /**
+     * 绑定向量化重试队列到交换机
+     */
+    @Bean
+    public Binding documentEmbedRetryBinding() {
+        return BindingBuilder
+            .bind(documentEmbedRetryQueue())
+            .to(documentProcessingExchange())
+            .with(DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY);
     }
     
     /**

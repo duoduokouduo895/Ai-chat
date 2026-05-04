@@ -1,5 +1,6 @@
 package org.example.ai_agent.controller;
 
+import jakarta.validation.Valid;
 import org.example.ai_agent.dto.auth.AdminLoginDto;
 import org.example.ai_agent.service.AdminAuthService;
 import org.springframework.http.HttpHeaders;
@@ -15,7 +16,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/auth")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class AdminAuthController {
 
     private final AdminAuthService adminAuthService;
@@ -25,7 +26,7 @@ public class AdminAuthController {
     }
 
     @PostMapping("/login")
-    public Mono<ResponseEntity<Map<String, Object>>> login(@RequestBody AdminLoginDto loginDto) {
+    public Mono<ResponseEntity<Map<String, Object>>> login(@Valid @RequestBody AdminLoginDto loginDto) {
         return adminAuthService.login(loginDto.getUsername(), loginDto.getPassword())
                 .map(token -> {
                     Map<String, Object> response = new HashMap<>();
@@ -61,3 +62,5 @@ public class AdminAuthController {
                 .defaultIfEmpty(ResponseEntity.status(401).build());
     }
 }
+
+

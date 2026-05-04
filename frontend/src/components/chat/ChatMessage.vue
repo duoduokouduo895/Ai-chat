@@ -10,7 +10,7 @@
       />
     </div>
     <div class="content">
-      <MessageContent :text="message.text" />
+      <MessageContent :text="message.text" :plain="message.sender === 'user'" />
       <div class="timestamp">{{ message.timestamp }}</div>
     </div>
   </div>
@@ -172,6 +172,7 @@ defineProps({
   display: block;
   opacity: 1;
   visibility: visible;
+  user-select: none;
 }
 
 .message.user .timestamp {

@@ -1,21 +1,14 @@
 package org.example.ai_agent.service.impl.chat;
 
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.memory.ChatMemory;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.ChatRequest;
-import org.example.ai_agent.dto.chat.RagChatDto;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.service.AiChatService;
 import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.RagService;
-import org.example.ai_agent.service.provider.ChatMemoryProvider;
-import org.example.ai_agent.service.registry.AiModelRegistry;
+import org.example.ai_agent.service.assistant.GeneralAssistant;
+import org.example.ai_agent.service.assistant.GeneralAssistantFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -30,116 +23,49 @@ import java.util.Map;
 @Service
 public class AiChatServiceImpl implements AiChatService {
 
-    private final AiModelRegistry aiModelRegistry;
-    private final ChatMemoryProvider chatMemoryProvider;
+    private final GeneralAssistantFactory generalAssistantFactory;
     private final ConversationService conversationService;
     private final RagService ragService;
 
-    public AiChatServiceImpl(AiModelRegistry aiModelRegistry,
-                             ChatMemoryProvider chatMemoryProvider,
+    public AiChatServiceImpl(GeneralAssistantFactory generalAssistantFactory,
                              ConversationService conversationService,
                              RagService ragService) {
-        this.aiModelRegistry = aiModelRegistry;
-        this.chatMemoryProvider = chatMemoryProvider;
+        this.generalAssistantFactory = generalAssistantFactory;
         this.conversationService = conversationService;
         this.ragService = ragService;
     }
 
     @Override
     public Flux<ServerSentEvent<String>> chat(ChatRequest chatRequest) {
-        // 智能路由：根据是否提供知识库ID来选择聊天模式
-        if (chatRequest.isRagMode()) {
-            log.info("🔄 [路由决策] 检测到知识库ID，使用RAG模式进行对话: knowledgeBaseIds={}, userId={}",
-                    chatRequest.getKnowledgeBaseIds(), chatRequest.getUserId());
-            return handleRagChat(chatRequest);
-        } else {
-            log.info("🔄 [路由决策] 未提供知识库ID，使用普通AI对话模式: userId={}", chatRequest.getUserId());
-            return handleNormalChat(chatRequest);
-        }
-    }
+        log.info("收到统一 Assistant 对话请求: userId={}, model={}, ragMode={}",
+                chatRequest.getUserId(), chatRequest.getModel(), chatRequest.isRagMode());
 
-    /**
-     * 处理RAG模式对话
-     */
-    private Flux<ServerSentEvent<String>> handleRagChat(ChatRequest chatRequest) {
         return Mono.just(chatRequest)
                 .flatMap(this::ensureConversationExists)
-                .flatMapMany(request -> {
-                    // 1. 先检查是否已经存在相同的用户消息（防止重复）
-                    return checkAndSaveUserMessage(request)
-                            .flatMapMany(savedUserMessage -> {
-                                // 2. 创建包含conversationId的元数据
-                                Map<String, Object> metadata = Map.of(
-                                        "type", "metadata",
-                                        "conversationId", request.getConversationId(),
-                                        "mode", "rag"
-                                );
-                                String metadataJson = JSON.toJSONString(metadata);
-                                Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
-                                        ServerSentEvent.<String>builder()
-                                                .event("metadata")
-                                                .data(metadataJson)
-                                                .build()
-                                );
-
-                                // 3. 使用RAG服务进行对话并收集AI响应
-                                RagChatDto ragDto = request.toRagChatDto();
-                                log.info("🤖 [RAG模式] 转换为ChatRequest为RagChatDto: question={}, knowledgeBaseIds={}, minSimilarity={}",
-                                        ragDto.getQuestion(), ragDto.getKnowledgeBaseIds(), ragDto.getMinSimilarity());
-                                
-                                StringBuilder aiResponseBuilder = new StringBuilder();
-                                Flux<ServerSentEvent<String>> ragFlux = ragService.ragChatStream(ragDto)
-                                        .doOnNext(chunk -> aiResponseBuilder.append(chunk))
-                                        .map(chunk -> ServerSentEvent.<String>builder()
-                                                .event("message")
-                                                .data(chunk)
-                                                .build())
-                                        .doOnComplete(() -> {
-                                            // 流式响应完成后保存AI消息
-                                            if (aiResponseBuilder.length() > 0) {
-                                                saveAiMessage(request, aiResponseBuilder.toString())
-                                                        .subscribeOn(Schedulers.boundedElastic())
-                                                        .subscribe(
-                                                                savedAiMessage -> log.info("RAG模式AI消息已保存，ID: {}", savedAiMessage.getId()),
-                                                                error -> log.error("保存RAG模式AI消息失败", error)
-                                                        );
-                                            }
-                                            log.info("RAG对话完成: conversationId={}", request.getConversationId());
-                                        });
-
-                                return Flux.concat(metadataFlux, ragFlux);
-                            });
-                })
+                .flatMapMany(this::handleAssistantChat)
                 .onErrorResume(this::handleChatError);
     }
 
     /**
-     * 处理普通对话模式
+     * 统一处理 Assistant 对话。
+     * 是否启用知识增强，只影响发送给模型的输入内容，不再影响主链结构。
      */
-    private Flux<ServerSentEvent<String>> handleNormalChat(ChatRequest chatRequest) {
-        return Mono.just(chatRequest)
-                .flatMap(this::ensureConversationExists)
-                .flatMapMany(request -> {
-                    // 1. 创建包含conversationId的元数据
-                    Map<String, Object> metadata = Map.of(
-                            "type", "metadata",
-                            "conversationId", request.getConversationId(),
-                            "mode", "normal"
-                    );
-                    String metadataJson = JSON.toJSONString(metadata);
-                    Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
-                            ServerSentEvent.<String>builder()
-                                    .event("metadata")
-                                    .data(metadataJson)
-                                    .build()
-                    );
+    private Flux<ServerSentEvent<String>> handleAssistantChat(ChatRequest request) {
+        Map<String, Object> metadata = Map.of(
+                "type", "metadata",
+                "conversationId", request.getConversationId(),
+                "mode", request.isRagMode() ? "rag" : "normal"
+        );
+        String metadataJson = JSON.toJSONString(metadata);
+        Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
+                ServerSentEvent.<String>builder()
+                        .event("metadata")
+                        .data(metadataJson)
+                        .build()
+        );
 
-                    // 2. 获取真实的AI聊天流
-                    Flux<ServerSentEvent<String>> conversationFlux = performNormalChat(request);
-
-                    return Flux.concat(metadataFlux, conversationFlux);
-                })
-                .onErrorResume(this::handleChatError);
+        Flux<ServerSentEvent<String>> messageFlux = performAssistantChat(request);
+        return Flux.concat(metadataFlux, messageFlux);
     }
 
     /**
@@ -182,102 +108,90 @@ public class AiChatServiceImpl implements AiChatService {
                 .thenReturn(request);
     }
     /**
-     * 执行普通聊天
+     * 执行统一 Assistant 聊天。
      */
-    private Flux<ServerSentEvent<String>> performNormalChat(ChatRequest chatRequest) {
-        // 1. 创建并保存用户消息，这将触发游客限制检查
+    private Flux<ServerSentEvent<String>> performAssistantChat(ChatRequest chatRequest) {
         Message userMessage = new Message();
         userMessage.setConversationId(chatRequest.getConversationId());
         userMessage.setSender("user");
-        userMessage.setContent(chatRequest.getPrompt());
-        userMessage.setModel(chatRequest.getModel());
+        userMessage.setContent(chatRequest.getTrimmedMessage());
+        userMessage.setModel(chatRequest.getEffectiveModelId());
 
         return conversationService.addMessageToConversation(userMessage)
-                .flatMapMany(savedUserMessage -> {
-                    // 2. 用户消息保存成功后，继续执行AI聊天逻辑
-                    try {
-                        StreamingChatModel model = aiModelRegistry.getModel(chatRequest.getModel());
-                        ChatMemory chatMemory = chatMemoryProvider.get(String.valueOf(chatRequest.getConversationId()));
-                        chatMemory.add(UserMessage.from(chatRequest.getPrompt()));
-
-                        return Flux.<ServerSentEvent<String>>create(sink -> {
-                            model.chat(chatMemory.messages(), new StreamingChatResponseHandler() {
-                                private final StringBuilder responseBuilder = new StringBuilder();
-
-                                @Override
-                                public void onPartialResponse(String partialResponse) {
-                                    responseBuilder.append(partialResponse);
-                                    sink.next(ServerSentEvent.<String>builder()
-                                            .event("message")
-                                            .data(partialResponse)
-                                            .build());
-                                }
-
-                                @Override
-                                public void onCompleteResponse(ChatResponse completeResponse) {
-                                    log.info("AI响应流完成。 Token usage: {}", completeResponse.metadata().tokenUsage());
-                                    AiMessage aiMessage = completeResponse.aiMessage();
-                                    chatMemory.add(aiMessage);
-
-                                    // 异步保存AI消息
-                                    saveAiMessage(chatRequest, responseBuilder.toString())
-                                            .subscribeOn(Schedulers.boundedElastic())
-                                            .subscribe();
-                                    sink.complete();
-                                }
-
-                                @Override
-                                public void onError(Throwable error) {
-                                    log.error("AI流式响应出错", error);
-                                    sink.error(error);
-                                }
-                            });
-                        }).subscribeOn(Schedulers.boundedElastic());
-                    } catch (Exception e) {
-                        log.error("聊天服务执行失败", e);
-                        return Flux.error(e);
-                    }
-                });
-    }    
-    /**
-     * 检查并保存用户消息（防止重复）
-     */
-    private Mono<Message> checkAndSaveUserMessage(ChatRequest request) {
-        // 检查最近的消息是否与当前消息相同
-        return conversationService.getMessagesByConversationId(request.getConversationId(), request.getUserId())
-                .filter(message -> "user".equals(message.getSender()))
-                .takeLast(1)
-                .singleOrEmpty()
-                .flatMap(lastUserMessage -> {
-                    // 如果最近的用户消息内容相同，则不重复保存
-                    if (lastUserMessage.getContent().equals(request.getPrompt().trim())) {
-                        log.warn("检测到重复的用户消息，跳过保存: {}", request.getPrompt());
-                        return Mono.just(lastUserMessage);
-                    } else {
-                        // 内容不同，保存新消息
-                        return saveNewUserMessage(request);
-                    }
-                })
-                .switchIfEmpty(Mono.defer(() -> {
-                    // 没有历史消息，直接保存
-                    return saveNewUserMessage(request);
-                }));
+                .flatMapMany(savedUserMessage -> buildAssistantInput(chatRequest)
+                        .flatMapMany(assistantInput -> streamAssistantResponse(chatRequest, assistantInput)));
     }
-    
-    /**
-     * 保存新的用户消息
-     */
-    private Mono<Message> saveNewUserMessage(ChatRequest request) {
-        Message userMessage = new Message();
-        userMessage.setConversationId(request.getConversationId());
-        userMessage.setSender("user");
-        userMessage.setContent(request.getPrompt());
-        userMessage.setModel(request.getModel());
-        
-        return conversationService.addMessageToConversation(userMessage)
-                .doOnSuccess(savedMessage -> log.info("新用户消息已保存，ID: {}", savedMessage.getId()));
+
+    private Flux<ServerSentEvent<String>> streamAssistantResponse(ChatRequest chatRequest, String assistantInput) {
+        try {
+            GeneralAssistant assistant = generalAssistantFactory.createAssistant(chatRequest);
+            String memoryId = String.valueOf(chatRequest.getConversationId());
+            StringBuilder responseBuilder = new StringBuilder();
+
+            return assistant.chat(memoryId, assistantInput)
+                    .doOnNext(responseBuilder::append)
+                    .map(chunk -> ServerSentEvent.<String>builder()
+                            .event("message")
+                            .data(chunk)
+                            .build())
+                    .doOnComplete(() -> {
+                        if (responseBuilder.length() > 0) {
+                            saveAiMessage(chatRequest, responseBuilder.toString())
+                                    .subscribeOn(Schedulers.boundedElastic())
+                                    .subscribe(
+                                            savedAiMessage -> {
+                                                if (savedAiMessage != null) {
+                                                    log.info("Assistant AI消息已保存，ID: {}", savedAiMessage.getId());
+                                                }
+                                            },
+                                            error -> log.error("保存Assistant AI消息失败", error)
+                                    );
+                        }
+                        log.info("Assistant对话完成: conversationId={}, ragMode={}",
+                                chatRequest.getConversationId(), chatRequest.isRagMode());
+                    });
+        } catch (Exception e) {
+            log.error("Assistant执行失败", e);
+            return Flux.error(e);
+        }
     }
-    
+
+    private Mono<String> buildAssistantInput(ChatRequest request) {
+        if (!request.isRagMode()) {
+            return Mono.just(request.getTrimmedMessage());
+        }
+
+        return ragService.retrieveContext(
+                        request.getTrimmedMessage(),
+                        request.getKnowledgeBaseIds(),
+                        request.getMaxRetrievedDocs(),
+                        request.getMinSimilarity()
+                )
+                .map(context -> buildKnowledgeAugmentedPrompt(request, context))
+                .doOnSuccess(prompt -> log.info("知识增强输入已构建: conversationId={}, knowledgeBaseCount={}",
+                        request.getConversationId(),
+                        request.getKnowledgeBaseIds() != null ? request.getKnowledgeBaseIds().size() : 0));
+    }
+
+    private String buildKnowledgeAugmentedPrompt(ChatRequest request, RagService.RetrievalContext context) {
+        String knowledgeContext = context.contextText();
+        if (knowledgeContext == null || knowledgeContext.isBlank()) {
+            knowledgeContext = "未检索到可直接引用的知识库内容。";
+        }
+
+        return String.format("""
+                你正在处理一个带知识库上下文的用户问题。
+                请优先根据参考资料回答；如果参考资料不足以支撑结论，请明确说明信息不足。
+                不要编造资料中没有的信息，也不要机械复述“根据知识库”这类套话。
+
+                参考资料：
+                %s
+
+                用户问题：
+                %s
+                """, knowledgeContext, request.getTrimmedMessage());
+    }
+
     private Mono<Message> saveAiMessage(ChatRequest chatRequest, String content) {
         if (content == null || content.trim().isEmpty()) {
             log.warn("跳过保存空的AI消息");
@@ -288,7 +202,7 @@ public class AiChatServiceImpl implements AiChatService {
         aiMessage.setConversationId(chatRequest.getConversationId());
         aiMessage.setSender("ai");
         aiMessage.setContent(content.trim());
-        aiMessage.setModel(chatRequest.getModel());
+        aiMessage.setModel(chatRequest.getEffectiveModelId());
         
         // 使用ConversationService来保存AI消息，并添加重试机制
         return conversationService.addMessageToConversation(aiMessage)

@@ -1,35 +1,38 @@
 package org.example.ai_agent.controller;
 
+import org.example.ai_agent.config.ai.AiModelProperties;
+import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
+/**
+ * 旧模型接口兼容层。
+ * 主模型元数据入口已经收敛到 /api/ai/models，这里仅保留给历史前端调用。
+ */
+@Deprecated
 @RestController
 @RequestMapping("/api/models")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class ModelController {
 
-    @GetMapping
-    public List<Map<String, String>> getAvailableModels() {
-        return Arrays.asList(
-                createModelInfo("zai-org/GLM-4.5-Air", "GLM-4", "快速响应模型，适合日常对话", "fast"),
-                createModelInfo("Pro/deepseek-ai/DeepSeek-R1", "DeepSeek R1", "推理能力更强，适合复杂对话", "medium"),
-                createModelInfo("Qwen/Qwen3-Coder-30B-A3B-Instruct", "Qwen3 Coder 30B", "长文本与代码能力更强，适合复杂任务", "slow")
-        );
+    private final AiModelRegistry aiModelRegistry;
+
+    public ModelController(AiModelRegistry aiModelRegistry) {
+        this.aiModelRegistry = aiModelRegistry;
     }
 
-    private Map<String, String> createModelInfo(String value, String label, String description, String speed) {
-        Map<String, String> model = new HashMap<>();
-        model.put("value", value);
-        model.put("label", label);
-        model.put("description", description);
-        model.put("speed", speed);
-        return model;
+    /**
+     * 兼容旧前端的模型列表接口。
+     * 数据来源与 /api/ai/models 完全一致，不再维护独立硬编码模型列表。
+     */
+    @GetMapping
+    public List<AiModelProperties.Metadata> getAvailableModels() {
+        return aiModelRegistry.getModelMetadata();
     }
 }
+
+

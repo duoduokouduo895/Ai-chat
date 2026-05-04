@@ -15,10 +15,16 @@ public final class DocumentProcessingConstants {
     public static final class Queue {
         /** 文档解析队列 */
         public static final String DOCUMENT_PARSE = "document.parse";
+        /** 文档解析重试队列 */
+        public static final String DOCUMENT_PARSE_RETRY = "document.parse.retry";
         /** 文档分块队列 */
         public static final String DOCUMENT_CHUNK = "document.chunk";
+        /** 文档分块重试队列 */
+        public static final String DOCUMENT_CHUNK_RETRY = "document.chunk.retry";
         /** 文档向量化队列 */
         public static final String DOCUMENT_EMBED = "document.embed";
+        /** 文档向量化重试队列 */
+        public static final String DOCUMENT_EMBED_RETRY = "document.embed.retry";
         /** 死信队列 */
         public static final String DOCUMENT_DLQ = "document.dlq";
         
@@ -43,10 +49,16 @@ public final class DocumentProcessingConstants {
     public static final class RoutingKey {
         /** 文档解析路由键 */
         public static final String DOCUMENT_PARSE = "document.parse";
+        /** 文档解析重试路由键 */
+        public static final String DOCUMENT_PARSE_RETRY = "document.parse.retry";
         /** 文档分块路由键 */
         public static final String DOCUMENT_CHUNK = "document.chunk";
+        /** 文档分块重试路由键 */
+        public static final String DOCUMENT_CHUNK_RETRY = "document.chunk.retry";
         /** 文档向量化路由键 */
         public static final String DOCUMENT_EMBED = "document.embed";
+        /** 文档向量化重试路由键 */
+        public static final String DOCUMENT_EMBED_RETRY = "document.embed.retry";
         /** 死信路由键 */
         public static final String DOCUMENT_DLQ = "document.dlq";
         

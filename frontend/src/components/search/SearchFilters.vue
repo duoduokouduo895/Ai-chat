@@ -89,7 +89,7 @@ const loadAvailableModels = async () => {
   modelsError.value = ''
 
   try {
-    const response = await apiClient.get('/models')
+    const response = await apiClient.get('/ai/models')
     if (response.data && Array.isArray(response.data)) {
       availableModels.value = response.data
     } else {
@@ -98,11 +98,7 @@ const loadAvailableModels = async () => {
   } catch (error) {
     console.error('获取模型列表失败:', error)
     modelsError.value = error.message || '获取模型列表失败，请稍后重试'
-    availableModels.value = [
-      { value: 'zai-org/GLM-4.5-Air', label: 'GLM-4' },
-      { value: 'Pro/deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
-      { value: 'Qwen/Qwen3-Coder-30B-A3B-Instruct', label: 'Qwen3 Coder 30B' }
-    ]
+    availableModels.value = []
   } finally {
     modelsLoading.value = false
   }

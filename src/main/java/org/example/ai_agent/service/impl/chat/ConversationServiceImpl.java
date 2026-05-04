@@ -130,16 +130,9 @@ public class ConversationServiceImpl implements ConversationService {
                     }
                     return userId;
                 })
-                .flatMapMany(validatedUserId -> conversationRepository.findTop5ByUserIdOrderByUpdatedAtDesc(validatedUserId)
-                        .flatMap(conversation -> messageRepository
-                                .findFirstByConversationIdAndSenderOrderByTimestampAsc(conversation.getId(), "user")
-                                .timeout(Duration.ofSeconds(5))
-                                .map(firstUserMessage -> toPreview(conversation, firstUserMessage.getContent()))
-                                .switchIfEmpty(Mono.just(toPreview(conversation, null)))
-                                .onErrorResume(error -> {
-                                    logger.warn("Failed to build preview for conversation {}", conversation.getId(), error);
-                                    return Mono.just(toPreview(conversation, "Preview unavailable"));
-                                }))
+                .flatMapMany(validatedUserId -> conversationRepository.findByUserIdOrderByUpdatedAtDesc(validatedUserId)
+                        .concatMap(this::buildConversationPreview)
+                        .take(5)
                         .timeout(Duration.ofSeconds(10))
                         .onErrorResume(error -> {
                             logger.error("Failed to load recent conversations for user {}", userId, error);
@@ -259,10 +252,18 @@ public class ConversationServiceImpl implements ConversationService {
                 .defaultIfEmpty("");
 
         return Mono.zip(firstUserMessageMono, lastMessageMono)
-                .map(tuple -> {
-                    ConversationWithPreview preview = toPreview(conversation, tuple.getT1());
-                    preview.setLastMessage(tuple.getT2());
-                    return preview;
+                .flatMap(tuple -> {
+                    String firstUserMessage = tuple.getT1();
+                    String lastMessage = tuple.getT2();
+
+                    if (!StringUtils.hasText(firstUserMessage) && !StringUtils.hasText(lastMessage)) {
+                        logger.warn("Conversation {} has no message records, skipping preview exposure", conversation.getId());
+                        return Mono.empty();
+                    }
+
+                    ConversationWithPreview preview = toPreview(conversation, firstUserMessage);
+                    preview.setLastMessage(lastMessage);
+                    return Mono.just(preview);
                 })
                 .onErrorResume(error -> {
                     logger.warn("Failed to build admin preview for conversation {}", conversation.getId(), error);

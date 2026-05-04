@@ -32,6 +32,7 @@ export const aiApiService = {
             const response = await fetch(`${API_BASE_URL}/ai/chat`, {
                 method: 'POST',
                 headers: {
+                    'Accept': 'text/event-stream; charset=utf-8',
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
@@ -47,7 +48,7 @@ export const aiApiService = {
             }
 
             const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+            const decoder = new TextDecoder('utf-8');
             let buffer = '';
             let isComplete = false;
 

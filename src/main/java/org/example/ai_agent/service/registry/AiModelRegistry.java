@@ -5,6 +5,7 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.ai.AiModelProperties;
+import org.example.ai_agent.config.ai.http.Utf8SpringRestClientBuilder;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -82,6 +83,7 @@ public class AiModelRegistry {
                 
                 // 使用全局的baseUrl和apiKey，以及每个模型自己的参数来构建模型
                 StreamingChatModel model = OpenAiStreamingChatModel.builder()
+                        .httpClientBuilder(new Utf8SpringRestClientBuilder())
                         .baseUrl(globalBaseUrl)
                         .apiKey(globalApiKey)
                         .modelName(config.getModelName())

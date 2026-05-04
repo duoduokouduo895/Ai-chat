@@ -118,6 +118,7 @@ const loadKnowledgeBases = async () => {
     const response = await knowledgeApiService.getKnowledgeBases()
     knowledgeBases.value = response.data || []
   } catch (error) {
+    const errorMsg = error.response?.data?.message || error.message || '文档删除失败，请稍后重试'
     console.error('加载知识库失败:', error)
     // 这里可以添加错误提示
   } finally {
@@ -207,6 +208,8 @@ const deleteDocument = async (doc) => {
   
   try {
     await knowledgeApiService.deleteDocument(doc.id)
+    documents.value = documents.value.filter((item) => item.id !== doc.id)
+    alert('文档删除成功')
     if (selectedKB.value) {
       loadDocuments(selectedKB.value.id)
     }

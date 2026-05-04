@@ -4,11 +4,8 @@ import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import reactor.core.publisher.Mono;
 
 /**
- * 文档处理工作流服务接口
- * 
- * @author AI Agent
- * @version 1.0
- * @since 2025
+ * 文档处理阶段服务接口。
+ * 该接口主要服务于内部异步工作流，分别处理 parse、chunk、embed 等阶段动作。
  */
 public interface DocumentProcessingService {
     

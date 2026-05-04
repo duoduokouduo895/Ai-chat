@@ -39,46 +39,10 @@ public class DocumentProcessingHandler {
                                      @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档解析消息: documentId={}, parseMode={}", 
                 message.getDocumentId(), message.getParseMode());
-        
-        documentProcessingService.processDocumentParsing(message)
-            .doOnSuccess(result -> {
-                try {
-                    if (result) {
-                        log.info("文档解析处理成功: documentId={}", message.getDocumentId());
-                        // 手动确认消息
-                        channel.basicAck(deliveryTag, false);
-                    } else {
-                        log.warn("文档解析处理失败: documentId={}", message.getDocumentId());
-                        // 拒绝消息并重新入队
-                        channel.basicNack(deliveryTag, false, true);
-                        handleProcessingFailure(message, "文档解析处理失败");
-                    }
-                } catch (IOException e) {
-                    log.error("消息确认失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .doOnError(error -> {
-                try {
-                    log.error("文档解析处理异常: documentId={}, error={}", 
-                            message.getDocumentId(), error.getMessage(), error);
-                    
-                    // 检查是否是文档不存在的错误，如果是则直接丢弃消息
-                    if (isDocumentNotFoundError(error)) {
-                        log.warn("文档不存在，丢弃消息: documentId={}", message.getDocumentId());
-                        recordDocumentNotFoundFailure(message, error.getMessage());
-                        // 确认消息（丢弃）
-                        channel.basicAck(deliveryTag, false);
-                        return;
-                    }
-                    
-                    // 其他错误，拒绝消息并重新入队
-                    channel.basicNack(deliveryTag, false, true);
-                    handleProcessingFailure(message, error.getMessage());
-                } catch (IOException e) {
-                    log.error("消息拒绝失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .subscribe();
+
+        processMessage(message, channel, deliveryTag,
+                documentProcessingService.processDocumentParsing(message),
+                "文档解析处理失败");
     }
     
     /**
@@ -88,46 +52,10 @@ public class DocumentProcessingHandler {
     public void handleDocumentChunking(DocumentProcessingMessage message, Channel channel, 
                                       @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档分块消息: documentId={}", message.getDocumentId());
-        
-        documentProcessingService.processDocumentChunking(message)
-            .doOnSuccess(result -> {
-                try {
-                    if (result) {
-                        log.info("文档分块处理成功: documentId={}", message.getDocumentId());
-                        // 手动确认消息
-                        channel.basicAck(deliveryTag, false);
-                    } else {
-                        log.warn("文档分块处理失败: documentId={}", message.getDocumentId());
-                        // 拒绝消息并重新入队
-                        channel.basicNack(deliveryTag, false, true);
-                        handleProcessingFailure(message, "文档分块处理失败");
-                    }
-                } catch (IOException e) {
-                    log.error("消息确认失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .doOnError(error -> {
-                try {
-                    log.error("文档分块处理异常: documentId={}, error={}", 
-                            message.getDocumentId(), error.getMessage(), error);
-                    
-                    // 检查是否是文档不存在的错误，如果是则直接丢弃消息
-                    if (isDocumentNotFoundError(error)) {
-                        log.warn("文档不存在，丢弃消息: documentId={}", message.getDocumentId());
-                        recordDocumentNotFoundFailure(message, error.getMessage());
-                        // 确认消息（丢弃）
-                        channel.basicAck(deliveryTag, false);
-                        return;
-                    }
-                    
-                    // 其他错误，拒绝消息并重新入队
-                    channel.basicNack(deliveryTag, false, true);
-                    handleProcessingFailure(message, error.getMessage());
-                } catch (IOException e) {
-                    log.error("消息拒绝失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .subscribe();
+
+        processMessage(message, channel, deliveryTag,
+                documentProcessingService.processDocumentChunking(message),
+                "文档分块处理失败");
     }
     
     /**
@@ -137,46 +65,10 @@ public class DocumentProcessingHandler {
     public void handleDocumentEmbedding(DocumentProcessingMessage message, Channel channel, 
                                        @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档向量化消息: documentId={}", message.getDocumentId());
-        
-        documentProcessingService.processDocumentEmbedding(message)
-            .doOnSuccess(result -> {
-                try {
-                    if (result) {
-                        log.info("文档向量化处理成功: documentId={}", message.getDocumentId());
-                        // 手动确认消息
-                        channel.basicAck(deliveryTag, false);
-                    } else {
-                        log.warn("文档向量化处理失败: documentId={}", message.getDocumentId());
-                        // 拒绝消息并重新入队
-                        channel.basicNack(deliveryTag, false, true);
-                        handleProcessingFailure(message, "文档向量化处理失败");
-                    }
-                } catch (IOException e) {
-                    log.error("消息确认失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .doOnError(error -> {
-                try {
-                    log.error("文档向量化处理异常: documentId={}, error={}", 
-                            message.getDocumentId(), error.getMessage(), error);
-                    
-                    // 检查是否是文档不存在的错误，如果是则直接丢弃消息
-                    if (isDocumentNotFoundError(error)) {
-                        log.warn("文档不存在，丢弃消息: documentId={}", message.getDocumentId());
-                        recordDocumentNotFoundFailure(message, error.getMessage());
-                        // 确认消息（丢弃）
-                        channel.basicAck(deliveryTag, false);
-                        return;
-                    }
-                    
-                    // 其他错误，拒绝消息并重新入队
-                    channel.basicNack(deliveryTag, false, true);
-                    handleProcessingFailure(message, error.getMessage());
-                } catch (IOException e) {
-                    log.error("消息拒绝失败: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-                }
-            })
-            .subscribe();
+
+        processMessage(message, channel, deliveryTag,
+                documentProcessingService.processDocumentEmbedding(message),
+                "文档向量化处理失败");
     }
     
     /**
@@ -196,74 +88,18 @@ public class DocumentProcessingHandler {
      * 处理失败情况
      */
     private void handleProcessingFailure(DocumentProcessingMessage message, String errorMessage) {
-        message.incrementRetryCount();
         message.setErrorMessage(errorMessage);
-        
-        // 增加重试记录
-        recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
-            .subscribe();
-        
-        log.warn("文档处理失败: documentId={}, processingType={}, retryCount={}, error={}", 
+
+        log.error("文档处理最终失败: documentId={}, processingType={}, retryCount={}, error={}",
                 message.getDocumentId(), message.getProcessingType(), message.getRetryCount(), errorMessage);
-        
-        // 检查是否超过最大重试次数或连续失败太多次
-        boolean shouldStop = message.getRetryCount() >= DocumentProcessingConstants.Retry.MAX_ATTEMPTS;
-        
-        // 如果连续失败太多次（可能是文档已被删除），直接放弃
-        if (message.getRetryCount() >= 3) {
-            log.warn("文档处理连续失败太多次，可能是文档已被删除，放弃处理: documentId={}, retryCount={}", 
-                    message.getDocumentId(), message.getRetryCount());
-            shouldStop = true;
-        }
-        
-        if (shouldStop) {
-            log.error("文档处理超过最大重试次数或连续失败: documentId={}, processingType={}, retryCount={}", 
-                    message.getDocumentId(), message.getProcessingType(), message.getRetryCount());
-            
-            // 更新文档状态为失败
-            updateDocumentStatusToFailed(message, errorMessage);
-            
-            // 记录最终失败
-            recordService.failProcessing(
-                    message.getDocumentId(), 
-                    message.getProcessingType(), 
-                    errorMessage, 
-                    null)
-                .subscribe();
-                
-        } else {
-            log.info("准备重试文档处理: documentId={}, processingType={}, retryCount={}", 
-                    message.getDocumentId(), message.getProcessingType(), message.getRetryCount());
-            
-            // 延迟重试
-            retryProcessing(message);
-        }
-    }
-    
-    /**
-     * 重试处理
-     */
-    private void retryProcessing(DocumentProcessingMessage message) {
-        try {
-            // 延迟一段时间后重试
-            Thread.sleep(DocumentProcessingConstants.Retry.RETRY_DELAY_MS);
-            
-            String routingKey = getRoutingKeyByProcessingType(message.getProcessingType());
-            documentProcessingService.sendProcessingMessage(message, routingKey)
-                .subscribe(result -> {
-                    if (result) {
-                        log.info("重试消息发送成功: documentId={}, processingType={}", 
-                                message.getDocumentId(), message.getProcessingType());
-                    } else {
-                        log.error("重试消息发送失败: documentId={}, processingType={}", 
-                                message.getDocumentId(), message.getProcessingType());
-                    }
-                });
-                
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("重试延迟中断: documentId={}, error={}", message.getDocumentId(), e.getMessage());
-        }
+
+        updateDocumentStatusToFailed(message, errorMessage);
+        recordService.failProcessing(
+                message.getDocumentId(),
+                message.getProcessingType(),
+                errorMessage,
+                null)
+            .subscribe();
     }
     
     /**
@@ -310,18 +146,6 @@ public class DocumentProcessingHandler {
     }
     
     /**
-     * 根据处理类型获取路由键
-     */
-    private String getRoutingKeyByProcessingType(String processingType) {
-        return switch (processingType) {
-            case "PARSE" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE;
-            case "CHUNK" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK;
-            case "EMBED" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED;
-            default -> throw new IllegalArgumentException("未知的处理类型: " + processingType);
-        };
-    }
-    
-    /**
      * 检查是否是文档不存在的错误
      */
     private boolean isDocumentNotFoundError(Throwable error) {
@@ -331,9 +155,7 @@ public class DocumentProcessingHandler {
         if (message == null) message = "";
         
         // 检查各种可能的文档不存在错误
-        boolean isNotFound = 
-            error instanceof IllegalArgumentException ||
-            error instanceof RuntimeException ||
+        boolean isNotFound =
             message.contains("does not exist") ||
             message.contains("不存在") ||
             message.contains("cannot start processing") ||
@@ -351,6 +173,103 @@ public class DocumentProcessingHandler {
         }
         
         return isNotFound;
+    }
+
+    private void processMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
+                                reactor.core.publisher.Mono<Boolean> processingMono, String failureMessage) {
+        processingMono.subscribe(result -> {
+            if (Boolean.TRUE.equals(result)) {
+                log.info("文档处理成功: documentId={}, processingType={}",
+                        message.getDocumentId(), message.getProcessingType());
+                ackMessage(channel, deliveryTag, message, "处理成功");
+                return;
+            }
+
+            log.warn("文档处理返回失败: documentId={}, processingType={}, error={}",
+                    message.getDocumentId(), message.getProcessingType(), failureMessage);
+            scheduleRetryOrFail(message, failureMessage, channel, deliveryTag);
+        }, error -> {
+            log.error("文档处理异常: documentId={}, processingType={}, error={}",
+                    message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
+
+            if (isDocumentNotFoundError(error)) {
+                log.warn("文档不存在，丢弃消息: documentId={}, processingType={}",
+                        message.getDocumentId(), message.getProcessingType());
+                recordDocumentNotFoundFailure(message, error.getMessage());
+                ackMessage(channel, deliveryTag, message, "文档不存在");
+                return;
+            }
+
+            scheduleRetryOrFail(message, error.getMessage(), channel, deliveryTag);
+        });
+    }
+
+    private void scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,
+                                     Channel channel, long deliveryTag) {
+        message.incrementRetryCount();
+        message.setErrorMessage(errorMessage);
+
+        if (message.getRetryCount() >= DocumentProcessingConstants.Retry.MAX_ATTEMPTS) {
+            handleProcessingFailure(message, errorMessage);
+            ackMessage(channel, deliveryTag, message, "最终失败");
+            return;
+        }
+
+        String retryRoutingKey = getRetryRoutingKeyByProcessingType(message.getProcessingType());
+        documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
+                .subscribe(result -> {
+                    if (Boolean.TRUE.equals(result)) {
+                        recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
+                                .subscribe();
+                        log.info("重试消息发送成功: documentId={}, processingType={}, retryCount={}",
+                                message.getDocumentId(), message.getProcessingType(), message.getRetryCount());
+                        ackMessage(channel, deliveryTag, message, "已投递重试队列");
+                    } else {
+                        log.error("重试消息发送失败，消息重新入队: documentId={}, processingType={}",
+                                message.getDocumentId(), message.getProcessingType());
+                        nackMessage(channel, deliveryTag, message, true, "重试投递失败");
+                    }
+                }, error -> {
+                    log.error("重试消息发送异常，消息重新入队: documentId={}, processingType={}, error={}",
+                            message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
+                    nackMessage(channel, deliveryTag, message, true, "重试投递异常");
+                });
+    }
+
+    private boolean ackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message, String scene) {
+        try {
+            channel.basicAck(deliveryTag, false);
+            log.debug("消息确认成功: documentId={}, processingType={}, scene={}",
+                    message.getDocumentId(), message.getProcessingType(), scene);
+            return true;
+        } catch (IOException e) {
+            log.error("消息确认失败: documentId={}, processingType={}, scene={}, error={}",
+                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private boolean nackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message,
+                                boolean requeue, String scene) {
+        try {
+            channel.basicNack(deliveryTag, false, requeue);
+            log.debug("消息拒绝成功: documentId={}, processingType={}, scene={}, requeue={}",
+                    message.getDocumentId(), message.getProcessingType(), scene, requeue);
+            return true;
+        } catch (IOException e) {
+            log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, error={}",
+                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private String getRetryRoutingKeyByProcessingType(String processingType) {
+        return switch (processingType) {
+            case "PARSE" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY;
+            case "CHUNK" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK_RETRY;
+            case "EMBED" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY;
+            default -> throw new IllegalArgumentException("未知的处理类型: " + processingType);
+        };
     }
     
     /**

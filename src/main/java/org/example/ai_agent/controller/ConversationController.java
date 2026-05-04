@@ -24,7 +24,7 @@ import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/conversations")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class ConversationController {
 
     private final ConversationService conversationService;
@@ -96,3 +96,5 @@ public class ConversationController {
                 .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
     }
 }
+
+

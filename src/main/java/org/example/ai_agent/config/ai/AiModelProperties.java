@@ -70,7 +70,7 @@ public class AiModelProperties {
 
     /**
      * 模型的前端展示元数据。
-     * 这些信息将通过/models接口暴露给前端UI。
+     * 这些信息将通过 /api/ai/models 接口暴露给前端 UI。
      */
     @Data
     public static class Metadata {

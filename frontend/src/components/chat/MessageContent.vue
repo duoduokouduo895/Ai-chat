@@ -1,5 +1,6 @@
 <template>
-  <div ref="contentRef" class="message-content" v-html="renderedHtml"></div>
+  <div v-if="plain" class="message-content plain-message-content">{{ text }}</div>
+  <div v-else ref="contentRef" class="message-content" v-html="renderedHtml"></div>
 </template>
 
 <script setup>
@@ -13,6 +14,10 @@ const props = defineProps({
   text: {
     type: String,
     required: true
+  },
+  plain: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -129,6 +134,10 @@ onBeforeUnmount(() => {
   overflow-wrap: break-word;
   hyphens: auto;
   user-select: text;
+}
+
+.plain-message-content {
+  white-space: pre-wrap;
 }
 
 .message-content :deep(p) {

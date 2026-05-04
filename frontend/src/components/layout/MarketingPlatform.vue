@@ -124,7 +124,7 @@ const handleConversationDeleted = async (deletedId) => {
 
 const loadAvailableModels = async () => {
   try {
-    const response = await apiClient.get('/models', { timeout: 8000 })
+    const response = await apiClient.get('/ai/models', { timeout: 8000 })
     if (response.data && Array.isArray(response.data) && response.data.length > 0) {
       availableModels.value = response.data
       console.log('模型列表加载成功:', availableModels.value)

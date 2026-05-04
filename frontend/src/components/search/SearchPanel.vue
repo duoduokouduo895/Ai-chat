@@ -17,7 +17,6 @@
     <SearchFilters
       ref="filtersRef"
       v-model:filters="filters"
-      :available-models="availableModels"
       @apply-filters="executeSearch"
       @clear-filters="clearFilters"
     />
@@ -86,12 +85,6 @@ const filters = reactive({
   minMessageCount: '',
   maxMessageCount: ''
 })
-
-// 可用模型列表
-const availableModels = ref([
-  'Pro/deepseek-ai/DeepSeek-R1',
-  'Qwen/Qwen3-Coder-30B-A3B-Instruct',
-])
 
 // 事件处理器
 const handleSuggestionSelected = (query) => {

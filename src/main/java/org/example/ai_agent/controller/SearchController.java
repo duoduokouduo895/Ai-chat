@@ -15,7 +15,7 @@ import reactor.core.publisher.Mono;
  */
 @RestController
 @RequestMapping("/api/search")
-@CrossOrigin(origins = {"http://localhost:3000", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 
 public class SearchController {
 
@@ -51,48 +51,6 @@ public class SearchController {
                 .map(ctx -> ctx.getAuthentication().getName())
                 .flatMap(userRepository::findByUsername)
                 .flatMapMany(user -> searchService.searchConversations(user.getUserId(), query, startDate, endDate, models, page, size));
-    }
-
-    /**
-     * 重建所有对话的索引
-     *
-     * @return 操作完成的信号
-     */
-    @PostMapping("/rebuild-indexes")
-    public Mono<Void> rebuildIndexes() {
-        return searchService.rebuildAllIndexes();
-    }
-
-    /**
-     * 检查Elasticsearch索引状态
-     *
-     * @return 索引状态信息
-     */
-    @GetMapping("/index-status")
-    public Mono<String> checkIndexStatus() {
-        System.out.println("[DEBUG] 检查索引状态请求");
-        return searchService.checkIndexStatus()
-                .doOnNext(status -> System.out.println("[DEBUG] 索引状态: " + status))
-                .doOnError(error -> {
-                    System.out.println("[DEBUG] 检查索引状态出错: " + error.getMessage());
-                    error.printStackTrace();
-                });
-    }
-
-    /**
-     * 手动索引所有现有对话
-     *
-     * @return 操作完成的信号
-     */
-    @PostMapping("/index-all-conversations")
-    public Mono<String> indexAllConversations() {
-        System.out.println("[DEBUG] 开始手动索引所有对话");
-        return searchService.indexAllExistingConversations()
-                .doOnSuccess(result -> System.out.println("[DEBUG] 手动索引完成: " + result))
-                .doOnError(error -> {
-                    System.out.println("[DEBUG] 手动索引出错: " + error.getMessage());
-                    error.printStackTrace();
-                });
     }
 
     /**
@@ -144,3 +102,5 @@ public class SearchController {
                 .flatMap(user -> searchService.cleanupDuplicateSearchHistory(user.getUserId()));
     }
 }
+
+

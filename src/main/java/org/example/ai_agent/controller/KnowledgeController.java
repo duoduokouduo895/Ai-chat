@@ -1,5 +1,6 @@
 package org.example.ai_agent.controller;
 
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.RagChatDto;
 import org.example.ai_agent.dto.chat.RagChatResponseDto;
@@ -10,6 +11,7 @@ import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
+import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.DocumentChunkService;
@@ -23,6 +25,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ServerWebExchange;
@@ -36,19 +40,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 知识库控制器
- * <p>
- * 提供知识库管理、文档上传、搜索、RAG对话等API
- * </p>
- *
- * @author AI Agent
- * @version 1.0
- * @since 2025
+ * 知识库控制器。
+ * 对外主要承载知识库管理、文档入库、检索等能力。
+ * 其中旧的 RAG 专用聊天接口仅保留为兼容入口，主聊天链路已经收敛到统一 Assistant。
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class KnowledgeController {
 
     @Autowired
@@ -67,19 +66,21 @@ public class KnowledgeController {
     private DocumentChunkService documentChunkService;
 
     @Autowired
-    private org.example.ai_agent.util.JwtUtil jwtUtil;
-
+    private UserRepository userRepository;
     /**
      * 搜索知识库
      */
     @PostMapping("/search")
     public Mono<KnowledgeSearchResultDto> searchKnowledge(
-            @RequestBody KnowledgeSearchDto searchRequest) {
+            @RequestBody KnowledgeSearchDto searchRequest,
+            Authentication authentication) {
 
         log.info("知识库搜索请求: query={}, knowledgeBaseIds={}, maxResults={}",
                 searchRequest.getQuery(), searchRequest.getKnowledgeBaseIds(), searchRequest.getMaxResults());
 
-        return ragService.searchKnowledge(searchRequest)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> validateKnowledgeBaseReadAccess(searchRequest.getKnowledgeBaseIds(), access)
+                        .then(ragService.searchKnowledge(searchRequest)))
                 .doOnSuccess(result -> log.info("知识库搜索完成: resultCount={}, searchTime={}ms",
                         result.getTotalCount(), result.getSearchTime()))
                 .doOnError(error -> log.error("知识库搜索失败: query={}, error={}",
@@ -87,15 +88,20 @@ public class KnowledgeController {
     }
 
     /**
-     * RAG对话 - 非流式
+     * 旧 RAG 对话兼容接口。
+     * 主推荐入口已经收敛到 /api/ai/chat。
      */
+    @Deprecated
     @PostMapping("/chat")
-    public Mono<RagChatResponseDto> ragChat(@RequestBody RagChatDto ragRequest) {
+    public Mono<RagChatResponseDto> ragChat(@RequestBody RagChatDto ragRequest,
+                                            Authentication authentication) {
 
         log.info("RAG对话请求: question={}, modelId={}, knowledgeBaseIds={}",
                 ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
 
-        return ragService.ragChat(ragRequest)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> validateKnowledgeBaseReadAccess(ragRequest.getKnowledgeBaseIds(), access)
+                        .then(ragService.ragChat(ragRequest)))
                 .doOnSuccess(response -> log.info("RAG对话完成: question={}, processingTime={}ms",
                         ragRequest.getQuestion(), response.getProcessingTime()))
                 .doOnError(error -> log.error("RAG对话失败: question={}, error={}",
@@ -103,15 +109,20 @@ public class KnowledgeController {
     }
 
     /**
-     * RAG对话 - 流式
+     * 旧 RAG 流式对话兼容接口。
+     * 主推荐入口已经收敛到 /api/ai/chat。
      */
-    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_PLAIN_VALUE)
-    public Flux<String> ragChatStream(@RequestBody RagChatDto ragRequest) {
+    @Deprecated
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8")
+    public Flux<String> ragChatStream(@RequestBody RagChatDto ragRequest,
+                                      Authentication authentication) {
 
         log.info("RAG流式对话请求: question={}, modelId={}, knowledgeBaseIds={}",
                 ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
 
-        return ragService.ragChatStream(ragRequest)
+        return resolveAccessContext(authentication)
+                .flatMapMany(access -> validateKnowledgeBaseReadAccess(ragRequest.getKnowledgeBaseIds(), access)
+                        .thenMany(ragService.ragChatStream(ragRequest)))
                 .doOnSubscribe(subscription -> log.info("开始RAG流式对话: question={}", ragRequest.getQuestion()))
                 .doOnComplete(() -> log.info("RAG流式对话完成: question={}", ragRequest.getQuestion()))
                 .doOnError(error -> log.error("RAG流式对话失败: question={}, error={}",
@@ -122,24 +133,37 @@ public class KnowledgeController {
      * 创建知识库
      */
     @PostMapping("/bases")
-    public Mono<KnowledgeBaseDto> createKnowledgeBase(@RequestBody KnowledgeBaseCreateDto createRequest,
-                                                     @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+    public Mono<KnowledgeBaseDto> createKnowledgeBase(@Valid @RequestBody KnowledgeBaseCreateDto createRequest,
+                                                      Authentication authentication) {
         log.info("创建知识库请求: name={}, description={}, isPublic={}, embeddingModel={}",
                 createRequest.getName(), createRequest.getDescription(),
                 createRequest.getIsPublic(), createRequest.getEmbeddingModel());
 
-        // 从JWT token中获取用户ID
-        String token = authorizationHeader.substring(7).trim(); // 移除 "Bearer " 前缀
-        Long creatorId = jwtUtil.getUserIdFromToken(token);
+        return requireUserAccess(authentication)
+                .flatMap(access -> knowledgeBaseService.createKnowledgeBase(createRequest, access.userId())
+                        .doOnSuccess(dto -> log.info("知识库创建成功: id={}, name={}, creatorId={}",
+                                dto.getId(), dto.getName(), access.userId()))
+                        .doOnError(error -> log.error("知识库创建失败: name={}, error={}",
+                                createRequest.getName(), error.getMessage())));
+    }
 
-        if (creatorId == null) {
-            return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
-        }
+    /**
+     * 管理员创建知识库
+     */
+    @PostMapping("/admin/bases")
+    public Mono<KnowledgeBaseDto> createKnowledgeBaseForAdmin(@Valid @RequestBody KnowledgeBaseCreateDto createRequest,
+                                                              @RequestParam Long creatorId,
+                                                              Authentication authentication) {
+        log.info("管理员创建知识库请求: name={}, creatorId={}, isPublic={}",
+                createRequest.getName(), creatorId, createRequest.getIsPublic());
 
-        return knowledgeBaseService.createKnowledgeBase(createRequest, creatorId)
-                .doOnSuccess(dto -> log.info("知识库创建成功: id={}, name={}, creatorId={}", dto.getId(), dto.getName(), creatorId))
-                .doOnError(error -> log.error("知识库创建失败: name={}, error={}",
-                        createRequest.getName(), error.getMessage()));
+        return requireAdminAccess(authentication)
+                .then(requireExistingUserId(creatorId, "知识库归属用户不存在"))
+                .flatMap(validCreatorId -> knowledgeBaseService.createKnowledgeBase(createRequest, validCreatorId))
+                .doOnSuccess(dto -> log.info("管理员创建知识库成功: id={}, name={}, creatorId={}",
+                        dto.getId(), dto.getName(), creatorId))
+                .doOnError(error -> log.error("管理员创建知识库失败: creatorId={}, error={}",
+                        creatorId, error.getMessage()));
     }
 
     /**
@@ -150,16 +174,12 @@ public class KnowledgeController {
             @RequestParam(required = false) Boolean publicOnly,
             @RequestParam(defaultValue = "0") Integer page,
             @RequestParam(defaultValue = "10") Integer size,
-            @RequestHeader(value = org.springframework.http.HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+            Authentication authentication) {
         log.info("查询知识库列表: publicOnly={}, page={}, size={}", publicOnly, page, size);
 
-        Long creatorId = null;
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            String token = authorizationHeader.substring(7).trim();
-            creatorId = jwtUtil.getUserIdFromToken(token);
-        }
-
-        return knowledgeBaseService.getKnowledgeBases(creatorId, publicOnly, page, size)
+        return resolveAccessContext(authentication)
+                .flatMapMany(access -> knowledgeBaseService.getKnowledgeBases(
+                        access.isAdmin() ? null : access.userId(), publicOnly, page, size))
                 .doOnComplete(() -> log.info("知识库列表查询完成"))
                 .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()));
     }
@@ -181,10 +201,11 @@ public class KnowledgeController {
      * 获取知识库详情
      */
     @GetMapping("/bases/{id}")
-    public Mono<KnowledgeBaseDto> getKnowledgeBase(@PathVariable Long id) {
+    public Mono<KnowledgeBaseDto> getKnowledgeBase(@PathVariable Long id, Authentication authentication) {
         log.info("查询知识库详情: id={}", id);
 
-        return knowledgeBaseService.getKnowledgeBase(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> knowledgeBaseService.getKnowledgeBase(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}, name={}", id, dto.getName()))
                 .doOnError(error -> log.error("知识库详情查询失败: id={}, error={}", id, error.getMessage()));
     }
@@ -193,10 +214,13 @@ public class KnowledgeController {
      * 更新知识库
      */
     @PutMapping("/bases/{id}")
-    public Mono<KnowledgeBaseDto> updateKnowledgeBase(@PathVariable Long id, @RequestBody KnowledgeBaseCreateDto updateRequest) {
+    public Mono<KnowledgeBaseDto> updateKnowledgeBase(@PathVariable Long id,
+                                                      @Valid @RequestBody KnowledgeBaseCreateDto updateRequest,
+                                                      Authentication authentication) {
         log.info("更新知识库请求: id={}, name={}", id, updateRequest.getName());
 
-        return knowledgeBaseService.updateKnowledgeBase(id, updateRequest)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> knowledgeBaseService.updateKnowledgeBase(id, updateRequest, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("知识库更新成功: id={}, name={}", id, dto.getName()))
                 .doOnError(error -> log.error("知识库更新失败: id={}, error={}", id, error.getMessage()));
     }
@@ -205,10 +229,11 @@ public class KnowledgeController {
      * 删除知识库
      */
     @DeleteMapping("/bases/{id}")
-    public Mono<Void> deleteKnowledgeBase(@PathVariable Long id) {
+    public Mono<Void> deleteKnowledgeBase(@PathVariable Long id, Authentication authentication) {
         log.info("删除知识库请求: id={}", id);
 
-        return knowledgeBaseService.deleteKnowledgeBase(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> knowledgeBaseService.deleteKnowledgeBase(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))
                 .doOnError(error -> log.error("知识库删除失败: id={}, error={}", id, error.getMessage()));
     }
@@ -217,10 +242,13 @@ public class KnowledgeController {
      * 测试知识库是否存在
      */
     @GetMapping("/bases/{id}/exists")
-    public Mono<Boolean> checkKnowledgeBaseExists(@PathVariable Long id) {
+    public Mono<Boolean> checkKnowledgeBaseExists(@PathVariable Long id, Authentication authentication) {
         log.info("检查知识库是否存在: id={}", id);
 
-        return knowledgeBaseService.existsById(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> knowledgeBaseService
+                        .getAuthorizedKnowledgeBase(id, access.userId(), access.isAdmin(), false)
+                        .thenReturn(Boolean.TRUE))
                 .doOnSuccess(exists -> log.info("知识库存在检查结果: id={}, exists={}", id, exists))
                 .doOnError(error -> log.error("知识库存在检查失败: id={}, error={}", id, error.getMessage()));
     }
@@ -229,7 +257,7 @@ public class KnowledgeController {
      * 上传文档（前端专用接口） - 兼容性更好的版本
      */
     @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Mono<DocumentDto> uploadDocumentDirect(ServerWebExchange exchange) {
+    public Mono<DocumentDto> uploadDocumentDirect(ServerWebExchange exchange, Authentication authentication) {
         return exchange.getMultipartData()
                 .flatMap(multipartData -> {
                     try {
@@ -270,12 +298,11 @@ public class KnowledgeController {
                                                 filePartTyped.filename(), knowledgeBaseId, parseMode, enableVectorization);
 
                                         // 将FilePart转换为MultipartFile
-                                        return convertFilePartToMultipartFile(filePartTyped)
-                                                .flatMap(multipartFile -> {
-                                                    // 从请求头中获取用户ID（传统方式不支持JWT，使用默认值）
-                                                    Long uploaderId = 1L; // 前端上传无法传递JWT，使用默认值
-                                                    return documentService.uploadDocument(multipartFile, knowledgeBaseId, parseMode, enableVectorization, uploaderId);
-                                                });
+                                        return requireUserAccess(authentication)
+                                                .flatMap(access -> convertFilePartToMultipartFile(filePartTyped)
+                                                        .flatMap(multipartFile -> documentService.uploadDocument(
+                                                                multipartFile, knowledgeBaseId, parseMode,
+                                                                enableVectorization, access.userId(), false)));
 
                                     } catch (NumberFormatException e) {
                                         log.error("知识库ID格式错误: {}", knowledgeBaseIdStr, e);
@@ -296,6 +323,72 @@ public class KnowledgeController {
     }
 
     /**
+     * 管理员上传文档
+     */
+    @PostMapping(value = "/admin/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Mono<DocumentDto> uploadDocumentDirectForAdmin(ServerWebExchange exchange, Authentication authentication) {
+        return exchange.getMultipartData()
+                .flatMap(multipartData -> {
+                    try {
+                        org.springframework.http.codec.multipart.Part filePart = multipartData.getFirst("file");
+                        org.springframework.http.codec.multipart.Part knowledgeBaseIdPart = multipartData.getFirst("knowledgeBaseId");
+                        org.springframework.http.codec.multipart.Part parseModePart = multipartData.getFirst("parseMode");
+                        org.springframework.http.codec.multipart.Part enableVectorizationPart = multipartData.getFirst("enableVectorization");
+                        org.springframework.http.codec.multipart.Part uploaderIdPart = multipartData.getFirst("uploaderId");
+
+                        if (filePart == null || !(filePart instanceof FilePart)) {
+                            return Mono.error(new IllegalArgumentException("文件不能为空"));
+                        }
+
+                        if (knowledgeBaseIdPart == null) {
+                            return Mono.error(new IllegalArgumentException("知识库ID不能为空"));
+                        }
+
+                        FilePart filePartTyped = (FilePart) filePart;
+                        Mono<String> knowledgeBaseIdMono = getPartContentAsString(knowledgeBaseIdPart);
+                        Mono<String> parseModeMono = parseModePart != null
+                                ? getPartContentAsString(parseModePart)
+                                : Mono.just("auto");
+                        Mono<String> enableVectorizationMono = enableVectorizationPart != null
+                                ? getPartContentAsString(enableVectorizationPart)
+                                : Mono.just("true");
+                        Mono<String> uploaderIdMono = uploaderIdPart != null
+                                ? getPartContentAsString(uploaderIdPart)
+                                : Mono.just("");
+
+                        return requireAdminAccess(authentication)
+                                .then(Mono.zip(knowledgeBaseIdMono, parseModeMono, enableVectorizationMono, uploaderIdMono))
+                                .flatMap(tuple -> {
+                                    try {
+                                        Long knowledgeBaseId = Long.parseLong(tuple.getT1().trim());
+                                        String parseMode = tuple.getT2();
+                                        Boolean enableVectorization = Boolean.parseBoolean(tuple.getT3().trim());
+                                        Long uploaderId = parseOptionalLong(tuple.getT4());
+
+                                        log.info("管理员文档上传请求: fileName={}, knowledgeBaseId={}, uploaderId={}, parseMode={}",
+                                                filePartTyped.filename(), knowledgeBaseId, uploaderId, parseMode);
+
+                                        return resolveAdminUploaderId(knowledgeBaseId, uploaderId)
+                                                .flatMap(validUploaderId -> convertFilePartToMultipartFile(filePartTyped)
+                                                        .flatMap(multipartFile -> documentService.uploadDocument(
+                                                                multipartFile, knowledgeBaseId, parseMode,
+                                                                enableVectorization, validUploaderId, true)));
+                                    } catch (NumberFormatException e) {
+                                        log.error("管理员文档上传参数格式错误", e);
+                                        return Mono.error(new IllegalArgumentException("知识库ID或上传用户ID格式错误"));
+                                    }
+                                });
+                    } catch (Exception e) {
+                        log.error("管理员文档上传请求处理失败", e);
+                        return Mono.error(new RuntimeException("管理员文档上传请求处理失败: " + e.getMessage()));
+                    }
+                })
+                .doOnSuccess(dto -> log.info("管理员文档上传成功: id={}, fileName={}, uploaderId={}",
+                        dto.getId(), dto.getFileName(), dto.getUploaderId()))
+                .doOnError(error -> log.error("管理员文档上传失败: error={}", error.getMessage(), error));
+    }
+
+    /**
      * 上传文档到知识库
      */
     @PostMapping("/bases/{knowledgeBaseId}/documents")
@@ -303,23 +396,18 @@ public class KnowledgeController {
                                             @RequestParam("file") MultipartFile file,
                                             @RequestParam(value = "parseMode", defaultValue = "auto") String parseMode,
                                             @RequestParam(value = "enableVectorization", defaultValue = "true") Boolean enableVectorization,
-                                            @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+                                            Authentication authentication) {
 
         log.info("知识库文档上传请求: knowledgeBaseId={}, fileName={}, parseMode={}, enableVectorization={}",
                 knowledgeBaseId, file.getOriginalFilename(), parseMode, enableVectorization);
 
-        // 从JWT token中获取用户ID
-        String token = authorizationHeader.substring(7).trim();
-        Long uploaderId = jwtUtil.getUserIdFromToken(token);
-
-        if (uploaderId == null) {
-            return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
-        }
-
-        return documentService.uploadDocument(file, knowledgeBaseId, parseMode, enableVectorization, uploaderId)
-                .doOnSuccess(dto -> log.info("知识库文档上传成功: id={}, fileName={}, uploaderId={}", dto.getId(), dto.getFileName(), uploaderId))
-                .doOnError(error -> log.error("知识库文档上传失败: fileName={}, error={}",
-                        file.getOriginalFilename(), error.getMessage()));
+        return requireUserAccess(authentication)
+                .flatMap(access -> documentService.uploadDocument(
+                                file, knowledgeBaseId, parseMode, enableVectorization, access.userId(), false)
+                        .doOnSuccess(dto -> log.info("知识库文档上传成功: id={}, fileName={}, uploaderId={}",
+                                dto.getId(), dto.getFileName(), access.userId()))
+                        .doOnError(error -> log.error("知识库文档上传失败: fileName={}, error={}",
+                                file.getOriginalFilename(), error.getMessage())));
     }
 
     /**
@@ -330,53 +418,44 @@ public class KnowledgeController {
                                                              @RequestParam("files") MultipartFile[] files,
                                                              @RequestParam(value = "parseMode", defaultValue = "auto") String parseMode,
                                                              @RequestParam(value = "enableVectorization", defaultValue = "true") Boolean enableVectorization,
-                                                             @RequestHeader(org.springframework.http.HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+                                                             Authentication authentication) {
 
         log.info("批量上传文档请求: knowledgeBaseId={}, fileCount={}, parseMode={}, enableVectorization={}",
                 knowledgeBaseId, files.length, parseMode, enableVectorization);
 
-        // 从JWT token中获取用户ID
-        String token = authorizationHeader.substring(7).trim();
-        Long uploaderId = jwtUtil.getUserIdFromToken(token);
+        return requireUserAccess(authentication)
+                .flatMap(access -> Flux.fromArray(files)
+                        .flatMap(file -> documentService.uploadDocument(
+                                        file, knowledgeBaseId, parseMode, enableVectorization, access.userId(), false)
+                                .map(DocumentBatchUploadDto.SuccessDocument::new)
+                                .cast(Object.class)
+                                .onErrorReturn(new DocumentBatchUploadDto.FailedDocument(
+                                        file.getOriginalFilename(),
+                                        "文件上传失败")), 3)
+                        .collectList()
+                        .map(results -> {
+                            DocumentBatchUploadDto response = new DocumentBatchUploadDto();
+                            response.setSuccessDocuments(new java.util.ArrayList<>());
+                            response.setFailedDocuments(new java.util.ArrayList<>());
 
-        if (uploaderId == null) {
-            return Mono.error(new IllegalArgumentException("无效的Token: 无法获取用户ID"));
-        }
+                            for (Object result : results) {
+                                if (result instanceof DocumentBatchUploadDto.SuccessDocument) {
+                                    response.getSuccessDocuments().add(((DocumentBatchUploadDto.SuccessDocument) result).getDocument());
+                                } else if (result instanceof DocumentBatchUploadDto.FailedDocument) {
+                                    DocumentBatchUploadDto.DocumentUploadError error = new DocumentBatchUploadDto.DocumentUploadError();
+                                    DocumentBatchUploadDto.FailedDocument failed = (DocumentBatchUploadDto.FailedDocument) result;
+                                    error.setFileName(failed.getFileName());
+                                    error.setErrorMessage(failed.getErrorMessage());
+                                    response.getFailedDocuments().add(error);
+                                }
+                            }
 
-        // 批量处理文件上传
-        return Flux.fromArray(files)
-                .flatMap(file -> {
-                    return documentService.uploadDocument(file, knowledgeBaseId, parseMode, enableVectorization, uploaderId)
-                            .map(DocumentBatchUploadDto.SuccessDocument::new)
-                            .cast(Object.class)
-                            .onErrorReturn(new DocumentBatchUploadDto.FailedDocument(
-                                    file.getOriginalFilename(),
-                                    "文件上传失败"));
-                }, 3) // 限制并发数为3
-                .collectList()
-                .map(results -> {
-                    DocumentBatchUploadDto response = new DocumentBatchUploadDto();
-                    response.setSuccessDocuments(new java.util.ArrayList<>());
-                    response.setFailedDocuments(new java.util.ArrayList<>());
-
-                    for (Object result : results) {
-                        if (result instanceof DocumentBatchUploadDto.SuccessDocument) {
-                            response.getSuccessDocuments().add(((DocumentBatchUploadDto.SuccessDocument) result).getDocument());
-                        } else if (result instanceof DocumentBatchUploadDto.FailedDocument) {
-                            DocumentBatchUploadDto.DocumentUploadError error = new DocumentBatchUploadDto.DocumentUploadError();
-                            DocumentBatchUploadDto.FailedDocument failed = (DocumentBatchUploadDto.FailedDocument) result;
-                            error.setFileName(failed.getFileName());
-                            error.setErrorMessage(failed.getErrorMessage());
-                            response.getFailedDocuments().add(error);
-                        }
-                    }
-
-                    return response;
-                })
-                .doOnSuccess(result -> log.info("批量上传完成: 成功={}, 失败={}",
-                        result.getSuccessDocuments().size(), result.getFailedDocuments().size()))
-                .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, error={}",
-                        knowledgeBaseId, error.getMessage()));
+                            return response;
+                        })
+                        .doOnSuccess(result -> log.info("批量上传完成: 成功={}, 失败={}",
+                                result.getSuccessDocuments().size(), result.getFailedDocuments().size()))
+                        .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, error={}",
+                                knowledgeBaseId, error.getMessage())));
     }
 
     /**
@@ -385,10 +464,13 @@ public class KnowledgeController {
     @GetMapping("/bases/{knowledgeBaseId}/documents")
     public Flux<DocumentDto> getDocuments(@PathVariable Long knowledgeBaseId,
                                           @RequestParam(defaultValue = "0") Integer page,
-                                          @RequestParam(defaultValue = "10") Integer size) {
+                                          @RequestParam(defaultValue = "10") Integer size,
+                                          Authentication authentication) {
         log.info("查询知识库文档列表: knowledgeBaseId={}, page={}, size={}", knowledgeBaseId, page, size);
 
-        return documentService.getDocuments(knowledgeBaseId, page, size)
+        return resolveAccessContext(authentication)
+                .flatMapMany(access -> documentService.getDocuments(
+                        knowledgeBaseId, page, size, access.userId(), access.isAdmin()))
                 .doOnComplete(() -> log.info("知识库文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
                 .doOnError(error -> log.error("知识库文档列表查询失败: knowledgeBaseId={}, error={}", knowledgeBaseId, error.getMessage()));
     }
@@ -410,10 +492,11 @@ public class KnowledgeController {
      * 获取文档详情
      */
     @GetMapping("/documents/{id}")
-    public Mono<DocumentDto> getDocument(@PathVariable Long id) {
+    public Mono<DocumentDto> getDocument(@PathVariable Long id, Authentication authentication) {
         log.info("查询文档详情: id={}", id);
 
-        return documentService.getDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.getDocument(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("文档详情查询成功: id={}, fileName={}", id, dto.getFileName()))
                 .doOnError(error -> log.error("文档详情查询失败: id={}, error={}", id, error.getMessage()));
     }
@@ -422,10 +505,11 @@ public class KnowledgeController {
      * 删除文档
      */
     @DeleteMapping("/documents/{id}")
-    public Mono<Void> deleteDocument(@PathVariable Long id) {
+    public Mono<Void> deleteDocument(@PathVariable Long id, Authentication authentication) {
         log.info("删除文档请求: id={}", id);
 
-        return documentService.deleteDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.deleteDocument(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(v -> log.info("文档删除成功: id={}", id))
                 .doOnError(error -> log.error("文档删除失败: id={}, error={}", id, error.getMessage()));
     }
@@ -434,10 +518,11 @@ public class KnowledgeController {
      * 下载文档
      */
     @GetMapping("/documents/{id}/download")
-    public Mono<ResponseEntity<Object>> downloadDocument(@PathVariable Long id) {
+    public Mono<ResponseEntity<Object>> downloadDocument(@PathVariable Long id, Authentication authentication) {
         log.info("下载文档请求: id={}", id);
 
-        return documentService.getDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.getDocument(id, access.userId(), access.isAdmin()))
                 .flatMap(documentDto -> {
                     if (documentDto.getOssUrl() == null) {
                         return Mono.just(ResponseEntity.notFound().build());
@@ -463,10 +548,11 @@ public class KnowledgeController {
      * 重新解析文档
      */
     @PostMapping("/documents/{id}/reparse")
-    public Mono<DocumentDto> reparseDocument(@PathVariable Long id) {
+    public Mono<DocumentDto> reparseDocument(@PathVariable Long id, Authentication authentication) {
         log.info("重新解析文档请求: id={}", id);
 
-        return documentService.reparseDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.reparseDocument(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("重新解析文档成功: id={}, fileName={}", id, dto.getFileName()))
                 .doOnError(error -> log.error("重新解析文档失败: id={}, error={}", id, error.getMessage()));
     }
@@ -475,10 +561,11 @@ public class KnowledgeController {
      * 重新向量化文档
      */
     @PostMapping("/documents/{id}/re-embed")
-    public Mono<DocumentDto> reEmbedDocument(@PathVariable Long id) {
+    public Mono<DocumentDto> reEmbedDocument(@PathVariable Long id, Authentication authentication) {
         log.info("重新向量化文档请求: id={}", id);
 
-        return documentService.reEmbedDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.reEmbedDocument(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("重新向量化文档成功: id={}, fileName={}", id, dto.getFileName()))
                 .doOnError(error -> log.error("重新向量化文档失败: id={}, error={}", id, error.getMessage()));
     }
@@ -487,10 +574,11 @@ public class KnowledgeController {
      * 检查文档向量化状态（调试用）
      */
     @GetMapping("/documents/{id}/embedding-status")
-    public Mono<Map<String, Object>> checkDocumentEmbeddingStatus(@PathVariable Long id) {
+    public Mono<Map<String, Object>> checkDocumentEmbeddingStatus(@PathVariable Long id, Authentication authentication) {
         log.info("检查文档向量化状态: id={}", id);
 
-        return documentService.getDocument(id)
+        return resolveAccessContext(authentication)
+                .flatMap(access -> documentService.getDocument(id, access.userId(), access.isAdmin()))
                 .flatMap(documentDto -> {
                     Map<String, Object> status = new HashMap<>();
                     status.put("documentId", id);
@@ -538,10 +626,13 @@ public class KnowledgeController {
      * 获取文档处理记录
      */
     @GetMapping("/documents/{id}/processing-records")
-    public Flux<org.example.ai_agent.entity.DocumentProcessingRecord> getDocumentProcessingRecords(@PathVariable Long id) {
+    public Flux<org.example.ai_agent.entity.DocumentProcessingRecord> getDocumentProcessingRecords(@PathVariable Long id,
+                                                                                                   Authentication authentication) {
         log.info("获取文档处理记录请求: documentId={}", id);
 
-        return recordService.getDocumentProcessingRecords(id)
+        return resolveAccessContext(authentication)
+            .flatMapMany(access -> documentService.getDocument(id, access.userId(), access.isAdmin())
+                .thenMany(recordService.getDocumentProcessingRecords(id)))
             .doOnComplete(() -> log.info("文档处理记录获取完成: documentId={}", id))
             .doOnError(error -> log.error("获取文档处理记录失败: documentId={}, error={}", id, error.getMessage()));
     }
@@ -552,10 +643,12 @@ public class KnowledgeController {
     @GetMapping("/processing-records/failed")
     public Flux<org.example.ai_agent.entity.DocumentProcessingRecord> getFailedProcessingRecords(
             @RequestParam(value = "page", defaultValue = "0") Integer page,
-            @RequestParam(value = "size", defaultValue = "10") Integer size) {
+            @RequestParam(value = "size", defaultValue = "10") Integer size,
+            Authentication authentication) {
         log.info("获取失败处理记录请求: page={}, size={}", page, size);
 
-        return recordService.getFailedProcessingRecords(page, size)
+        return requireAdminAccess(authentication)
+            .thenMany(recordService.getFailedProcessingRecords(page, size))
             .doOnComplete(() -> log.info("失败处理记录获取完成: page={}, size={}", page, size))
             .doOnError(error -> log.error("获取失败处理记录失败: error={}", error.getMessage()));
     }
@@ -564,10 +657,11 @@ public class KnowledgeController {
      * 获取处理统计信息
      */
     @GetMapping("/processing-statistics")
-    public Mono<DocumentProcessingRecordService.ProcessingStatistics> getProcessingStatistics() {
+    public Mono<DocumentProcessingRecordService.ProcessingStatistics> getProcessingStatistics(Authentication authentication) {
         log.info("获取处理统计信息请求");
 
-        return recordService.getProcessingStatistics()
+        return requireAdminAccess(authentication)
+            .then(recordService.getProcessingStatistics())
             .doOnSuccess(stats -> log.info("处理统计信息获取成功: {}", stats))
             .doOnError(error -> log.error("获取处理统计信息失败: error={}", error.getMessage()));
     }
@@ -681,4 +775,97 @@ public class KnowledgeController {
                         };
                     });
         }
+
+        private Mono<AccessContext> resolveAccessContext(Authentication authentication) {
+            if (authentication == null || !authentication.isAuthenticated()) {
+                return Mono.error(new SecurityException("当前用户未认证"));
+            }
+
+            boolean isAdmin = authentication.getAuthorities().stream()
+                    .map(GrantedAuthority::getAuthority)
+                    .anyMatch("ROLE_ADMIN"::equals);
+            Long actorId = extractActorId(authentication);
+            return Mono.just(new AccessContext(actorId, isAdmin));
+        }
+
+        private Mono<AccessContext> requireUserAccess(Authentication authentication) {
+            return resolveAccessContext(authentication)
+                    .flatMap(access -> {
+                        if (access.isAdmin()) {
+                            return Mono.error(new SecurityException("管理员账号不能执行该操作"));
+                        }
+                        if (access.userId() == null || access.userId() <= 0) {
+                            return Mono.error(new SecurityException("无法识别当前用户"));
+                        }
+                        return Mono.just(access);
+                    });
+        }
+
+        private Mono<Void> requireAdminAccess(Authentication authentication) {
+            return resolveAccessContext(authentication)
+                    .flatMap(access -> access.isAdmin()
+                            ? Mono.<Void>empty()
+                            : Mono.error(new SecurityException("当前用户无权访问管理员资源")));
+        }
+
+        private Mono<Void> validateKnowledgeBaseReadAccess(java.util.List<Long> knowledgeBaseIds, AccessContext access) {
+            if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) {
+                return Mono.empty();
+            }
+
+            return Flux.fromIterable(knowledgeBaseIds)
+                    .concatMap(knowledgeBaseId -> knowledgeBaseService
+                            .getAuthorizedKnowledgeBase(knowledgeBaseId, access.userId(), access.isAdmin(), false)
+                            .then())
+                    .then();
+        }
+
+        private Mono<Long> resolveAdminUploaderId(Long knowledgeBaseId, Long uploaderId) {
+            if (uploaderId != null) {
+                return requireExistingUserId(uploaderId, "上传用户不存在");
+            }
+
+            return knowledgeBaseService.getKnowledgeBase(knowledgeBaseId)
+                    .flatMap(knowledgeBase -> requireExistingUserId(
+                            knowledgeBase.getCreatorId(), "知识库归属用户不存在"));
+        }
+
+        private Mono<Long> requireExistingUserId(Long userId, String errorMessage) {
+            if (userId == null || userId <= 0) {
+                return Mono.error(new IllegalArgumentException(errorMessage));
+            }
+
+            return userRepository.findById(userId)
+                    .switchIfEmpty(Mono.error(new IllegalArgumentException(errorMessage)))
+                    .map(user -> user.getUserId());
+        }
+
+        private Long parseOptionalLong(String value) {
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return Long.parseLong(value.trim());
+        }
+
+        private Long extractActorId(Authentication authentication) {
+            Object details = authentication.getDetails();
+            if (details instanceof Long id) {
+                return id;
+            }
+            if (details instanceof Number number) {
+                return number.longValue();
+            }
+            if (details instanceof String value && !value.isBlank()) {
+                try {
+                    return Long.parseLong(value);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        private record AccessContext(Long userId, boolean isAdmin) {}
     }
+
+

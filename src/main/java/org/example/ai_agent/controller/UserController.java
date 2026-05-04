@@ -1,5 +1,6 @@
 package org.example.ai_agent.controller;
 
+import jakarta.validation.Valid;
 import org.example.ai_agent.dto.auth.UserLoginDto;
 import org.example.ai_agent.dto.auth.UserRegistrationDto;
 import org.example.ai_agent.service.UserService;
@@ -15,7 +16,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173", "http://dduo.chat", "https://dduo.chat"}, allowCredentials = "true")
+@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class UserController {
 
     private final UserService userService;
@@ -27,7 +28,7 @@ public class UserController {
 
 
     @PostMapping("/register")
-    public Mono<ResponseEntity<Map<String, Object>>> registerUser(@RequestBody UserRegistrationDto registrationDto) {
+    public Mono<ResponseEntity<Map<String, Object>>> registerUser(@Valid @RequestBody UserRegistrationDto registrationDto) {
         return userService.registerUser(registrationDto)
                 .then(Mono.fromCallable(() -> {
                     Map<String, Object> response = new HashMap<>();
@@ -43,13 +44,13 @@ public class UserController {
                 .onErrorResume(e -> {
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", false);
-                    response.put("message", "An unexpected error occurred: " + e.getMessage());
+                    response.put("message", "注册失败，请稍后重试");
                     return Mono.just(ResponseEntity.status(500).body(response));
                 });
     }
 
     @PostMapping("/login")
-    public Mono<ResponseEntity<Map<String, Object>>> loginUser(@RequestBody UserLoginDto loginDto) {
+    public Mono<ResponseEntity<Map<String, Object>>> loginUser(@Valid @RequestBody UserLoginDto loginDto) {
         return userService.loginUser(loginDto.getUsername(), loginDto.getPassword())
                 .map(token -> {
                     Map<String, Object> response = new HashMap<>();
@@ -67,7 +68,7 @@ public class UserController {
                     org.slf4j.LoggerFactory.getLogger(UserController.class).error("Unexpected error during login", e);
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", false);
-                    response.put("message", "An unexpected error occurred: " + e.getMessage());
+                    response.put("message", "登录失败，请稍后重试");
                     return Mono.just(ResponseEntity.status(500).body(response));
                 });
     }
@@ -91,7 +92,7 @@ public class UserController {
                     org.slf4j.LoggerFactory.getLogger(UserController.class).error("Unexpected error during guest login", e);
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", false);
-                    response.put("message", "创建游客账户失败: " + e.getMessage());
+                    response.put("message", "创建游客账户失败，请稍后重试");
                     return Mono.just(ResponseEntity.status(500).body(response));
                 });
     }
@@ -113,7 +114,7 @@ public class UserController {
                 .onErrorResume(e -> {
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", false);
-                    response.put("message", "Logout failed: " + e.getMessage());
+                    response.put("message", "退出登录失败");
                     return Mono.just(ResponseEntity.status(400).body(response));
                 });
     }
@@ -136,3 +137,5 @@ public class UserController {
                 .defaultIfEmpty(ResponseEntity.status(401).build());
     }
 }
+
+

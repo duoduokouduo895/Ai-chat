@@ -14,14 +14,16 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.elasticsearch.ElasticsearchEmbeddingStore;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
+import org.elasticsearch.client.Request;
+import org.elasticsearch.client.ResponseException;
 import org.elasticsearch.client.RestClient;
-import org.example.ai_agent.config.ai.AiModelProperties;
 import org.example.ai_agent.config.database.ElasticsearchConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.elasticsearch.client.ClientConfiguration;
+
+import java.io.IOException;
 
 /**
  * LangChain4j知识库配置类
@@ -54,6 +56,12 @@ public class KnowledgeBaseConfig {
     
     @Value("${knowledge-base.embedding.index-prefix:kb_}")
     private String embeddingIndexPrefix;
+
+    @Value("${knowledge-base.embedding.index-name:knowledge_base_embeddings}")
+    private String embeddingIndexName;
+
+    @Value("${knowledge-base.embedding.dimension:4096}")
+    private Integer embeddingDimension;
     
     /**
      * 配置文档解析器
@@ -109,7 +117,8 @@ public class KnowledgeBaseConfig {
             log.info("解析后的连接信息: host={}, port={}", host, port);
             
             // 创建HttpHost和RestClient
-            HttpHost httpHost = new HttpHost(host, port, "http");
+            String scheme = elasticsearchUri.startsWith("https://") ? "https" : "http";
+            HttpHost httpHost = new HttpHost(host, port, scheme);
             
             // 获取超时配置
             int connectTimeout = elasticsearchConfig.getConnectionTimeout();
@@ -135,9 +144,11 @@ public class KnowledgeBaseConfig {
             }
             
             // 使用LangChain4j 1.0.1推荐的restClient()方法创建ElasticsearchEmbeddingStore
+            ensureEmbeddingIndexExists(restClient);
+
             ElasticsearchEmbeddingStore embeddingStore = ElasticsearchEmbeddingStore.builder()
                     .restClient(restClient)
-                    .indexName("knowledge_base_embeddings")
+                    .indexName(embeddingIndexName)
                     .build();
             
             log.info("ElasticsearchEmbeddingStore 初始化成功");
@@ -188,6 +199,80 @@ public class KnowledgeBaseConfig {
      * 配置RAG检索增强器
      * 核心RAG实现
      */
+    private void ensureEmbeddingIndexExists(RestClient restClient) throws IOException {
+        Request existsRequest = new Request("HEAD", "/" + embeddingIndexName);
+        try {
+            restClient.performRequest(existsRequest);
+            log.info("Elasticsearch向量索引已存在: {}", embeddingIndexName);
+            return;
+        } catch (ResponseException e) {
+            if (e.getResponse().getStatusLine().getStatusCode() != 404) {
+                throw e;
+            }
+        }
+
+        Request createRequest = new Request("PUT", "/" + embeddingIndexName);
+        createRequest.setJsonEntity(buildEmbeddingIndexMapping());
+        restClient.performRequest(createRequest);
+        log.info("Elasticsearch向量索引创建成功: indexName={}, dimension={}", embeddingIndexName, embeddingDimension);
+    }
+
+    private String buildEmbeddingIndexMapping() {
+        return """
+                {
+                  "mappings": {
+                    "properties": {
+                      "vector": {
+                        "type": "dense_vector",
+                        "dims": %d,
+                        "index": true,
+                        "similarity": "cosine"
+                      },
+                      "text": {
+                        "type": "text"
+                      },
+                      "metadata": {
+                        "type": "object",
+                        "dynamic": true,
+                        "properties": {
+                          "knowledge_base_id": {
+                            "type": "text",
+                            "fields": {
+                              "keyword": {
+                                "type": "keyword",
+                                "ignore_above": 256
+                              }
+                            }
+                          },
+                          "document_id": {
+                            "type": "text",
+                            "fields": {
+                              "keyword": {
+                                "type": "keyword",
+                                "ignore_above": 256
+                              }
+                            }
+                          },
+                          "chunk_id": {
+                            "type": "text",
+                            "fields": {
+                              "keyword": {
+                                "type": "keyword",
+                                "ignore_above": 256
+                              }
+                            }
+                          },
+                          "stored_time": {
+                            "type": "long"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """.formatted(embeddingDimension);
+    }
+
     @Bean
     public RetrievalAugmentor retrievalAugmentor(ContentRetriever contentRetriever) {
         log.info("初始化RAG检索增强器");

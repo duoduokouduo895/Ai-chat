@@ -50,6 +50,11 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
                 .username(username)
                 .password(password)
                 .database(database)
+                .sessionVariables(
+                        "character_set_client=utf8mb4",
+                        "character_set_connection=utf8mb4",
+                        "character_set_results=utf8mb4"
+                )
                 .build();
 
         MySqlConnectionFactory connectionFactory = MySqlConnectionFactory.from(configuration);
