@@ -47,7 +47,8 @@ public interface EmbeddingService {
      * @return 向量存储ID
      */
     Mono<String> storeEmbedding(Long knowledgeBaseId, Long documentId, Long chunkId, 
-                              Embedding embedding, TextSegment textSegment);
+                              Embedding embedding, TextSegment textSegment,
+                              String modelId, String indexName);
     
     /**
      * 批量存储向量
@@ -60,7 +61,8 @@ public interface EmbeddingService {
      * @return 存储ID列表
      */
     Mono<List<String>> storeEmbeddings(Long knowledgeBaseId, Long documentId, List<Long> chunkIds,
-                                     List<Embedding> embeddings, List<TextSegment> textSegments);
+                                     List<Embedding> embeddings, List<TextSegment> textSegments,
+                                     String modelId, String indexName);
     
     /**
      * 搜索相似向量
@@ -74,7 +76,9 @@ public interface EmbeddingService {
     Mono<List<EmbeddingSearchResult>> searchSimilarEmbeddings(Embedding queryEmbedding, 
                                                             List<Long> knowledgeBaseIds,
                                                             Integer maxResults, 
-                                                            Double minScore);
+                                                            Double minScore,
+                                                            String modelId,
+                                                            String indexName);
     
     /**
      * 删除文档的所有向量

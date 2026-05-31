@@ -2,25 +2,28 @@ package org.example.ai_agent.controller;
 
 import org.example.ai_agent.dto.admin.AdminSearchHistoryItemDto;
 import org.example.ai_agent.entity.SearchHistory;
+import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.repository.search.SearchHistoryRepository;
 import org.example.ai_agent.service.SearchService;
-import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/admin/search")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class AdminSearchController {
 
     private final SearchService searchService;
@@ -55,21 +58,44 @@ public class AdminSearchController {
     @GetMapping("/history")
     public Mono<Map<String, Object>> getHistory(@RequestParam(defaultValue = "0") Integer page,
                                                 @RequestParam(defaultValue = "10") Integer size,
-                                                @RequestParam(required = false) String keyword) {
+                                                @RequestParam(required = false) String keyword,
+                                                @RequestParam(required = false) LocalDateTime lastTimestamp,
+                                                @RequestParam(required = false) Long lastId,
+                                                @RequestParam(defaultValue = "true") Boolean includeTotal) {
         int finalPage = page != null && page >= 0 ? page : 0;
         int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
         long offset = (long) finalPage * finalSize;
+        boolean useCursor = lastTimestamp != null || lastId != null;
 
-        Mono<List<AdminSearchHistoryItemDto>> itemsMono = searchHistoryRepository.findAdminHistory(keyword, finalSize, offset)
-                .flatMap(this::toDto)
-                .collectList();
-        Mono<Long> totalMono = searchHistoryRepository.countAdminHistory(keyword);
+        if ((lastTimestamp == null) != (lastId == null)) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "lastTimestamp 与 lastId 必须同时传入"
+            ));
+        }
+
+        Mono<List<AdminSearchHistoryItemDto>> itemsMono = (useCursor
+                ? searchHistoryRepository.findHistoryKeyset(keyword, lastTimestamp, lastId, finalSize)
+                : searchHistoryRepository.findAdminHistory(keyword, finalSize, offset))
+                .collectList()
+                .flatMap(this::toDtos);
+        Mono<Long> totalMono = Boolean.FALSE.equals(includeTotal)
+                ? Mono.just(-1L)
+                : searchHistoryRepository.countAdminHistory(keyword);
 
         return Mono.zip(itemsMono, totalMono)
                 .map(tuple -> {
                     Map<String, Object> payload = new HashMap<>();
-                    payload.put("items", tuple.getT1());
-                    payload.put("total", tuple.getT2());
+                    List<AdminSearchHistoryItemDto> items = tuple.getT1();
+                    payload.put("items", items);
+                    if (tuple.getT2() >= 0) {
+                        payload.put("total", tuple.getT2());
+                    }
+                    if (!items.isEmpty()) {
+                        AdminSearchHistoryItemDto lastItem = items.get(items.size() - 1);
+                        payload.put("nextTimestamp", lastItem.getTimestamp());
+                        payload.put("nextId", lastItem.getId());
+                    }
                     return payload;
                 });
     }
@@ -86,26 +112,29 @@ public class AdminSearchController {
                 .map(this::buildMessagePayload);
     }
 
-    private Mono<AdminSearchHistoryItemDto> toDto(SearchHistory history) {
-        return userRepository.findById(history.getUserId())
-                .map(user -> {
-                    AdminSearchHistoryItemDto dto = new AdminSearchHistoryItemDto();
-                    dto.setId(history.getId());
-                    dto.setUserId(history.getUserId());
-                    dto.setUsername(user.getUsername());
-                    dto.setQuery(history.getQuery());
-                    dto.setType(history.getType());
-                    dto.setTimestamp(history.getTimestamp());
-                    return dto;
-                })
-                .defaultIfEmpty(buildFallbackDto(history));
+    private Mono<List<AdminSearchHistoryItemDto>> toDtos(List<SearchHistory> histories) {
+        if (histories.isEmpty()) {
+            return Mono.just(List.of());
+        }
+
+        List<Long> userIds = histories.stream()
+                .map(SearchHistory::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        return userRepository.findAllById(userIds)
+                .collectMap(User::getUserId, User::getUsername)
+                .map(usernameByUserId -> histories.stream()
+                        .map(history -> buildDto(history, usernameByUserId.get(history.getUserId())))
+                        .collect(Collectors.toList()));
     }
 
-    private AdminSearchHistoryItemDto buildFallbackDto(SearchHistory history) {
+    private AdminSearchHistoryItemDto buildDto(SearchHistory history, String username) {
         AdminSearchHistoryItemDto dto = new AdminSearchHistoryItemDto();
         dto.setId(history.getId());
         dto.setUserId(history.getUserId());
-        dto.setUsername("未知用户");
+        dto.setUsername(username != null ? username : "未知用户");
         dto.setQuery(history.getQuery());
         dto.setType(history.getType());
         dto.setTimestamp(history.getTimestamp());

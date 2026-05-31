@@ -1,4 +1,4 @@
-package org.example.ai_agent.config;
+package org.example.ai_agent.config.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

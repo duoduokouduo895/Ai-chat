@@ -1,442 +1,122 @@
 <template>
-  <div class="login-container">
-    <div class="login-card">
-      <div class="login-header">
-        <h2 class="login-title">✨ Dduo AI-Chat</h2>
-        <p class="login-subtitle">登录您的账户</p>
-        <div class="test-info">
-          <span class="test-badge">🧪 测试账户已预填充</span>
-        </div>
-      </div>
-      
-      <form @submit.prevent="handleLogin" class="login-form">
-        <div class="form-group">
-          <label for="username" class="form-label">用户名</label>
-          <input
-            id="username"
-            v-model="formData.username"
-            type="text"
-            class="form-input"
-            :class="{ 'error': errors.username }"
-            placeholder="请输入用户名"
-            @blur="validateUsername"
-            @input="clearError('username')"
-          />
-          <span v-if="errors.username" class="error-message">{{ errors.username }}</span>
-        </div>
-        
-        <div class="form-group">
-          <label for="password" class="form-label">密码</label>
-          <input
-            id="password"
-            v-model="formData.password"
-            type="password"
-            class="form-input"
-            :class="{ 'error': errors.password }"
-            placeholder="请输入密码"
-            @blur="validatePassword"
-            @input="clearError('password')"
-          />
-          <span v-if="errors.password" class="error-message">{{ errors.password }}</span>
-        </div>
-        
-        <div v-if="generalError" class="general-error">
-          {{ generalError }}
-        </div>
-        
-        <button
-          type="submit"
-          class="login-button"
-          :disabled="isLoading || !isFormValid"
-        >
-          <span v-if="isLoading" class="loading-spinner"></span>
-          {{ isLoading ? '登录中...' : '登录' }}
-        </button>
-      </form>
-      
-      <div class="login-footer">
-        <p class="register-link">
-          还没有账户？
-          <router-link to="/register" class="link">立即注册</router-link>
-        </p>
-      </div>
+  <AuthShell title-id="login-title" title="欢迎回来" description="登录后继续你的对话、搜索和知识库工作。">
+    <div class="test-account">
+      <span>测试账户已预填充</span>
+      <span>Dduo</span>
     </div>
-  </div>
+
+    <form class="auth-form" @submit.prevent="handleLogin">
+      <div class="auth-field">
+        <label for="username">用户名</label>
+        <input
+          id="username"
+          v-model="formData.username"
+          class="auth-input"
+          :class="{ error: errors.username }"
+          type="text"
+          autocomplete="username"
+          :aria-invalid="!!errors.username"
+          :aria-describedby="errors.username ? 'login-username-error' : undefined"
+          placeholder="请输入用户名"
+          @blur="validateUsername"
+          @input="clearError('username')"
+        >
+        <span v-if="errors.username" id="login-username-error" class="field-error">{{ errors.username }}</span>
+      </div>
+
+      <div class="auth-field">
+        <label for="password">密码</label>
+        <input
+          id="password"
+          v-model="formData.password"
+          class="auth-input"
+          :class="{ error: errors.password }"
+          type="password"
+          autocomplete="current-password"
+          :aria-invalid="!!errors.password"
+          :aria-describedby="errors.password ? 'login-password-error' : undefined"
+          placeholder="请输入密码"
+          @blur="validatePassword"
+          @input="clearError('password')"
+        >
+        <span v-if="errors.password" id="login-password-error" class="field-error">{{ errors.password }}</span>
+      </div>
+
+      <div v-if="generalError" class="auth-alert" role="alert">{{ generalError }}</div>
+
+      <button class="auth-submit" type="submit" :disabled="isLoading || !isFormValid">
+        <span v-if="isLoading" class="auth-spinner"></span>
+        {{ isLoading ? '登录中...' : '登录' }}
+      </button>
+    </form>
+
+    <p class="auth-footer">
+      还没有账户？
+      <router-link to="/register">立即注册</router-link>
+    </p>
+  </AuthShell>
 </template>
 
-<script>
-import { ref, computed } from 'vue';
+<script setup>
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import AuthShell from '../auth/AuthShell.vue';
+import { getApiErrorMessage } from '../../services/apiErrorService.js';
 import { userApiService } from '../../services/userApi.js';
 
-export default {
-  name: 'Login',
-  setup() {
-    const router = useRouter();
-    
-    // 表单数据（预填充测试用户信息）
-    const formData = ref({
-      username: 'Dduo',
-      password: 'c123456'
+const router = useRouter();
+const formData = ref({ username: 'Dduo', password: 'c123456' });
+const errors = ref({});
+const generalError = ref('');
+const isLoading = ref(false);
+
+const validateUsername = () => {
+  const username = formData.value.username.trim();
+  if (!username) errors.value.username = '请输入用户名';
+  else if (username.length < 3 || username.length > 20) errors.value.username = '用户名长度应为3-20个字符';
+  else if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) errors.value.username = '用户名只能包含字母、数字和下划线';
+  else delete errors.value.username;
+  return !errors.value.username;
+};
+
+const validatePassword = () => {
+  const password = formData.value.password;
+  if (!password) errors.value.password = '请输入密码';
+  else if (password.length < 6) errors.value.password = '密码长度至少6个字符';
+  else delete errors.value.password;
+  return !errors.value.password;
+};
+
+const clearError = (field) => {
+  delete errors.value[field];
+  generalError.value = '';
+};
+
+const isFormValid = computed(() => (
+  formData.value.username.trim()
+  && formData.value.password
+  && Object.keys(errors.value).length === 0
+));
+
+const handleLogin = async () => {
+  if (!validateUsername() || !validatePassword()) return;
+
+  isLoading.value = true;
+  generalError.value = '';
+  try {
+    const result = await userApiService.login({
+      username: formData.value.username.trim(),
+      password: formData.value.password
     });
-    
-    // 错误信息
-    const errors = ref({});
-    const generalError = ref('');
-    const isLoading = ref(false);
-    
-    // 验证规则
-    const validateUsername = () => {
-      const username = formData.value.username.trim();
-      if (!username) {
-        errors.value.username = '请输入用户名';
-        return false;
-      }
-      if (username.length < 3 || username.length > 20) {
-        errors.value.username = '用户名长度应为3-20个字符';
-        return false;
-      }
-      if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-        errors.value.username = '用户名只能包含字母、数字和下划线';
-        return false;
-      }
-      delete errors.value.username;
-      return true;
-    };
-    
-    const validatePassword = () => {
-      const password = formData.value.password;
-      if (!password) {
-        errors.value.password = '请输入密码';
-        return false;
-      }
-      if (password.length < 6) {
-        errors.value.password = '密码长度至少6个字符';
-        return false;
-      }
-      delete errors.value.password;
-      return true;
-    };
-    
-    // 清除错误信息
-    const clearError = (field) => {
-      delete errors.value[field];
-      generalError.value = '';
-    };
-    
-    // 表单验证状态
-    const isFormValid = computed(() => {
-      return formData.value.username.trim() && 
-             formData.value.password && 
-             Object.keys(errors.value).length === 0;
-    });
-    
-    // 处理登录
-    const handleLogin = async () => {
-      // 验证表单
-      const isUsernameValid = validateUsername();
-      const isPasswordValid = validatePassword();
-      
-      if (!isUsernameValid || !isPasswordValid) {
-        return;
-      }
-      
-      isLoading.value = true;
-      generalError.value = '';
-      
-      console.time('login');
-      try {
-        const result = await userApiService.login({
-          username: formData.value.username.trim(),
-          password: formData.value.password
-        });
-        
-        if (result.success) {
-          // 登录成功，跳转到主页
-          router.push('/');
-        } else {
-          generalError.value = result.message;
-        }
-      } catch (error) {
-        generalError.value = '网络错误，请稍后重试';
-      } finally {
-        isLoading.value = false;
-        console.timeEnd('login');
-      }
-    };
-    
-    return {
-      formData,
-      errors,
-      generalError,
-      isLoading,
-      isFormValid,
-      validateUsername,
-      validatePassword,
-      clearError,
-      handleLogin
-    };
+    if (result.success) {
+      router.push('/');
+    } else {
+      generalError.value = result.message;
+    }
+  } catch (error) {
+    generalError.value = getApiErrorMessage(error, '登录失败，请稍后重试');
+  } finally {
+    isLoading.value = false;
   }
 };
 </script>
-
-<style scoped>
-.login-container {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #f0f4ff 0%, #ffffff 100%);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
-  padding: 20px;
-  position: relative;
-  overflow: hidden;
-}
-
-.login-container::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%);
-  animation: rotate 20s linear infinite;
-}
-
-@keyframes rotate {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.login-card {
-  background: linear-gradient(145deg, #ffffff, #f8f9fa);
-  border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
-  padding: 48px 40px;
-  width: 100%;
-  max-width: 420px;
-  border: none;
-  opacity: 0;
-  transform: translateY(20px);
-  animation: fadeInUp 0.6s ease-out forwards;
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.login-title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #111827;
-  margin: 0 0 12px 0;
-}
-
-.login-subtitle {
-  font-size: 18px;
-  color: #4b5563;
-  margin: 0 0 16px 0;
-}
-
-.test-info {
-  margin-bottom: 16px;
-}
-
-.test-badge {
-  display: inline-block;
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: white;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
-}
-
-.login-form {
-  margin-bottom: 24px;
-}
-
-.form-group {
-  margin-bottom: 24px;
-}
-
-.form-label {
-  display: block;
-  font-size: 15px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 8px;
-}
-
-.form-input {
-  width: 100%;
-  padding: 14px 20px;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  font-size: 16px;
-  transition: all 0.3s ease;
-  box-sizing: border-box;
-  background-color: #f9fafb;
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
-  background-color: #ffffff;
-}
-
-.form-input.error {
-  border-color: #ef4444;
-  animation: shake 0.5s;
-}
-
-.form-input.error:focus {
-  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
-}
-
-.error-message {
-  display: block;
-  color: #ef4444;
-  font-size: 13px;
-  margin-top: 6px;
-  opacity: 0;
-  animation: fadeIn 0.3s ease-in forwards;
-}
-
-.general-error {
-  background-color: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 14px;
-  margin-bottom: 20px;
-  text-align: center;
-}
-
-.login-button {
-  width: 100%;
-  background-color: #3b82f6;
-  color: #ffffff;
-  border: none;
-  padding: 16px 24px;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.login-button:hover:not(:disabled) {
-  background-color: #2563eb;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.3);
-}
-
-.login-button:disabled {
-  background-color: #6c757d;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top: 2px solid #ffffff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes shake {
-  0% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  50% { transform: translateX(4px); }
-  75% { transform: translateX(-4px); }
-  100% { transform: translateX(0); }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.login-footer {
-  text-align: center;
-}
-
-.register-link {
-  color: #6b7280;
-  font-size: 14px;
-  margin: 0;
-}
-
-.link {
-  color: #007bff;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.link:hover {
-  text-decoration: underline;
-}
-
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .login-container {
-    padding: 16px;
-  }
-  
-  .login-card {
-    padding: 32px 24px;
-    max-width: 100%;
-    border-radius: 16px;
-  }
-  
-  .login-title {
-    font-size: 28px;
-  }
-  
-  .form-input {
-    padding: 12px 16px;
-  }
-  
-  .login-button {
-    padding: 14px 20px;
-  }
-}
-
-@media (min-width: 481px) and (max-width: 768px) {
-  .login-card {
-    max-width: 500px;
-    padding: 48px;
-  }
-}
-</style>

@@ -1,4 +1,5 @@
 import heartbeatService from './heartbeatService.js';
+import { ElMessage } from 'element-plus/es/components/message/index';
 
 const GUEST_SESSION_KEY = 'guestSessionStartedAt';
 const GUEST_SESSION_MAX_MS = 3 * 60 * 60 * 1000;
@@ -50,7 +51,7 @@ class GuestSessionService {
 
     if (!this.hasShownExpiryNotice) {
       this.hasShownExpiryNotice = true;
-      window.alert('游客会话已过期，请重新体验或登录后继续使用。');
+      ElMessage.warning('游客会话已过期，请重新体验或登录后继续使用。');
     }
 
     window.location.href = '/login';

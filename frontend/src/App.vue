@@ -39,31 +39,34 @@ onBeforeUnmount(() => {
 
 <style>
 html, body {
+  background: var(--canvas);
+  color: var(--text-primary);
   margin: 0;
   padding: 0;
-  height: 100%;
+  min-height: 100%;
   width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-text-size-adjust: 100%;
   -ms-text-size-adjust: 100%;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  -khtml-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  -khtml-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
   touch-action: manipulation;
 }
 
 #app {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #2c3e50;
+  color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
-  -webkit-touch-callout: none;
+  -webkit-touch-callout: default;
 }
 
 * {
@@ -80,29 +83,19 @@ input, textarea, [contenteditable] {
 }
 
 @media (max-width: 768px) {
-  html {
-    font-size: 14px;
-  }
-
   body {
     -webkit-overflow-scrolling: touch;
   }
 }
 
-@media (max-width: 480px) {
-  html {
-    font-size: 13px;
-  }
-}
-
 @media screen and (max-width: 768px) {
   html, body {
-    height: 100vh;
+    min-height: 100vh;
     height: -webkit-fill-available;
   }
 
   #app {
-    height: 100vh;
+    min-height: 100vh;
     height: -webkit-fill-available;
   }
 }

@@ -1,322 +1,335 @@
 <template>
-  <div class="chat-panel">
-    <!-- 聊天头部 -->
-    <header class="chat-header">
-      <h1 class="chat-title">✨ Dduo AI-Chat</h1>
+  <section class="chat-panel">
+    <header class="chat-toolbar">
+      <div>
+        <span class="toolbar-eyebrow">Chat</span>
+        <strong>{{ conversationTitle }}</strong>
+      </div>
+      <button class="new-chat-action" type="button" @click="$emit('new-conversation')">
+        <span aria-hidden="true">+</span>
+        新建对话
+      </button>
     </header>
-    
-    <!-- 对话导航栏 -->
-    <nav class="conversation-nav toolbar">
-      <div class="nav-left">
-        <span class="nav-title">{{ conversationTitle }}</span>
-      </div>
-      <div class="nav-right">
-        <button 
-          class="new-conversation-btn"
-          @click="$emit('newConversation')" 
-          title="开始新对话"
-        >
-          <span class="btn-icon">+</span>
-          <span class="btn-text">新建</span>
-        </button>
-      </div>
-    </nav>
-    
-    <!-- 消息列表 -->
-    <div class="chat-messages custom-scroll" ref="messageContainer">
-      <div 
-        v-for="message in messages" 
-        :key="message.id" 
-        class="message-wrapper"
-      >
-        <SystemMessage 
-          v-if="message.type === 'system'" 
-          :message="message.text"
-        />
-        <ChatMessage 
-          v-else
-          :message="message"
+
+    <div v-if="isEmptyConversation" class="empty-chat">
+      <div class="empty-chat-content">
+        <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
+        <h1>Dduo AI-Chat</h1>
+        <p>选择模型，开始一段新的对话。</p>
+        <ChatInput
+          v-model:message="inputMessage"
+          v-model:selected-model="selectedModel"
+          v-model:selected-knowledge-base-ids="selectedKnowledgeBaseIds"
+          :available-models="availableModels"
+          :is-loading="isLoading"
+          immersive
+          @send="handleSendMessage"
+          @clear="$emit('clear-context')"
+          @mode-change="chatMode = $event"
+          @stop="$emit('stop-generation')"
         />
       </div>
     </div>
-    
-    <!-- 输入区域 -->
-    <div class="chat-input-area">
-      <ChatInput
-        v-model:message="inputMessage"
-        v-model:selectedModel="selectedModel"
-        v-model:selectedKnowledgeBaseIds="selectedKnowledgeBaseIds"
-        :availableModels="availableModels"
-        :isLoading="isLoading"
-        @send="handleSendMessage"
-        @clear="$emit('clearContext')"
-        @mode-change="handleModeChange"
-        @stop="$emit('stopGeneration')"
-      />
-    </div>
-  </div>
+
+    <template v-else>
+      <div ref="messageContainer" class="chat-messages custom-scroll">
+        <div class="message-column">
+          <div v-if="isLoadingConversation" class="conversation-loading" role="status" aria-live="polite">
+            <span class="conversation-loading-spinner"></span>
+            <span>加载对话中</span>
+          </div>
+          <StateBlock
+            v-else-if="loadError"
+            type="error"
+            title="对话加载失败"
+            :message="loadError"
+            action-text="开始新对话"
+            @action="$emit('new-conversation')"
+          />
+          <template v-else>
+            <div v-for="message in messages" :key="message.id" class="message-wrapper" :class="message.sender">
+              <SystemMessage v-if="message.type === 'system'" :message="message.text" />
+              <ChatMessage v-else :message="message" />
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <footer class="chat-composer-area">
+        <ChatInput
+          v-model:message="inputMessage"
+          v-model:selected-model="selectedModel"
+          v-model:selected-knowledge-base-ids="selectedKnowledgeBaseIds"
+          :available-models="availableModels"
+          :is-loading="isLoading"
+          @send="handleSendMessage"
+          @clear="$emit('clear-context')"
+          @mode-change="chatMode = $event"
+          @stop="$emit('stop-generation')"
+        />
+      </footer>
+    </template>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import ChatMessage from './ChatMessage.vue'
-import SystemMessage from './SystemMessage.vue'
-import ChatInput from './ChatInput.vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus/es/components/message/index';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index';
+import ChatInput from './ChatInput.vue';
+import ChatMessage from './ChatMessage.vue';
+import SystemMessage from './SystemMessage.vue';
+import StateBlock from '../common/StateBlock.vue';
 
-// Props
 const props = defineProps({
-  messages: {
-    type: Array,
-    required: true
-  },
-  availableModels: {
-    type: Array,
-    default: () => []
-  },
-  conversationId: {
-    type: [String, Number],
-    default: null
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
+  messages: { type: Array, required: true },
+  availableModels: { type: Array, default: () => [] },
+  conversationId: { type: [String, Number], default: null },
+  isLoading: { type: Boolean, default: false },
+  isLoadingConversation: { type: Boolean, default: false },
+  loadError: { type: String, default: '' }
+});
+
+const emit = defineEmits(['send-message', 'new-conversation', 'clear-context', 'stop-generation']);
+
+const router = useRouter();
+const messageContainer = ref(null);
+const inputMessage = ref('');
+const selectedModel = ref('chat-fast');
+const selectedKnowledgeBaseIds = ref([]);
+const chatMode = ref('normal');
+let scrollFrame = 0;
+
+const isEmptyConversation = computed(() => !props.isLoadingConversation && !props.loadError && props.messages.length === 0);
+const conversationTitle = computed(() => chatMode.value === 'rag' ? '知识库问答' : '新的对话');
+
+watch(() => props.availableModels, (models) => {
+  if (!models.length) return;
+  if (!models.some((model) => model.value === selectedModel.value)) {
+    selectedModel.value = models[0].value;
   }
-})
+}, { immediate: true });
 
-// Emits
-const emit = defineEmits([
-  'sendMessage',
-  'newConversation', 
-  'clearContext',
-  'stopGeneration'
-])
-
-// 本地状态
-const messageContainer = ref(null)
-const inputMessage = ref('')
-const selectedModel = ref('zai-org/GLM-4.5-Air')
-const selectedKnowledgeBaseIds = ref([])
-const chatMode = ref('normal') // 'normal' | 'rag'
-
-const router = useRouter()
-
-// 计算属性
-const conversationTitle = computed(() => {
-  const baseTitle = '新的对话'  // 固定显示"新的对话"
-  const modeLabel = chatMode.value === 'rag' ? ' (知识库问答)' : ''
-  return baseTitle + modeLabel
-})
-
-// 发送消息处理
 const handleSendMessage = (message, model, knowledgeBaseIds) => {
-  // --- 游客模式拦截逻辑开始 ---
-  const isGuest = localStorage.getItem('isGuest') === 'true'
-  
+  const isGuest = localStorage.getItem('isGuest') === 'true';
+
+  if (isGuest && knowledgeBaseIds?.length > 0) {
+    ElMessage.warning('游客模式下无法使用知识库系统，请登录以继续使用。');
+    return;
+  }
+
   if (isGuest) {
-    // 拦截 1: 游客不可使用知识库
-    if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
-      ElMessage.warning('游客模式下无法使用知识库系统，请登录以继续使用。')
-      return // 阻止发送
-    }
-    
-    // 拦截 2: 限制消息发送次数
-    let guestMessageCount = parseInt(localStorage.getItem('guestMessageCount') || '0', 10)
-    
+    const guestMessageCount = Number.parseInt(localStorage.getItem('guestMessageCount') || '0', 10);
     if (guestMessageCount >= 2) {
-      ElMessageBox.alert(
-        '体验次数已用尽！请创建账户或登录以继续使用 Dduo AI-Chat 更多高级功能。', 
-        '提示', 
-        {
-          confirmButtonText: '确定',
-          type: 'warning',
-          showClose: false,
-          closeOnClickModal: false,
-          closeOnPressEscape: false,
-          callback: () => {
-            // 跳转前强制清理本地域的游客数据
-            localStorage.removeItem('token');
-            localStorage.removeItem('isGuest');
-            localStorage.removeItem('guestMessageCount');
-            // 使用 router 跳转并兜底 location
-            router.push('/login').catch(() => {
-              window.location.href = '/login'
-            })
-          }
+      ElMessageBox.alert('体验次数已用尽，请创建账户或登录后继续使用。', '游客体验已结束', {
+        confirmButtonText: '前往登录',
+        type: 'warning',
+        showClose: false,
+        closeOnClickModal: false,
+        closeOnPressEscape: false,
+        callback: () => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('isGuest');
+          localStorage.removeItem('guestMessageCount');
+          router.push('/login').catch(() => {
+            window.location.href = '/login';
+          });
         }
-      )
-      return // 阻止发送
+      });
+      return;
     }
-    
-    // 如果还没用尽，增加计数
-    guestMessageCount++
-    localStorage.setItem('guestMessageCount', guestMessageCount.toString())
-    
-    // 发送后给出 Element Plus 提示
-    if (guestMessageCount < 2) {
-      setTimeout(() => {
-        ElMessage({
-          message: `您当前为游客模式，还可以发送 ${2 - guestMessageCount} 条信息。`,
-          type: 'info',
-          duration: 3000
-        })
-      }, 500)
+
+    const nextCount = guestMessageCount + 1;
+    localStorage.setItem('guestMessageCount', String(nextCount));
+    if (nextCount < 2) {
+      ElMessage.info(`游客模式还可以发送 ${2 - nextCount} 条消息。`);
     }
   }
-  // --- 游客模式拦截逻辑结束 ---
 
-  const chatRequest = {
+  emit('send-message', {
     message,
     model,
-    conversationId: props.conversationId
-  }
-  
-  // 如果选择了知识库，添加RAG相关参数
-  if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
-    chatRequest.knowledgeBaseIds = knowledgeBaseIds
-    chatRequest.maxRetrievedDocs = 5
-    chatRequest.minSimilarity = 0.3  // 与后端配置保持一致
-  }
-  
-  emit('sendMessage', chatRequest)
-  inputMessage.value = ''
-}
+    conversationId: props.conversationId,
+    ...(knowledgeBaseIds?.length > 0 ? {
+      knowledgeBaseIds,
+      maxRetrievedDocs: 5,
+      minSimilarity: 0.3
+    } : {})
+  });
+  inputMessage.value = '';
+};
 
-// 处理聊天模式切换
-const handleModeChange = (mode) => {
-  chatMode.value = mode
-  console.log(`聊天模式切换为: ${mode}`)
-}
-
-// 滚动到底部
 const scrollToBottom = () => {
   nextTick(() => {
-    if (messageContainer.value) {
-      messageContainer.value.scrollTop = messageContainer.value.scrollHeight
-    }
-  })
-}
+    if (scrollFrame) cancelAnimationFrame(scrollFrame);
+    scrollFrame = requestAnimationFrame(() => {
+      if (messageContainer.value) {
+        messageContainer.value.scrollTop = messageContainer.value.scrollHeight;
+      }
+      scrollFrame = 0;
+    });
+  });
+};
 
-// 监听消息变化，自动滚动
-watch(() => props.messages, scrollToBottom, { deep: true })
+watch(() => props.messages, scrollToBottom, { deep: true });
+
+onBeforeUnmount(() => {
+  if (scrollFrame) cancelAnimationFrame(scrollFrame);
+});
 </script>
 
 <style scoped>
 .chat-panel {
+  background: var(--canvas);
+  display: flex;
   flex: 1;
-  display: flex;
   flex-direction: column;
-  background-color: var(--bg-primary);
-  height: 100vh;
-  overflow: hidden;
+  min-height: 0;
 }
 
-.chat-header {
-  background: #fffbeb;
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-bottom: 1px solid var(--border-light);
-  text-align: center;
-  min-height: 36px;
-  display: flex;
+.chat-toolbar {
   align-items: center;
-  justify-content: center;
-}
-
-.chat-title {
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-  margin: 0;
-  opacity: 0.65;
-}
-
-.conversation-nav {
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
   justify-content: space-between;
+  min-height: 58px;
+  padding: 8px 18px;
 }
 
-.nav-title {
-  font-size: var(--font-size-md);
-  font-weight: 500;
+.toolbar-eyebrow {
+  color: var(--text-muted);
+  display: block;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.12em;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.chat-toolbar strong {
+  font-size: var(--font-size-sm);
+}
+
+.new-chat-action {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--border-radius-md);
   color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.new-chat-action:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.empty-chat {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 36px 20px 12vh;
+}
+
+.empty-chat-content {
+  max-width: 780px;
+  text-align: center;
+  width: 100%;
+}
+
+.empty-chat img {
+  border-radius: 18px;
+  height: 58px;
+  margin-bottom: 12px;
+  object-fit: cover;
+  width: 58px;
+}
+
+.empty-chat h1 {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.empty-chat p {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  margin: 8px 0 22px;
 }
 
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-xl);
+  padding: 24px 18px;
+}
+
+.message-column {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: var(--chat-column-width);
+}
+
+.message-wrapper {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
 }
 
-.chat-input-area {
-  padding: var(--spacing-xl);
-  background-color: var(--bg-primary);
-  border-top: 1px solid var(--border-light);
+.message-wrapper.user {
+  justify-content: flex-end;
 }
 
-/* 新对话按钮样式 */
-.new-conversation-btn {
+.conversation-loading {
+  align-items: center;
+  color: var(--text-secondary);
   display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: white;
-  border: none;
-  border-radius: var(--border-radius-sm);  /* 改为小圆角，更方形的设计 */
   font-size: var(--font-size-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px 0 rgba(16, 185, 129, 0.25);
-  min-height: 32px;
-  user-select: none;
+  gap: 8px;
+  margin: 18px auto;
 }
 
-.new-conversation-btn:hover {
-  background: linear-gradient(135deg, #059669, #047857);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px 0 rgba(16, 185, 129, 0.35);
-}
-
-.new-conversation-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px 0 rgba(16, 185, 129, 0.25);
-}
-
-.new-conversation-btn .btn-icon {
-  width: 16px;
+.conversation-loading-spinner {
+  animation: spin 0.8s linear infinite;
+  border: 2px solid var(--border-subtle);
+  border-radius: 50%;
+  border-top-color: var(--accent-color);
   height: 16px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: var(--border-radius-sm);  /* 图标也改为小圆角方形 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
+  width: 16px;
 }
 
-.new-conversation-btn .btn-text {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  letter-spacing: 0.2px;
+.chat-composer-area {
+  border-top: 1px solid var(--border-subtle);
+  padding: 14px 18px 18px;
 }
 
-/* 响应式设计 */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 768px) {
-  .nav-title {
-    font-size: var(--font-size-sm);
+  .chat-toolbar {
+    display: none;
   }
-  
+
+  .empty-chat {
+    padding: 24px 12px 8vh;
+  }
+
+  .empty-chat h1 {
+    font-size: 26px;
+  }
+
   .chat-messages {
-    padding: var(--spacing-md);
+    padding: 16px 12px;
   }
-  
-  .chat-input-area {
-    padding: var(--spacing-md);
+
+  .chat-composer-area {
+    padding: 10px;
   }
 }
 </style>

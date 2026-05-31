@@ -1,9 +1,25 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal" :class="{ active: visible }">
+  <div class="modal-overlay" @click.self="closeDialog">
+    <div
+      ref="dialogRef"
+      class="modal"
+      :class="{ active: visible }"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="upload-document-modal-title"
+      tabindex="-1"
+    >
       <header class="modal-header">
-        <h2 class="modal-title">📤 上传文档到知识库</h2>
-        <button class="modal-close" @click="$emit('close')">✕</button>
+        <h2 id="upload-document-modal-title" class="modal-title">上传文档</h2>
+        <button
+          ref="closeButtonRef"
+          type="button"
+          class="modal-close"
+          aria-label="关闭文档上传"
+          @click="closeDialog"
+        >
+          ✕
+        </button>
       </header>
       
       <div class="modal-body">
@@ -18,9 +34,14 @@
           @dragover.prevent="isDragOver = true"
           @dragleave.prevent="isDragOver = false"
           @click="triggerFileInput"
+          @keydown.enter.prevent="triggerFileInput"
+          @keydown.space.prevent="triggerFileInput"
+          role="button"
+          tabindex="0"
+          aria-label="选择要上传的文档，也可以将文件拖放到这里"
         >
           <div v-if="selectedFiles.length === 0" class="upload-placeholder">
-            <div class="upload-icon">📄</div>
+            <div class="upload-icon" aria-hidden="true">DOC</div>
             <h3>拖拽文件到这里或点击选择</h3>
             <p>支持 PDF, DOC, DOCX, TXT, MD, PPT, PPTX, XLS, XLSX 格式</p>
             <p class="file-limit">最大支持 50MB，单次最多上传 10 个文件</p>
@@ -40,9 +61,11 @@
                 </div>
               </div>
               <button 
+                type="button"
                 class="btn-base btn-sm"
                 @click.stop="removeFile(index)"
                 title="移除文件"
+                :aria-label="`移除文件 ${file.name}`"
               >
                 ✕
               </button>
@@ -56,6 +79,7 @@
           type="file"
           multiple
           accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx"
+          aria-label="选择要上传的文档"
           @change="handleFileSelect"
           style="display: none;"
         >
@@ -63,11 +87,11 @@
         <!-- 上传选项 -->
         <div class="upload-options" v-if="selectedFiles.length > 0">
           <div class="form-group">
-            <label class="form-label">解析模式：</label>
-            <select v-model="parseMode" class="input-base">
+            <label for="parse-mode" class="form-label">解析模式：</label>
+            <select id="parse-mode" v-model="parseMode" class="input-base">
               <option value="auto">智能解析（推荐）</option>
               <option value="basic">基础解析</option>
-              <option value="ai">AI增强解析</option>
+              <option value="ai_enhanced">AI增强解析</option>
             </select>
           </div>
           
@@ -84,7 +108,7 @@
         </div>
         
         <!-- 上传进度 -->
-        <div v-if="uploadProgress.length > 0" class="upload-progress">
+        <div v-if="uploadProgress.length > 0" class="upload-progress" role="status" aria-live="polite">
           <h4>上传进度</h4>
           <div 
             v-for="(progress, index) in uploadProgress" 
@@ -100,7 +124,7 @@
             <div class="progress">
               <div 
                 class="progress-bar" 
-                :style="{ width: progress.percent + '%' }"
+                :style="{ transform: `scaleX(${progress.percent / 100})` }"
                 :class="progress.status"
               ></div>
             </div>
@@ -112,7 +136,7 @@
       <footer class="modal-footer">
         <button 
           class="btn-base btn-outline"
-          @click="$emit('close')"
+          @click="closeDialog"
           :disabled="isUploading"
         >
           取消
@@ -122,7 +146,7 @@
           @click="handleUpload"
           :disabled="selectedFiles.length === 0 || isUploading"
         >
-          <span v-if="isUploading" class="loading"></span>
+          <span v-if="isUploading" class="loading-spinner"></span>
           {{ isUploading ? '上传中...' : `上传 ${selectedFiles.length} 个文件` }}
         </button>
       </footer>
@@ -131,8 +155,11 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, toRef } from 'vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { useModalDialog } from '@/composables/useModalDialog.js'
 import { knowledgeApiService } from '@/services/knowledgeApi.js'
+import { getApiErrorMessage } from '@/services/apiErrorService.js'
 
 // Props
 const props = defineProps({
@@ -157,6 +184,19 @@ const isUploading = ref(false)
 const parseMode = ref('auto')
 const enableVectorization = ref(true)
 const uploadProgress = ref([])
+const dialogRef = ref(null)
+const closeButtonRef = ref(null)
+
+const closeDialog = () => {
+  emit('close')
+}
+
+useModalDialog({
+  isOpen: toRef(props, 'visible'),
+  dialogRef,
+  initialFocusRef: closeButtonRef,
+  onClose: closeDialog
+})
 
 // 支持的文件类型
 const supportedTypes = {
@@ -191,19 +231,19 @@ const addFiles = (files) => {
   const validFiles = files.filter(file => {
     // 检查文件类型
     if (!supportedTypes[file.type] && !isValidFileExtension(file.name)) {
-      alert(`文件 "${file.name}" 格式不支持`)
+      ElMessage.warning(`文件 "${file.name}" 格式不支持`)
       return false
     }
     
     // 检查文件大小 (50MB)
     if (file.size > 50 * 1024 * 1024) {
-      alert(`文件 "${file.name}" 超过 50MB 大小限制`)
+      ElMessage.warning(`文件 "${file.name}" 超过 50MB 大小限制`)
       return false
     }
     
     // 检查重复文件
     if (selectedFiles.value.some(f => f.name === file.name && f.size === file.size)) {
-      alert(`文件 "${file.name}" 已经选择`)
+      ElMessage.warning(`文件 "${file.name}" 已经选择`)
       return false
     }
     
@@ -213,7 +253,7 @@ const addFiles = (files) => {
   // 限制最多10个文件
   const remainingSlots = 10 - selectedFiles.value.length
   if (validFiles.length > remainingSlots) {
-    alert(`最多只能选择 10 个文件，当前剩余 ${remainingSlots} 个位置`)
+    ElMessage.warning(`最多只能选择 10 个文件，当前剩余 ${remainingSlots} 个位置`)
     validFiles.splice(remainingSlots)
   }
   
@@ -239,18 +279,7 @@ const triggerFileInput = () => {
 // 获取文件图标
 const getFileIcon = (fileName) => {
   const ext = fileName.toLowerCase().split('.').pop()
-  const icons = {
-    pdf: '📄',
-    doc: '📝',
-    docx: '📝',
-    txt: '📃',
-    md: '📋',
-    ppt: '📊',
-    pptx: '📊',
-    xls: '📈',
-    xlsx: '📈'
-  }
-  return icons[ext] || '📄'
+  return ext ? ext.toUpperCase() : 'DOC'
 }
 
 // 格式化文件大小
@@ -304,9 +333,9 @@ const handleUpload = async () => {
         uploadProgress.value[index].percent = 100
         
       } catch (error) {
-        console.error(`上传文件 ${file.name} 失败:`, error)
         uploadProgress.value[index].status = 'error'
         uploadProgress.value[index].percent = 0
+        ElMessage.error(`${file.name} 上传失败：${getApiErrorMessage(error, '请稍后重试')}`)
       }
     })
     
@@ -321,217 +350,9 @@ const handleUpload = async () => {
     }
     
   } catch (error) {
-    console.error('批量上传失败:', error)
+    ElMessage.error(getApiErrorMessage(error, '批量上传失败，请稍后重试'))
   } finally {
     isUploading.value = false
   }
 }
 </script>
-
-<style scoped>
-.upload-area {
-  border: 2px dashed var(--border-light);
-  border-radius: var(--border-radius-lg);
-  padding: var(--spacing-2xl);
-  text-align: center;
-  cursor: pointer;
-  transition: var(--transition-base);
-  background: var(--bg-secondary);
-  min-height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.upload-area:hover,
-.upload-area.drag-over {
-  border-color: var(--primary-color);
-  background: rgba(24, 144, 255, 0.05);
-}
-
-.upload-area.has-files {
-  padding: var(--spacing-lg);
-  min-height: auto;
-}
-
-.upload-placeholder {
-  color: var(--text-secondary);
-}
-
-.upload-icon {
-  font-size: 48px;
-  margin-bottom: var(--spacing-lg);
-}
-
-.upload-placeholder h3 {
-  margin: 0 0 var(--spacing-md) 0;
-  color: var(--text-primary);
-}
-
-.upload-placeholder p {
-  margin: 0 0 var(--spacing-sm) 0;
-}
-
-.file-limit {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
-.file-list {
-  width: 100%;
-}
-
-.file-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-md);
-  border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
-  margin-bottom: var(--spacing-sm);
-  background: var(--bg-primary);
-}
-
-.file-info {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  flex: 1;
-}
-
-.file-icon {
-  font-size: var(--font-size-xl);
-}
-
-.file-details {
-  flex: 1;
-}
-
-.file-name {
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
-}
-
-.file-size {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
-.upload-options {
-  margin-top: var(--spacing-xl);
-  padding-top: var(--spacing-xl);
-  border-top: 1px solid var(--border-light);
-}
-
-.form-group {
-  margin-bottom: var(--spacing-lg);
-}
-
-.form-label {
-  display: block;
-  margin-bottom: var(--spacing-sm);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.checkbox {
-  margin-right: var(--spacing-sm);
-}
-
-.upload-progress {
-  margin-top: var(--spacing-xl);
-  padding-top: var(--spacing-xl);
-  border-top: 1px solid var(--border-light);
-}
-
-.upload-progress h4 {
-  margin: 0 0 var(--spacing-lg) 0;
-  color: var(--text-primary);
-}
-
-.progress-item {
-  margin-bottom: var(--spacing-lg);
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-sm);
-}
-
-.progress-name {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.progress-status {
-  font-size: var(--font-size-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--border-radius-sm);
-}
-
-.progress-status.uploading,
-.progress-status.processing,
-.progress-status.vectorizing {
-  background: rgba(24, 144, 255, 0.1);
-  color: var(--primary-color);
-}
-
-.progress-status.success {
-  background: rgba(40, 167, 69, 0.1);
-  color: var(--success-color);
-}
-
-.progress-status.error {
-  background: rgba(220, 53, 69, 0.1);
-  color: var(--danger-color);
-}
-
-.progress {
-  height: 8px;
-  background: var(--bg-secondary);
-  border-radius: var(--border-radius-sm);
-  overflow: hidden;
-  margin-bottom: var(--spacing-xs);
-}
-
-.progress-bar {
-  height: 100%;
-  background: var(--primary-color);
-  transition: width var(--transition-base);
-}
-
-.progress-bar.success {
-  background: var(--success-color);
-}
-
-.progress-bar.error {
-  background: var(--danger-color);
-}
-
-.progress-text {
-  text-align: right;
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .upload-area {
-    padding: var(--spacing-lg);
-  }
-  
-  .file-item {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--spacing-sm);
-  }
-  
-  .progress-info {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-</style>

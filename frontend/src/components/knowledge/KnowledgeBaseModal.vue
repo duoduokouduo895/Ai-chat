@@ -1,11 +1,27 @@
 <template>
-  <div v-if="visible" class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal" :class="{ active: visible }">
+  <div v-if="visible" class="modal-overlay" @click.self="closeDialog">
+    <div
+      ref="dialogRef"
+      class="modal"
+      :class="{ active: visible }"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="knowledge-base-modal-title"
+      tabindex="-1"
+    >
       <header class="modal-header">
-        <h2 class="modal-title">
+        <h2 id="knowledge-base-modal-title" class="modal-title">
           {{ isEdit ? '编辑知识库' : '创建知识库' }}
         </h2>
-        <button class="modal-close" @click="$emit('close')">✕</button>
+        <button
+          ref="closeButtonRef"
+          type="button"
+          class="modal-close"
+          aria-label="关闭知识库表单"
+          @click="closeDialog"
+        >
+          ✕
+        </button>
       </header>
       
       <form @submit.prevent="handleSubmit" class="modal-body">
@@ -91,6 +107,7 @@
                 <button
                   type="button"
                   class="tag-remove"
+                  :aria-label="`删除标签 ${tag}`"
                   @click="removeTag(index)"
                 >
                   ✕
@@ -101,6 +118,7 @@
               v-model="newTag"
               type="text"
               class="tag-input"
+              aria-label="添加标签"
               placeholder="输入标签后按回车添加"
               @keydown.enter.prevent="addTag"
               @keydown.space.prevent="addTag"
@@ -120,8 +138,8 @@
             <div class="advanced-content">
               <!-- 状态设置 -->
               <div class="setting-item">
-                <label class="form-label">状态</label>
-                <select v-model="formData.status" class="form-select">
+                <label for="kb-status" class="form-label">状态</label>
+                <select id="kb-status" v-model="formData.status" class="form-select">
                   <option value="ACTIVE">活跃</option>
                   <option value="INACTIVE">未激活</option>
                 </select>
@@ -160,7 +178,7 @@
           <button
             type="button"
             class="btn-base btn-outline"
-            @click="$emit('close')"
+            @click="closeDialog"
           >
             取消
           </button>
@@ -179,7 +197,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, toRef, watch } from 'vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { useModalDialog } from '@/composables/useModalDialog.js'
+import { getApiErrorMessage } from '@/services/apiErrorService.js'
 
 // Props
 const props = defineProps({
@@ -203,6 +224,8 @@ const emit = defineEmits(['close', 'save'])
 // 响应式数据
 const isSubmitting = ref(false)
 const newTag = ref('')
+const dialogRef = ref(null)
+const closeButtonRef = ref(null)
 
 // 表单数据
 const formData = reactive({
@@ -260,6 +283,17 @@ const removeTag = (index) => {
   formData.tags.splice(index, 1)
 }
 
+const closeDialog = () => {
+  emit('close')
+}
+
+useModalDialog({
+  isOpen: toRef(props, 'visible'),
+  dialogRef,
+  initialFocusRef: closeButtonRef,
+  onClose: closeDialog
+})
+
 // 提交表单
 const handleSubmit = async () => {
   if (!isFormValid.value || isSubmitting.value) {
@@ -284,342 +318,9 @@ const handleSubmit = async () => {
     emit('save', submitData)
     
   } catch (error) {
-    console.error('提交表单失败:', error)
+    ElMessage.error(getApiErrorMessage(error, '表单提交失败，请稍后重试'))
   } finally {
     isSubmitting.value = false
   }
 }
 </script>
-
-<style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: var(--spacing-md);
-}
-
-.modal {
-  background: var(--bg-primary);
-  border-radius: var(--border-radius-lg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transform: scale(0.9);
-  opacity: 0;
-  transition: all var(--transition-normal);
-}
-
-.modal.active {
-  transform: scale(1);
-  opacity: 1;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-xl);
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-secondary);
-}
-
-.modal-title {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: var(--font-size-lg);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: var(--spacing-xs);
-  border-radius: var(--border-radius-sm);
-  transition: all var(--transition-fast);
-}
-
-.modal-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.modal-body {
-  flex: 1;
-  padding: var(--spacing-xl);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.form-label {
-  font-weight: 500;
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-}
-
-.required {
-  color: var(--danger-text);
-}
-
-.form-input,
-.form-textarea,
-.form-select {
-  padding: var(--spacing-md);
-  border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
-  font-size: var(--font-size-md);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  transition: border-color var(--transition-fast);
-}
-
-.form-input:focus,
-.form-textarea:focus,
-.form-select:focus {
-  outline: none;
-  border-color: var(--border-focus);
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-.form-help {
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.4;
-}
-
-.radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.radio-item {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-  cursor: pointer;
-  padding: var(--spacing-md);
-  border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
-  transition: all var(--transition-fast);
-}
-
-.radio-item:hover {
-  border-color: var(--border-focus);
-  background: var(--bg-secondary);
-}
-
-.radio-input {
-  margin: 0;
-}
-
-.radio-label {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  flex: 1;
-}
-
-.radio-icon {
-  font-size: var(--font-size-lg);
-  margin-top: 2px;
-}
-
-.radio-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.radio-text strong {
-  color: var(--text-primary);
-}
-
-.radio-text small {
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.tags-input-container {
-  border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
-  padding: var(--spacing-sm);
-  background: var(--bg-primary);
-  transition: border-color var(--transition-fast);
-}
-
-.tags-input-container:focus-within {
-  border-color: var(--border-focus);
-}
-
-.tags-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-sm);
-}
-
-.tag-item {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--border-radius-sm);
-  font-size: var(--font-size-sm);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.tag-remove {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  padding: 0;
-  margin-left: var(--spacing-xs);
-}
-
-.tag-remove:hover {
-  color: var(--danger-text);
-}
-
-.tag-input {
-  border: none;
-  outline: none;
-  background: none;
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-  width: 100%;
-  padding: var(--spacing-xs) 0;
-}
-
-.advanced-settings {
-  border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
-  overflow: hidden;
-}
-
-.advanced-toggle {
-  background: var(--bg-secondary);
-  padding: var(--spacing-md);
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: background-color var(--transition-fast);
-}
-
-.advanced-toggle:hover {
-  background: var(--bg-tertiary);
-}
-
-.toggle-icon {
-  transition: transform var(--transition-fast);
-}
-
-.advanced-settings[open] .toggle-icon {
-  transform: rotate(180deg);
-}
-
-.advanced-content {
-  padding: var(--spacing-lg);
-  border-top: 1px solid var(--border-light);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.setting-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.checkbox-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  cursor: pointer;
-}
-
-.checkbox-input {
-  margin: 0;
-}
-
-.checkbox-label {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-md);
-  padding-top: var(--spacing-lg);
-  border-top: 1px solid var(--border-light);
-  margin-top: auto;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .modal-overlay {
-    padding: var(--spacing-sm);
-  }
-  
-  .modal {
-    max-width: none;
-    max-height: 95vh;
-  }
-  
-  .modal-header,
-  .modal-body {
-    padding: var(--spacing-md);
-  }
-  
-  .radio-group {
-    gap: var(--spacing-sm);
-  }
-  
-  .radio-item {
-    padding: var(--spacing-sm);
-  }
-  
-  .modal-actions {
-    flex-direction: column-reverse;
-    gap: var(--spacing-sm);
-  }
-  
-  .modal-actions .btn-base {
-    width: 100%;
-  }
-}
-</style>

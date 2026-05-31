@@ -5,6 +5,7 @@ import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.TicketService;
 import org.example.ai_agent.util.JwtUtil;
+import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -109,12 +110,21 @@ public class SecurityConfig {
                     return Mono.error(new BadCredentialsException("Invalid token format"));
                 }
 
-                String redisKey = "token:jti:" + jti;
+                String redisKey = TokenRedisKeys.jti(jti);
                 return redisTemplate.hasKey(redisKey)
                         .flatMap(hasKey -> {
                             if (hasKey) {
                                 if ("ADMIN".equalsIgnoreCase(principalType)) {
+                                    Long adminId = jwtUtil.getAdminIdFromToken(token);
+                                    if (adminId != null) {
+                                        return Mono.just(createAdminAuthenticationToken(username, adminId, token));
+                                    }
                                     return loadAuthenticatedAdmin(username, token);
+                                }
+
+                                Long userId = jwtUtil.getUserIdFromToken(token);
+                                if (userId != null) {
+                                    return authenticateActiveUser(username, userId, token);
                                 }
                                 return loadAuthenticatedUser(username, token);
                             }
@@ -137,6 +147,13 @@ public class SecurityConfig {
         return userRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new BadCredentialsException("Authenticated user does not exist")))
                 .map(user -> createAuthenticatedToken(user.getUsername(), user.getUserId(), credentials));
+    }
+
+    private Mono<Authentication> authenticateActiveUser(String username, Long userId, String credentials) {
+        return redisTemplate.hasKey(TokenRedisKeys.userRevoked(userId))
+                .flatMap(revoked -> Boolean.TRUE.equals(revoked)
+                        ? Mono.error(new BadCredentialsException("User token has been revoked"))
+                        : Mono.just(createAuthenticatedToken(username, userId, credentials)));
     }
 
     private Mono<Authentication> loadAuthenticatedAdmin(String username, String credentials) {
@@ -169,8 +186,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(corsAllowedOrigins);
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "OPTIONS", "DELETE", "PUT"));
-        configuration.setAllowedHeaders(Collections.singletonList("*"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin"));
         configuration.setExposedHeaders(Arrays.asList("X-Refreshed-Token"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

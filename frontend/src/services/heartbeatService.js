@@ -62,8 +62,6 @@ class HeartbeatService {
       if (error.response?.status === 401) {
         this.stop();
       }
-
-      throw error;
     }
   }
 }

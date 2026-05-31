@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-label="Dduo 管理后台抽象背景">
+  <rect width="1200" height="900" fill="#182033"/>
+  <path d="M0 640C180 590 310 680 480 610C660 536 760 350 940 330C1065 316 1145 384 1200 440V900H0Z" fill="#26456b"/>
+  <path d="M0 720C170 690 330 738 500 680C720 604 846 460 1030 492C1108 506 1162 548 1200 586V900H0Z" fill="#2f6b66"/>
+  <g opacity=".45" stroke="#d7e8ea" stroke-width="2" fill="none">
+    <path d="M160 210H500M160 270H420M160 330H560"/>
+    <path d="M720 170h260v180H720z"/>
+    <path d="M760 230h180M760 290h120"/>
+    <path d="M680 520c80-80 160-80 240 0s160 80 240 0"/>
+  </g>
+  <g fill="#ffffff" opacity=".16">
+    <circle cx="116" cy="140" r="5"/>
+    <circle cx="1030" cy="132" r="6"/>
+    <circle cx="646" cy="244" r="4"/>
+    <circle cx="1020" cy="660" r="5"/>
+  </g>
+</svg>

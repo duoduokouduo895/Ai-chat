@@ -1,5 +1,6 @@
 package org.example.ai_agent.service;
 
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
@@ -14,6 +15,8 @@ import reactor.core.publisher.Mono;
     Flux<Message> getMessagesByConversationId(Long conversationId, Long userId);
     Flux<ConversationWithPreview> getRecentConversationsWithPreview(Long userId);
     Flux<ConversationWithPreview> getAllRecentConversations(Integer page, Integer size);
+    Mono<AdminPageDto<ConversationWithPreview>> getAllRecentConversationsPage(Integer page, Integer size,
+                                                                              String keyword);
     Flux<ConversationWithPreview> getConversationsForAdminByUserId(Long userId, Integer page, Integer size);
     Mono<Conversation> getConversationById(Long conversationId);
     Mono<Conversation> getConversationById(Long conversationId, Long userId);

@@ -1,5 +1,6 @@
 package org.example.ai_agent.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.core.mapping.Column;
@@ -27,6 +28,10 @@ public class Message {
     
     @Column("model")
     private String model; // 使用的AI模型
+
+    @JsonIgnore
+    @Column("deduplication_key")
+    private String deduplicationKey;
     
     @Column("timestamp")
     private LocalDateTime timestamp;

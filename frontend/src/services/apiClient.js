@@ -2,6 +2,8 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.js';
 import guestSessionService from './guestSessionService.js';
+import authSessionService from './authSessionService.js';
+import { normalizeApiError } from './apiErrorService.js';
 
 // 此处不再导入router，以避免循环依赖
 // import router from '../router/index.js';
@@ -15,11 +17,26 @@ const apiClient = axios.create({
   },
 });
 
+const PUBLIC_AUTH_ENDPOINTS = ['/users/register', '/users/login', '/users/guest'];
+
+const isPublicAuthRequest = (config = {}) => {
+  if (config.skipAuth === true) {
+    return true;
+  }
+
+  const url = config.url || '';
+  return PUBLIC_AUTH_ENDPOINTS.some(endpoint => url.endsWith(endpoint));
+};
+
 // 请求拦截器：统一添加认证Token
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
+    const token = authSessionService.getToken();
+
+    if (isPublicAuthRequest(config)) {
+      delete config.headers.Authorization;
+      delete config.headers.authorization;
+    } else if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
@@ -38,47 +55,21 @@ apiClient.interceptors.request.use(
 // 响应拦截器：统一处理全局错误，特别是401
 apiClient.interceptors.response.use(
   (response) => {
-    // 如果后端在响应头中返回了新的token，则更新它
-    const refreshedToken = response.headers['x-refreshed-token'];
-    if (refreshedToken) {
-      console.log('Token has been refreshed by the server.');
-      // 修复：去除token中的空白字符，防止JWT解析错误
-      const cleanToken = refreshedToken.trim();
-      localStorage.setItem('token', cleanToken);
-    }
+    authSessionService.applyRefreshedToken(response.headers);
 
     guestSessionService.enforceIfExpired();
     return response;
   },
-  (error) => {
+  async (error) => {
+    error.normalized = normalizeApiError(error);
+
     // 只处理响应错误
     if (error.response) {
       const { status } = error.response;
 
       // 当遇到401 Unauthorized错误时
-      if (status === 401) {
-        console.error('Unauthorized access (401). Token may be expired or invalid. Redirecting to login.');
-        
-        // 停止心跳服务
-        import('./heartbeatService.js').then(heartbeatModule => {
-          heartbeatModule.default.stop();
-        });
-        
-        // 清除本地存储的用户凭证
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('guestId');
-        localStorage.removeItem('isGuest');
-        localStorage.removeItem('guestMessageCount');
-        guestSessionService.clearGuestSession();
-
-        // **关键改动**：动态导入router以解决循环依赖问题
-        import('../router/index.js').then(routerModule => {
-          const router = routerModule.default;
-          router.push('/login').catch(err => {
-            console.error('Error navigating to login page:', err);
-          });
-        });
+      if (status === 401 && !isPublicAuthRequest(error.config)) {
+        await authSessionService.handleUnauthorized();
       }
     }
     

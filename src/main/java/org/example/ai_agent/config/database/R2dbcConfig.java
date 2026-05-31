@@ -41,6 +41,27 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
     @Value("${spring.r2dbc.database}")
     private String database;
 
+    @Value("${spring.r2dbc.pool.initial-size:0}")
+    private int initialSize;
+
+    @Value("${spring.r2dbc.pool.max-size:10}")
+    private int maxSize;
+
+    @Value("${spring.r2dbc.pool.max-idle-time:30m}")
+    private Duration maxIdleTime;
+
+    @Value("${spring.r2dbc.pool.max-life-time:60m}")
+    private Duration maxLifeTime;
+
+    @Value("${spring.r2dbc.pool.max-acquire-time:10s}")
+    private Duration maxAcquireTime;
+
+    @Value("${spring.r2dbc.pool.max-create-connection-time:10s}")
+    private Duration maxCreateConnectionTime;
+
+    @Value("${spring.r2dbc.pool.validation-query:SELECT 1}")
+    private String validationQuery;
+
     @Override
     @Bean
     public ConnectionFactory connectionFactory() {
@@ -59,15 +80,15 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
 
         MySqlConnectionFactory connectionFactory = MySqlConnectionFactory.from(configuration);
 
-        // 配置连接池
+        // 连接池大小由 profile 控制：local 避免预建连接，prod 保持较高吞吐。
         ConnectionPoolConfiguration poolConfiguration = ConnectionPoolConfiguration.builder(connectionFactory)
-                .maxIdleTime(Duration.ofMinutes(30))
-                .maxLifeTime(Duration.ofMinutes(60))
-                .maxAcquireTime(Duration.ofSeconds(60))
-                .maxCreateConnectionTime(Duration.ofSeconds(60))
-                .initialSize(10)
-                .maxSize(50)
-                .validationQuery("SELECT 1")
+                .maxIdleTime(maxIdleTime)
+                .maxLifeTime(maxLifeTime)
+                .maxAcquireTime(maxAcquireTime)
+                .maxCreateConnectionTime(maxCreateConnectionTime)
+                .initialSize(initialSize)
+                .maxSize(maxSize)
+                .validationQuery(validationQuery)
                 .build();
 
         return new ConnectionPool(poolConfiguration);

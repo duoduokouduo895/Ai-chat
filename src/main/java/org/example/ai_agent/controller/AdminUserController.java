@@ -10,7 +10,6 @@ import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.UserService;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,7 +25,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/users")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class AdminUserController {
 
     private final UserRepository userRepository;

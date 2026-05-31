@@ -8,18 +8,27 @@ import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
 import org.example.ai_agent.dto.chat.RagChatDto;
 import org.example.ai_agent.dto.chat.RagChatResponseDto;
+import org.example.ai_agent.entity.KnowledgeBase;
+import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.service.EmbeddingService;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.registry.AiModelRegistry;
+import org.example.ai_agent.service.registry.EmbeddingStoreRegistry;
+import org.example.ai_agent.service.registry.EmbeddingStoreRegistry.EmbeddingProfile;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -42,9 +51,12 @@ public class RagServiceImpl implements RagService {
     
     @Autowired
     private AiModelRegistry aiModelRegistry;
-    
-    @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
-    private String defaultEmbeddingModel;
+
+    @Autowired
+    private KnowledgeBaseRepository knowledgeBaseRepository;
+
+    @Autowired
+    private EmbeddingStoreRegistry embeddingStoreRegistry;
     
     @Value("${knowledge-base.rag.max-results:10}")
     private Integer defaultMaxResults;
@@ -53,27 +65,18 @@ public class RagServiceImpl implements RagService {
     private Double defaultMinScore;
     
     @Override
-    public Mono<KnowledgeSearchResultDto> searchKnowledge(KnowledgeSearchDto searchRequest) {
+    public Mono<KnowledgeSearchResultDto> searchKnowledge(KnowledgeSearchDto searchRequest,
+                                                          Long requesterUserId, boolean isAdmin) {
         long startTime = System.currentTimeMillis();
         
-        return Mono.fromCallable(() -> {
-            // 创建查询的文本段
-            TextSegment querySegment = TextSegment.from(searchRequest.getQuery());
-            return querySegment;
-        })
-        .flatMap(querySegment -> {
-            // 向量化查询文本
-            return embeddingService.embedText(querySegment, defaultEmbeddingModel);
-        })
-        .flatMap(queryEmbedding -> {
-            // 执行向量搜索
-            return embeddingService.searchSimilarEmbeddings(
-                queryEmbedding,
+        return searchAcrossProfiles(
+                searchRequest.getQuery(),
                 searchRequest.getKnowledgeBaseIds(),
                 searchRequest.getMaxResults() != null ? searchRequest.getMaxResults() : defaultMaxResults,
-                searchRequest.getMinScore() != null ? searchRequest.getMinScore() : defaultMinScore
-            );
-        })
+                searchRequest.getMinScore() != null ? searchRequest.getMinScore() : defaultMinScore,
+                requesterUserId,
+                isAdmin
+            )
         .map(searchResults -> {
             // 转换为响应格式
             List<KnowledgeSearchResultDto.KnowledgeSearchMatch> matches = 
@@ -95,14 +98,16 @@ public class RagServiceImpl implements RagService {
     }
     
     @Override
-    public Mono<RagChatResponseDto> ragChat(RagChatDto ragRequest) {
+    public Mono<RagChatResponseDto> ragChat(RagChatDto ragRequest, Long requesterUserId, boolean isAdmin) {
         long startTime = System.currentTimeMillis();
         
         return retrieveContext(
                 ragRequest.getQuestion(), 
                 ragRequest.getKnowledgeBaseIds(),
                 ragRequest.getMaxRetrievedDocs() != null ? ragRequest.getMaxRetrievedDocs() : defaultMaxResults,
-                ragRequest.getMinSimilarity() != null ? ragRequest.getMinSimilarity() : defaultMinScore
+                ragRequest.getMinSimilarity() != null ? ragRequest.getMinSimilarity() : defaultMinScore,
+                requesterUserId,
+                isAdmin
         )
         .flatMap(context -> {
             // 构建增强提示词
@@ -134,7 +139,7 @@ public class RagServiceImpl implements RagService {
     }
     
     @Override
-    public Flux<String> ragChatStream(RagChatDto ragRequest) {
+    public Flux<String> ragChatStream(RagChatDto ragRequest, Long requesterUserId, boolean isAdmin) {
         log.info("🤖 [RAG模式] 开始流式对话: question={}, modelId={}, knowledgeBaseIds={}",
                 ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
         
@@ -142,7 +147,9 @@ public class RagServiceImpl implements RagService {
                 ragRequest.getQuestion(), 
                 ragRequest.getKnowledgeBaseIds(),
                 ragRequest.getMaxRetrievedDocs() != null ? ragRequest.getMaxRetrievedDocs() : defaultMaxResults,
-                ragRequest.getMinSimilarity() != null ? ragRequest.getMinSimilarity() : defaultMinScore
+                ragRequest.getMinSimilarity() != null ? ragRequest.getMinSimilarity() : defaultMinScore,
+                requesterUserId,
+                isAdmin
         )
         .flatMapMany(context -> {
             // 构建增强提示词
@@ -156,21 +163,34 @@ public class RagServiceImpl implements RagService {
             
             // 返回流式响应
             return Flux.<String>create(sink -> {
+                java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
+                sink.onDispose(() -> {
+                    log.info("RAG 流式会话已被下游取消订阅: question={}", ragRequest.getQuestion());
+                    cancelled.set(true);
+                });
+
                 chatModel.chat(enhancedPrompt, 
                     new StreamingChatResponseHandler() {
                         @Override
                         public void onPartialResponse(String partialResponse) {
+                            if (cancelled.get()) {
+                                throw new RuntimeException("StreamCancelledException");
+                            }
                             sink.next(partialResponse);
                         }
                         
                         @Override
                         public void onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse completeResponse) {
-                            sink.complete();
+                            if (!cancelled.get()) {
+                                sink.complete();
+                            }
                         }
                         
                         @Override
                         public void onError(Throwable error) {
-                            sink.error(error);
+                            if (!cancelled.get()) {
+                                sink.error(error);
+                            }
                         }
                     });
             });
@@ -180,19 +200,17 @@ public class RagServiceImpl implements RagService {
     
     @Override
     public Mono<RetrievalContext> retrieveContext(String question, List<Long> knowledgeBaseIds, 
-                                                Integer maxResults, Double minSimilarity) {
+                                                  Integer maxResults, Double minSimilarity,
+                                                  Long requesterUserId, boolean isAdmin) {
         long startTime = System.currentTimeMillis();
         
-        return Mono.fromCallable(() -> TextSegment.from(question))
-            .flatMap(querySegment -> embeddingService.embedText(querySegment, defaultEmbeddingModel))
-            .flatMap(queryEmbedding -> {
-                return embeddingService.searchSimilarEmbeddings(
-                    queryEmbedding, 
-                    knowledgeBaseIds, 
-                    maxResults != null ? maxResults : defaultMaxResults,
-                    minSimilarity != null ? minSimilarity : defaultMinScore
-                );
-            })
+        return searchAcrossProfiles(
+                question,
+                knowledgeBaseIds,
+                maxResults != null ? maxResults : defaultMaxResults,
+                minSimilarity != null ? minSimilarity : defaultMinScore,
+                requesterUserId,
+                isAdmin)
             .map(searchResults -> {
                 List<KnowledgeSearchResultDto.KnowledgeSearchMatch> relevantDocs = 
                     searchResults.stream()
@@ -201,8 +219,8 @@ public class RagServiceImpl implements RagService {
                 
                 // 构建上下文文本
                 String contextText = relevantDocs.stream()
-                    .map(doc -> String.format("文档：%s\\n内容：%s\\n", doc.getDocumentTitle(), doc.getContent()))
-                    .collect(Collectors.joining("\\n---\\n"));
+                    .map(doc -> String.format("文档：%s\n内容：%s\n", doc.getDocumentTitle(), doc.getContent()))
+                    .collect(Collectors.joining("\n---\n"));
                 
                 long retrievalTime = System.currentTimeMillis() - startTime;
                 
@@ -214,6 +232,101 @@ public class RagServiceImpl implements RagService {
                 return new RetrievalContext(question, relevantDocs, contextText, relevantDocs.size(), retrievalTime);
             })
             .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private Mono<List<EmbeddingService.EmbeddingSearchResult>> searchAcrossProfiles(
+            String question, List<Long> knowledgeBaseIds, Integer maxResults, Double minSimilarity,
+            Long requesterUserId, boolean isAdmin) {
+        return resolveKnowledgeBases(knowledgeBaseIds, requesterUserId, isAdmin)
+            .collectList()
+            .flatMap(knowledgeBases -> {
+                if (knowledgeBases.isEmpty()) {
+                    return Mono.just(List.of());
+                }
+
+                // 1. 按 Profile 分组收集知识库 ID
+                Map<EmbeddingProfile, List<Long>> idsByProfile = new LinkedHashMap<>();
+                for (KnowledgeBase knowledgeBase : knowledgeBases) {
+                    EmbeddingProfile profile = embeddingStoreRegistry.resolveProfile(knowledgeBase);
+                    idsByProfile.computeIfAbsent(profile, ignored -> new java.util.ArrayList<>())
+                            .add(knowledgeBase.getId());
+                }
+
+                // 2. 收集所有需要调用的唯一模型别名 (modelAlias)
+                List<String> uniqueModelAliases = idsByProfile.keySet().stream()
+                        .map(EmbeddingProfile::modelAlias)
+                        .distinct()
+                        .toList();
+
+                // 3. 对每个唯一模型发起唯一的向量化请求，并收集成 Map<modelAlias, Embedding>
+                return Flux.fromIterable(uniqueModelAliases)
+                    .flatMap(alias -> embeddingService.embedText(TextSegment.from(question), alias)
+                            .map(embedding -> Map.entry(alias, embedding)))
+                    .collectMap(Map.Entry::getKey, Map.Entry::getValue)
+                    .flatMap(embeddingMap -> {
+                        // 4. 使用已向量化好的 Embedding 映射并行执行各 Profile 的向量搜索，完全消除重复的 API 调用
+                        return Flux.fromIterable(idsByProfile.entrySet())
+                            .flatMap(entry -> {
+                                dev.langchain4j.data.embedding.Embedding queryEmbedding = embeddingMap.get(entry.getKey().modelAlias());
+                                if (queryEmbedding == null) {
+                                    return Mono.just(List.<EmbeddingService.EmbeddingSearchResult>of());
+                                }
+                                return embeddingService.searchSimilarEmbeddings(
+                                        queryEmbedding,
+                                        entry.getValue(),
+                                        maxResults,
+                                        minSimilarity,
+                                        entry.getKey().modelAlias(),
+                                        entry.getKey().indexName());
+                            })
+                            .flatMapIterable(results -> results)
+                            .sort(Comparator.comparing(EmbeddingService.EmbeddingSearchResult::score).reversed())
+                            .take(maxResults)
+                            .collectList();
+                    });
+            });
+    }
+
+    private Flux<KnowledgeBase> resolveKnowledgeBases(List<Long> knowledgeBaseIds,
+                                                      Long requesterUserId, boolean isAdmin) {
+        if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) {
+            return knowledgeBaseRepository
+                    .findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", PageRequest.of(0, 5))
+                    .doOnComplete(() -> log.debug("未指定知识库，仅使用最近 5 个公开活跃知识库进行 RAG"));
+        }
+
+        LinkedHashSet<Long> uniqueIds = new LinkedHashSet<>(knowledgeBaseIds);
+        if (uniqueIds.contains(null) || uniqueIds.stream().anyMatch(id -> id <= 0)) {
+            return Flux.error(new IllegalArgumentException("知识库ID必须为正数"));
+        }
+
+        return knowledgeBaseRepository.findAllById(uniqueIds)
+                .collectList()
+                .flatMapMany(knowledgeBases -> {
+                    if (knowledgeBases.size() != uniqueIds.size()) {
+                        return Flux.error(new IllegalArgumentException("部分知识库不存在"));
+                    }
+                    return Flux.fromIterable(knowledgeBases);
+                })
+                .concatMap(knowledgeBase -> authorizeKnowledgeBaseRead(knowledgeBase, requesterUserId, isAdmin));
+    }
+
+    private Mono<KnowledgeBase> authorizeKnowledgeBaseRead(KnowledgeBase knowledgeBase,
+                                                           Long requesterUserId, boolean isAdmin) {
+        if (!"ACTIVE".equalsIgnoreCase(knowledgeBase.getStatus())) {
+            return Mono.error(new SecurityException("当前知识库不可用于检索"));
+        }
+        if (isAdmin) {
+            return Mono.just(knowledgeBase);
+        }
+        if (requesterUserId == null || requesterUserId <= 0) {
+            return Mono.error(new SecurityException("当前用户无权访问该知识库"));
+        }
+        boolean isOwner = requesterUserId.equals(knowledgeBase.getCreatorId());
+        if (isOwner || Boolean.TRUE.equals(knowledgeBase.getIsPublic())) {
+            return Mono.just(knowledgeBase);
+        }
+        return Mono.error(new SecurityException("当前用户无权访问该知识库"));
     }
     
     /**

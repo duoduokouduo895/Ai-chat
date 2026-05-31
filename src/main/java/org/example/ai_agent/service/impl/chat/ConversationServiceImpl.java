@@ -1,25 +1,30 @@
 package org.example.ai_agent.service.impl.chat;
 
 import org.example.ai_agent.config.performance.CacheConfig;
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.repository.chat.ConversationRepository;
 import org.example.ai_agent.repository.chat.MessageRepository;
+import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
 import org.example.ai_agent.service.ConversationService;
-import org.example.ai_agent.service.SearchService;
+import org.example.ai_agent.service.impl.search.ConversationSearchIndexQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class ConversationServiceImpl implements ConversationService {
@@ -28,18 +33,23 @@ public class ConversationServiceImpl implements ConversationService {
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
-    private final SearchService searchService;
+    private final ConversationSearchIndexQueue searchIndexQueue;
+    private final CacheManager cacheManager;
+    private final RedisChatMemeoryStore chatMemoryStore;
 
     public ConversationServiceImpl(ConversationRepository conversationRepository,
                                    MessageRepository messageRepository,
-                                   SearchService searchService) {
+                                   ConversationSearchIndexQueue searchIndexQueue,
+                                   CacheManager cacheManager,
+                                   RedisChatMemeoryStore chatMemoryStore) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
-        this.searchService = searchService;
+        this.searchIndexQueue = searchIndexQueue;
+        this.cacheManager = cacheManager;
+        this.chatMemoryStore = chatMemoryStore;
     }
 
     @Override
-    @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, key = "#conversation.userId")
     public Mono<Conversation> createConversation(Conversation conversation) {
         logger.info("Creating conversation with title {}", conversation != null ? conversation.getTitle() : "null");
 
@@ -60,13 +70,14 @@ public class ConversationServiceImpl implements ConversationService {
                     return conversation;
                 })
                 .flatMap(conversationRepository::save)
+                .flatMap(savedConversation -> evictRecentConversations(savedConversation.getUserId())
+                        .thenReturn(savedConversation))
                 .doOnSuccess(savedConversation ->
                         logger.info("Conversation created successfully, id={}", savedConversation.getId()))
                 .doOnError(error -> logger.error("Failed to create conversation", error));
     }
 
     @Override
-    @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
     public Mono<Message> addMessageToConversation(Message message) {
         logger.info("Adding message to conversation {}", message != null ? message.getConversationId() : "null");
 
@@ -77,12 +88,25 @@ public class ConversationServiceImpl implements ConversationService {
 
         message.setTimestampIfNull();
 
-        return messageRepository.save(message)
+        return saveMessageIdempotently(message)
                 .flatMap(savedMessage -> updateConversationTimestamp(savedMessage.getConversationId())
-                        .then(searchService.indexConversation(savedMessage.getConversationId()))
+                        .flatMap(conversation -> evictRecentConversations(conversation.getUserId()))
                         .thenReturn(savedMessage))
+                .doOnSuccess(savedMessage -> searchIndexQueue.enqueueUpsert(savedMessage.getConversationId()))
                 .doOnSuccess(savedMessage -> logger.info("Message saved successfully, id={}", savedMessage.getId()))
                 .doOnError(error -> logger.error("Failed to add message", error));
+    }
+
+    private Mono<Message> saveMessageIdempotently(Message message) {
+        return messageRepository.save(message)
+                .onErrorResume(DataIntegrityViolationException.class, error -> {
+                    if (!StringUtils.hasText(message.getDeduplicationKey())) {
+                        return Mono.error(error);
+                    }
+                    logger.info("Message already exists for deduplication key, returning existing row");
+                    return messageRepository.findByDeduplicationKey(message.getDeduplicationKey())
+                            .switchIfEmpty(Mono.error(error));
+                });
     }
 
     private Mono<Conversation> updateConversationTimestamp(Long conversationId) {
@@ -120,24 +144,25 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
-    @Cacheable(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, key = "#userId")
     public Flux<ConversationWithPreview> getRecentConversationsWithPreview(Long userId) {
         logger.info("Loading recent conversations for user {}", userId);
+        if (userId == null || userId <= 0) {
+            return Flux.error(new IllegalArgumentException("User ID must be greater than 0"));
+        }
 
-        return Mono.fromCallable(() -> {
-                    if (userId == null || userId <= 0) {
-                        throw new IllegalArgumentException("User ID must be greater than 0");
-                    }
-                    return userId;
-                })
-                .flatMapMany(validatedUserId -> conversationRepository.findByUserIdOrderByUpdatedAtDesc(validatedUserId)
-                        .concatMap(this::buildConversationPreview)
-                        .take(5)
-                        .timeout(Duration.ofSeconds(10))
-                        .onErrorResume(error -> {
-                            logger.error("Failed to load recent conversations for user {}", userId, error);
-                            return Flux.empty();
-                        }));
+        return readRecentConversations(userId)
+                .switchIfEmpty(Mono.defer(() -> {
+                    logger.debug("Recent conversations cache miss for user {}, loading from database", userId);
+                    return conversationRepository.findRecentPreviewsByUserId(userId)
+                            .timeout(Duration.ofSeconds(10))
+                            .collectList()
+                            .flatMap(list -> writeRecentConversations(userId, list).thenReturn(list));
+                }))
+                .flatMapMany(Flux::fromIterable)
+                .onErrorResume(error -> {
+                    logger.error("Failed to load recent conversations for user {}", userId, error);
+                    return Flux.empty();
+                });
     }
 
     @Override
@@ -147,11 +172,29 @@ public class ConversationServiceImpl implements ConversationService {
         return Mono.fromCallable(() -> {
                     int finalPage = page != null && page >= 0 ? page : 0;
                     int finalSize = size != null && size > 0 && size <= 200 ? size : 20;
-                    return PageRequest.of(finalPage, finalSize);
+                    return new PageSlice(finalSize, (long) finalPage * finalSize);
                 })
-                .flatMapMany(conversationRepository::findAllByOrderByUpdatedAtDesc)
-                .flatMap(this::buildConversationPreview)
+                .flatMapMany(slice -> conversationRepository.findAllPreviewsForAdmin(slice.limit(), slice.offset()))
                 .doOnError(error -> logger.error("Failed to load admin conversation list", error));
+    }
+
+    @Override
+    public Mono<AdminPageDto<ConversationWithPreview>> getAllRecentConversationsPage(Integer page, Integer size,
+                                                                                     String keyword) {
+        int finalPage = page != null && page >= 0 ? page : 0;
+        int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
+        String finalKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        long offset = (long) finalPage * finalSize;
+
+        return Mono.zip(
+                conversationRepository.findAdminPage(finalKeyword, finalSize, offset).collectList(),
+                conversationRepository.countAdminPage(finalKeyword)
+        ).map(tuple -> new AdminPageDto<>(
+                tuple.getT1(),
+                tuple.getT2(),
+                Map.of("conversationCount", tuple.getT2())
+        )).doOnSuccess(result -> logger.info("Loaded admin conversation page, page={}, size={}, total={}",
+                finalPage, finalSize, result.getTotal()));
     }
 
     @Override
@@ -161,38 +204,36 @@ public class ConversationServiceImpl implements ConversationService {
         return Mono.fromCallable(() -> {
                     int finalPage = page != null && page >= 0 ? page : 0;
                     int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
-                    return PageRequest.of(finalPage, finalSize);
+                    return new PageSlice(finalSize, (long) finalPage * finalSize);
                 })
-                .flatMapMany(pageable -> conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId, pageable))
-                .flatMap(this::buildConversationPreview)
+                .flatMapMany(slice -> conversationRepository.findPreviewsForAdminByUserId(
+                        userId, slice.limit(), slice.offset()))
                 .doOnError(error -> logger.error("Failed to load admin conversation list for user {}", userId, error));
     }
 
     @Override
-    @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
     public Mono<Void> deleteConversation(Long conversationId, Long userId) {
         logger.info("Deleting conversation {} for user {}", conversationId, userId);
 
         return getConversationById(conversationId, userId)
                 .flatMap(conversation -> messageRepository.deleteByConversationId(conversation.getId())
                         .then(conversationRepository.deleteById(conversation.getId()))
-                        .then(searchService.deleteConversationIndex(conversation.getId())
-                                .doOnError(error -> logger.error("Failed to delete conversation index {}", conversation.getId(), error))
-                                .onErrorResume(error -> Mono.empty())))
+                        .then(evictRecentConversations(conversation.getUserId()))
+                        .then(deleteChatMemory(conversation.getId()))
+                        .doOnSuccess(ignored -> searchIndexQueue.enqueueDelete(conversation.getId())))
                 .then();
     }
 
     @Override
-    @CacheEvict(cacheNames = CacheConfig.CacheNames.CONVERSATIONS, allEntries = true)
     public Mono<Void> deleteConversationAsAdmin(Long conversationId) {
         logger.info("Admin deleting conversation {}", conversationId);
 
         return getConversationById(conversationId)
                 .flatMap(conversation -> messageRepository.deleteByConversationId(conversation.getId())
                         .then(conversationRepository.deleteById(conversation.getId()))
-                        .then(searchService.deleteConversationIndex(conversation.getId())
-                                .doOnError(error -> logger.error("Failed to delete conversation index {}", conversation.getId(), error))
-                                .onErrorResume(error -> Mono.empty())))
+                        .then(evictRecentConversations(conversation.getUserId()))
+                        .then(deleteChatMemory(conversation.getId()))
+                        .doOnSuccess(ignored -> searchIndexQueue.enqueueDelete(conversation.getId())))
                 .then();
     }
 
@@ -229,45 +270,62 @@ public class ConversationServiceImpl implements ConversationService {
                 .doOnError(error -> logger.warn("Conversation {} ownership check failed: {}", conversationId, error.getMessage()));
     }
 
-    private ConversationWithPreview toPreview(Conversation conversation, String firstUserMessage) {
-        ConversationWithPreview preview = new ConversationWithPreview();
-        preview.setId(conversation.getId());
-        preview.setTitle(conversation.getTitle());
-        preview.setCreatedAt(conversation.getCreatedAt());
-        preview.setUpdatedAt(conversation.getUpdatedAt());
-        preview.setUserId(conversation.getUserId());
-        preview.setFirstUserMessage(firstUserMessage);
-        return preview;
-    }
+    @SuppressWarnings("unchecked")
+    private Mono<List<ConversationWithPreview>> readRecentConversations(Long userId) {
+        Cache cache = recentConversationsCache();
+        if (cache == null) {
+            return Mono.empty();
+        }
 
-    private Mono<ConversationWithPreview> buildConversationPreview(Conversation conversation) {
-        Mono<String> firstUserMessageMono = messageRepository
-                .findFirstByConversationIdAndSenderOrderByTimestampAsc(conversation.getId(), "user")
-                .map(Message::getContent)
-                .defaultIfEmpty("");
-
-        Mono<String> lastMessageMono = messageRepository
-                .findFirstByConversationIdOrderByTimestampDesc(conversation.getId())
-                .map(Message::getContent)
-                .defaultIfEmpty("");
-
-        return Mono.zip(firstUserMessageMono, lastMessageMono)
-                .flatMap(tuple -> {
-                    String firstUserMessage = tuple.getT1();
-                    String lastMessage = tuple.getT2();
-
-                    if (!StringUtils.hasText(firstUserMessage) && !StringUtils.hasText(lastMessage)) {
-                        logger.warn("Conversation {} has no message records, skipping preview exposure", conversation.getId());
+        return Mono.fromCallable(() -> cache.get(userId.toString(), List.class))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(cachedList -> {
+                    if (cachedList == null) {
                         return Mono.empty();
                     }
-
-                    ConversationWithPreview preview = toPreview(conversation, firstUserMessage);
-                    preview.setLastMessage(lastMessage);
-                    return Mono.just(preview);
-                })
-                .onErrorResume(error -> {
-                    logger.warn("Failed to build admin preview for conversation {}", conversation.getId(), error);
-                    return Mono.just(toPreview(conversation, "Preview unavailable"));
+                    logger.debug("Recent conversations cache hit for user {}", userId);
+                    return Mono.just((List<ConversationWithPreview>) cachedList);
                 });
+    }
+
+    private Mono<Void> writeRecentConversations(Long userId, List<ConversationWithPreview> conversations) {
+        Cache cache = recentConversationsCache();
+        if (cache == null) {
+            return Mono.empty();
+        }
+
+        return Mono.fromRunnable(() -> {
+                    cache.put(userId.toString(), conversations);
+                    logger.debug("Recent conversations cache populated for user {}", userId);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
+
+    private Mono<Void> evictRecentConversations(Long userId) {
+        Cache cache = recentConversationsCache();
+        if (cache == null || userId == null) {
+            return Mono.empty();
+        }
+
+        return Mono.fromRunnable(() -> {
+                    cache.evict(userId.toString());
+                    logger.debug("Recent conversations cache evicted for user {}", userId);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
+
+    private Mono<Void> deleteChatMemory(Long conversationId) {
+        return Mono.fromRunnable(() -> chatMemoryStore.deleteConversationMessages(conversationId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
+
+    private Cache recentConversationsCache() {
+        return cacheManager.getCache(CacheConfig.CacheNames.CONVERSATIONS);
+    }
+
+    private record PageSlice(int limit, long offset) {
     }
 }

@@ -25,7 +25,6 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/diagnostic")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class DiagnosticController {
 
     private final DocumentProcessingRecordService recordService;

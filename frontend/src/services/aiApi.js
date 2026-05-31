@@ -1,16 +1,18 @@
 import apiClient from './apiClient';
+import authSessionService from './authSessionService.js';
 
 const API_BASE_URL = apiClient.defaults.baseURL;
 
 export const aiApiService = {
     async chatStream(chatRequest, onData, onComplete, onError, onMetadata, abortController = null) {
-        const token = localStorage.getItem('token');
         try {
+
             // 确保chatRequest包含所有必要字段
             const requestData = {
                 prompt: chatRequest.message || chatRequest.prompt,
                 model: chatRequest.model || chatRequest.modelId,
                 conversationId: chatRequest.conversationId,
+                clientMessageId: chatRequest.clientMessageId,
                 // 支持知识库相关参数
                 knowledgeBaseIds: chatRequest.knowledgeBaseIds || null,
                 maxRetrievedDocs: chatRequest.maxRetrievedDocs || 5,
@@ -27,23 +29,25 @@ export const aiApiService = {
                 }
             });
 
-            console.log('📤 [前端发送] 知识库模式:', !!requestData.knowledgeBaseIds, '知识库IDs:', requestData.knowledgeBaseIds);
-
             const response = await fetch(`${API_BASE_URL}/ai/chat`, {
                 method: 'POST',
-                headers: {
+                headers: authSessionService.buildAuthHeaders({
                     'Accept': 'text/event-stream; charset=utf-8',
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                    'Content-Type': 'application/json'
+                }),
                 body: JSON.stringify(requestData),
                 signal: abortController ? abortController.signal : undefined
             });
+
+            authSessionService.applyRefreshedToken(response.headers);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ message: "Failed to parse error response." }));
                 const error = new Error(`HTTP error! status: ${response.status}`);
                 error.response = { data: errorData, status: response.status };
+                if (response.status === 401) {
+                    await authSessionService.handleUnauthorized();
+                }
                 throw error;
             }
 
@@ -130,35 +134,21 @@ export const aiApiService = {
         } catch (error) {
             // Handle AbortError specifically to not treat it as a scary error
             if (error.name === 'AbortError') {
-                console.log('AI Response generation was manually stopped.');
                 if (onComplete) onComplete(true); // Call complete but indicate it was aborted if helpful
                 return;
             }
             // This catches network errors and errors thrown from response.ok check
             if (onError) onError(error);
-            console.error('Error during chat stream fetch:', error);
         }
     },
 
     // 新增：删除整个对话及消息
     async deleteConversation(conversationId) {
-        const token = localStorage.getItem('token');
         try {
-            const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: "Failed to delete conversation." }));
-                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-            }
+            await apiClient.delete(`/conversations/${conversationId}`);
             // 返回无内容响应状态
             return true;
         } catch (error) {
-            console.error('Error deleting conversation:', error);
             throw error;
         }
     }

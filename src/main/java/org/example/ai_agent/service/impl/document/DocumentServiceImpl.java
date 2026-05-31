@@ -1,7 +1,10 @@
 package org.example.ai_agent.service.impl.document;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.dto.admin.AdminPageDto;
+import org.example.ai_agent.dto.document.AdminDocumentSummaryProjection;
 import org.example.ai_agent.dto.document.DocumentDto;
+import org.example.ai_agent.dto.document.DocumentListProjection;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.entity.KnowledgeDocument;
 import org.example.ai_agent.entity.User;
@@ -14,8 +17,8 @@ import org.example.ai_agent.service.OssService;
 import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,7 +26,9 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 文档服务实现类
@@ -126,39 +131,53 @@ public class DocumentServiceImpl implements DocumentService {
     public Flux<DocumentDto> getDocuments(Long knowledgeBaseId, Integer page, Integer size,
                                           Long requesterUserId, boolean isAdmin) {
         return knowledgeBaseService.getAuthorizedKnowledgeBase(knowledgeBaseId, requesterUserId, isAdmin, false)
-        .then(Mono.fromCallable(() -> {
-            final int finalPage = page != null && page >= 0 ? page : 0;
-            final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
-            return PageRequest.of(finalPage, finalSize);
-        }))
-        .flatMapMany(pageable -> documentRepository.findByKnowledgeBaseIdOrderByCreatedAtDesc(knowledgeBaseId, pageable))
-        .flatMap(this::toEnrichedDto)
+        .then(Mono.fromSupplier(() -> pageWindow(page, size, 10, 100)))
+        .flatMapMany(window -> documentRepository.findSummariesByKnowledgeBaseId(
+                knowledgeBaseId, window.limit(), window.offset()))
+        .map(this::toListDto)
         .doOnComplete(() -> log.info("文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
         .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Flux<DocumentDto> getAllDocuments(Integer page, Integer size) {
-        return Mono.fromCallable(() -> {
-            final int finalPage = page != null && page >= 0 ? page : 0;
-            final int finalSize = size != null && size > 0 && size <= 200 ? size : 20;
-            return PageRequest.of(finalPage, finalSize);
-        })
-        .flatMapMany(documentRepository::findAllByOrderByUpdatedAtDesc)
-        .flatMap(this::toEnrichedDto)
+        return Mono.fromSupplier(() -> pageWindow(page, size, 20, 200))
+        .flatMapMany(window -> documentRepository.findAllSummaries(window.limit(), window.offset()))
+        .map(this::toListDto)
         .doOnComplete(() -> log.info("全站文档列表查询完成: page={}, size={}", page, size))
         .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
+    public Mono<AdminPageDto<DocumentDto>> getAllDocumentsPage(Integer page, Integer size, String keyword,
+                                                               String parseStatus, String embeddingStatus) {
+        PageWindow window = pageWindow(page, size, 10, 100);
+        String finalKeyword = normalizeFilter(keyword);
+        String finalParseStatus = normalizeFilter(parseStatus);
+        String finalEmbeddingStatus = normalizeFilter(embeddingStatus);
+
+        return Mono.zip(
+                documentRepository.findAdminPage(finalKeyword, finalParseStatus, finalEmbeddingStatus,
+                                window.limit(), window.offset())
+                        .map(this::toListDto)
+                        .collectList(),
+                documentRepository.countAdminPage(finalKeyword, finalParseStatus, finalEmbeddingStatus),
+                documentRepository.summarizeForAdmin()
+                        .defaultIfEmpty(new AdminDocumentSummaryProjection())
+        ).map(tuple -> new AdminPageDto<>(
+                tuple.getT1(),
+                tuple.getT2(),
+                toAdminSummary(tuple.getT3())
+        )).doOnSuccess(result -> log.info("管理员文档分页查询完成: page={}, size={}, total={}",
+                page, size, result.getTotal()));
+    }
+
+    @Override
     public Flux<DocumentDto> getDocumentsByUploaderId(Long uploaderId, Integer page, Integer size) {
-        return Mono.fromCallable(() -> {
-            final int finalPage = page != null && page >= 0 ? page : 0;
-            final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
-            return PageRequest.of(finalPage, finalSize);
-        })
-        .flatMapMany(pageable -> documentRepository.findByUploaderIdOrderByCreatedAtDesc(uploaderId, pageable))
-        .flatMap(this::toEnrichedDto)
+        return Mono.fromSupplier(() -> pageWindow(page, size, 10, 100))
+        .flatMapMany(window -> documentRepository.findSummariesByUploaderId(
+                uploaderId, window.limit(), window.offset()))
+        .map(this::toListDto)
         .doOnComplete(() -> log.info("按上传用户查询文档完成: uploaderId={}, page={}, size={}", uploaderId, page, size))
         .subscribeOn(Schedulers.boundedElastic());
     }
@@ -176,9 +195,9 @@ public class DocumentServiceImpl implements DocumentService {
             .flatMap(document -> {
                 Long knowledgeBaseId = document.getKnowledgeBaseId();
                 return knowledgeAssetCleanupService.deleteDocumentAggregate(document)
-                    .then(syncKnowledgeBaseDocumentCount(knowledgeBaseId)
+                    .then(knowledgeBaseService.adjustDocumentCount(knowledgeBaseId, -1)
                             .onErrorResume(error -> {
-                                log.warn("同步知识库文档数量失败: knowledgeBaseId={}, error={}",
+                                log.warn("减少知识库文档数量失败，等待定时校准: knowledgeBaseId={}, error={}",
                                         knowledgeBaseId, error.getMessage());
                                 return Mono.empty();
                             }));
@@ -305,29 +324,79 @@ public class DocumentServiceImpl implements DocumentService {
                     return dto;
                 });
     }
+
+    private DocumentDto toListDto(DocumentListProjection projection) {
+        DocumentDto dto = new DocumentDto();
+        dto.setId(projection.getId());
+        dto.setKnowledgeBaseId(projection.getKnowledgeBaseId());
+        dto.setKnowledgeBaseName(defaultName(projection.getKnowledgeBaseName(), "未知知识库"));
+        dto.setTitle(projection.getTitle());
+        dto.setFileName(projection.getFileName());
+        dto.setFileType(projection.getFileType());
+        dto.setFileSize(projection.getFileSize());
+        dto.setOssPath(projection.getOssPath());
+        dto.setOssUrl(projection.getOssUrl());
+        dto.setParseStatus(projection.getParseStatus());
+        dto.setCharacterCount(projection.getCharacterCount());
+        dto.setChunkCount(projection.getChunkCount());
+        dto.setIsEmbedded(calculateIsEmbedded(
+                projection.getChunkCount(), projection.getEmbeddingStatus(), projection.getIsEmbedded()));
+        dto.setEmbeddingStatus(projection.getEmbeddingStatus());
+        dto.setMetadata(projection.getMetadata());
+        dto.setUploaderId(projection.getUploaderId());
+        dto.setUploaderName(defaultName(projection.getUploaderName(), "未知用户"));
+        dto.setCreatedAt(projection.getCreatedAt());
+        dto.setUpdatedAt(projection.getUpdatedAt());
+        return dto;
+    }
+
+    private String defaultName(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private Map<String, Object> toAdminSummary(AdminDocumentSummaryProjection projection) {
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("documentCount", defaultCount(projection.getDocumentCount()));
+        summary.put("uploaderCount", defaultCount(projection.getUploaderCount()));
+        summary.put("totalFileSize", defaultCount(projection.getTotalFileSize()));
+        return summary;
+    }
+
+    private long defaultCount(Long value) {
+        return value != null ? value : 0L;
+    }
+
+    private String normalizeFilter(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
     
     /**
      * 动态计算文档是否已向量化
      * 基于实际的文档块向量化状态进行判断
      */
     private Boolean calculateIsEmbedded(KnowledgeDocument document) {
+        return calculateIsEmbedded(
+                document.getChunkCount(), document.getEmbeddingStatus(), document.getIsEmbedded());
+    }
+
+    private Boolean calculateIsEmbedded(Integer chunkCount, String embeddingStatus, Boolean fallback) {
         // 如果文档还没有解析或没有分块，则肯定未向量化
-        if (document.getChunkCount() == null || document.getChunkCount() <= 0) {
+        if (chunkCount == null || chunkCount <= 0) {
             return false;
         }
         
         // 如果向量化状态为COMPLETED，则认为已向量化
-        if ("COMPLETED".equals(document.getEmbeddingStatus())) {
+        if ("COMPLETED".equals(embeddingStatus)) {
             return true;
         }
         
         // 如果向量化状态为FAILED，则认为未向量化
-        if ("FAILED".equals(document.getEmbeddingStatus())) {
+        if ("FAILED".equals(embeddingStatus)) {
             return false;
         }
         
         // 其他情况（PENDING, PROCESSING）使用数据库中的值作为默认值
-        return document.getIsEmbedded() != null ? document.getIsEmbedded() : false;
+        return fallback != null ? fallback : false;
     }
     
     /**
@@ -382,6 +451,7 @@ public class DocumentServiceImpl implements DocumentService {
             return document;
         })
         .flatMap(documentRepository::save)
+        .flatMap(savedDoc -> knowledgeBaseService.adjustDocumentCount(knowledgeBaseId, 1).thenReturn(savedDoc))
         .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -404,13 +474,13 @@ public class DocumentServiceImpl implements DocumentService {
                     .thenReturn(document));
     }
 
-    private Mono<Void> syncKnowledgeBaseDocumentCount(Long knowledgeBaseId) {
-        if (knowledgeBaseId == null) {
-            return Mono.empty();
-        }
-
-        return documentRepository.countByKnowledgeBaseId(knowledgeBaseId)
-                .flatMap(count -> knowledgeBaseService.updateDocumentCount(knowledgeBaseId, count.intValue()))
-                .then();
+    private PageWindow pageWindow(Integer page, Integer size, int defaultSize, int maxSize) {
+        int safePage = page != null && page >= 0 ? page : 0;
+        int safeSize = size != null && size > 0 && size <= maxSize ? size : defaultSize;
+        return new PageWindow(safeSize, (long) safePage * safeSize);
     }
+
+    private record PageWindow(int limit, long offset) {
+    }
+
 }

@@ -1,13 +1,18 @@
 package org.example.ai_agent.task;
 
+import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.service.SearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.reactive.TransactionalOperator;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -24,67 +29,81 @@ public class GuestCleanupTask {
     // 注入 DatabaseClient 用于执行底层的批量/级联删除 SQL
     private final DatabaseClient databaseClient;
     private final TransactionalOperator transactionalOperator;
+    private final Duration guestSessionTtl;
+    private final SearchService searchService;
+    private final RedisChatMemeoryStore chatMemoryStore;
+    private final int cleanupBatchSize;
+    private final ScheduledTaskGuard taskGuard = new ScheduledTaskGuard();
 
     public GuestCleanupTask(DatabaseClient databaseClient,
-                            TransactionalOperator transactionalOperator) {
+                            TransactionalOperator transactionalOperator,
+                            SearchService searchService,
+                            RedisChatMemeoryStore chatMemoryStore,
+                            @Value("${scheduled.cleanup.expired-guests.ttl-hours:3}") long guestSessionTtlHours,
+                            @Value("${scheduled.cleanup.expired-guests.batch-size:100}") int cleanupBatchSize) {
         this.databaseClient = databaseClient;
         this.transactionalOperator = transactionalOperator;
+        this.searchService = searchService;
+        this.chatMemoryStore = chatMemoryStore;
+        this.guestSessionTtl = Duration.ofHours(Math.max(1, guestSessionTtlHours));
+        this.cleanupBatchSize = Math.max(1, cleanupBatchSize);
     }
 
     /**
      * 定时任务：每 5 分钟执行一次检查
      * 目标：清理最后活跃时间超过 3 小时期限的游客数据
      */
-    @Scheduled(cron = "0 0/5 * * * ?")
+    @Scheduled(cron = "${scheduled.cleanup.expired-guests.cron:0 0/5 * * * ?}")
     public void cleanupExpiredGuests() {
-        Mono.defer(() -> {
-                    log.info("开始执行定时任务：清理过期的游客数据...");
+        if (!taskGuard.tryStart()) {
+            log.warn("清理过期游客数据 - 上一轮尚未结束，跳过本次触发");
+            return;
+        }
 
-                    LocalDateTime thresholdTime = LocalDateTime.now().minusHours(3);
-
-                    return findExpiredGuestUserIds(thresholdTime)
-                            .flatMap(expiredGuestUserIds -> {
-                                if (expiredGuestUserIds.isEmpty()) {
-                                    log.info("清理过期游客数据 - 本轮没有命中过期游客，thresholdTime={}", thresholdTime);
-                                    return Mono.just(0L);
-                                }
-
-                                log.warn("清理过期游客数据 - 命中过期游客 userIds={}", expiredGuestUserIds);
-
-                                return findConversationIdsByUserIds(expiredGuestUserIds)
-                                        .flatMap(expiredConversationIds -> {
-                                            if (expiredConversationIds.isEmpty()) {
-                                                log.info("清理过期游客数据 - 命中游客无对话记录 userIds={}", expiredGuestUserIds);
-                                                return Mono.just(0L)
-                                                        .flatMap(ignored -> deleteByIds("DELETE FROM search_history WHERE user_id IN (%s)", expiredGuestUserIds))
-                                                        .doOnNext(deletedSearchHistory -> log.info("清理过期游客数据 - 已删除 {} 条搜索历史记录", deletedSearchHistory))
-                                                        .flatMap(ignored -> deleteGuestUsersByIds(expiredGuestUserIds));
-                                            }
-
-                                            log.warn("清理过期游客数据 - 即将删除 conversationIds={}", expiredConversationIds);
-
-                                            return deleteByIds("DELETE FROM message WHERE conversation_id IN (%s)", expiredConversationIds)
-                                                    .doOnNext(deletedMessages -> log.info("清理过期游客数据 - 已删除 {} 条消息记录", deletedMessages))
-                                                    .flatMap(ignored -> deleteByIds("DELETE FROM conversation WHERE user_id IN (%s)", expiredGuestUserIds))
-                                                    .doOnNext(deletedConversations -> log.info("清理过期游客数据 - 已删除 {} 条对话记录", deletedConversations))
-                                                    .flatMap(ignored -> deleteByIds("DELETE FROM search_history WHERE user_id IN (%s)", expiredGuestUserIds))
-                                                    .doOnNext(deletedSearchHistory -> log.info("清理过期游客数据 - 已删除 {} 条搜索历史记录", deletedSearchHistory))
-                                                    .flatMap(ignored -> deleteGuestUsersByIds(expiredGuestUserIds));
-                                        });
-                            })
-                            .as(transactionalOperator::transactional);
-                })
+        LocalDateTime thresholdTime = LocalDateTime.now().minus(guestSessionTtl);
+        cleanupExpiredGuestBatches(thresholdTime)
                 .doOnSuccess(deletedUsers -> log.info("清理过期游客数据 - 任务完成，共清理 {} 个过期游客账号", deletedUsers))
                 .doOnError(e -> log.error("清理过期游客数据任务执行失败: {}", e.getMessage(), e))
+                .doFinally(signal -> taskGuard.finish())
                 .subscribe();
+    }
+
+    private Mono<Long> cleanupExpiredGuestBatches(LocalDateTime thresholdTime) {
+        return cleanupExpiredGuestBatch(thresholdTime)
+                .expand(batch -> batch.shouldContinue(cleanupBatchSize)
+                        ? cleanupExpiredGuestBatch(thresholdTime)
+                        : Mono.empty())
+                .map(GuestCleanupBatch::deletedUsers)
+                .reduce(0L, Long::sum);
+    }
+
+    private Mono<GuestCleanupBatch> cleanupExpiredGuestBatch(LocalDateTime thresholdTime) {
+        return findExpiredGuestUserIds(thresholdTime)
+                .flatMap(userIds -> {
+                    if (userIds.isEmpty()) {
+                        return Mono.just(new GuestCleanupBatch(List.of(), List.of(), 0L));
+                    }
+
+                    return findConversationIdsByUserIds(userIds)
+                            .flatMap(conversationIds -> deleteByIds(
+                                            "DELETE FROM message WHERE conversation_id IN (%s)", conversationIds)
+                                    .then(deleteByIds("DELETE FROM conversation WHERE user_id IN (%s)", userIds))
+                                    .then(deleteByIds("DELETE FROM search_history WHERE user_id IN (%s)", userIds))
+                                    .then(deleteGuestUsersByIds(userIds))
+                                    .map(deletedUsers -> new GuestCleanupBatch(userIds, conversationIds, deletedUsers))
+                                    .as(transactionalOperator::transactional))
+                            .flatMap(batch -> cleanupConversationAssets(batch.conversationIds()).thenReturn(batch));
+                });
     }
 
     private Mono<List<Long>> findExpiredGuestUserIds(LocalDateTime thresholdTime) {
         String sql = "SELECT user_id FROM users " +
-                "WHERE is_guest = 1 AND COALESCE(last_active_at, created_at) < :thresholdTime";
+                "WHERE is_guest = 1 AND COALESCE(last_active_at, created_at) < :thresholdTime " +
+                "ORDER BY user_id LIMIT :batchSize";
 
         return databaseClient.sql(sql)
                 .bind("thresholdTime", thresholdTime)
+                .bind("batchSize", cleanupBatchSize)
                 .map((row, rowMetadata) -> row.get("user_id", Long.class))
                 .all()
                 .collectList();
@@ -132,5 +151,29 @@ public class GuestCleanupTask {
         return java.util.stream.IntStream.range(0, size)
                 .mapToObj(i -> ":" + prefix + i)
                 .collect(Collectors.joining(", "));
+    }
+
+    private Mono<Void> cleanupConversationAssets(List<Long> conversationIds) {
+        return Flux.fromIterable(conversationIds)
+                .concatMap(conversationId -> searchService.deleteConversationIndex(conversationId)
+                        .onErrorResume(error -> {
+                            log.warn("清理游客会话索引失败: conversationId={}, error={}",
+                                    conversationId, error.getMessage());
+                            return Mono.empty();
+                        })
+                        .then(Mono.fromRunnable(() -> chatMemoryStore.deleteConversationMessages(conversationId)))
+                        .onErrorResume(error -> {
+                            log.warn("清理游客 Redis ChatMemory 失败: conversationId={}, error={}",
+                                    conversationId, error.getMessage());
+                            return Mono.empty();
+                        }))
+                .then();
+    }
+
+    private record GuestCleanupBatch(List<Long> userIds, List<Long> conversationIds, long deletedUsers) {
+
+        private boolean shouldContinue(int batchSize) {
+            return userIds.size() == batchSize && deletedUsers > 0;
+        }
     }
 }

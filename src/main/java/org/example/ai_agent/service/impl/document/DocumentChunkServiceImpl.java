@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentChunkDto;
 import org.example.ai_agent.entity.KnowledgeDocumentChunk;
+import org.example.ai_agent.repository.document.DocumentChunkBulkUpdateRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
 import org.example.ai_agent.service.DocumentChunkService;
 import org.example.ai_agent.service.DocumentParserService;
@@ -33,6 +34,9 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
     
     @Autowired
     private KnowledgeDocumentChunkRepository chunkRepository;
+
+    @Autowired
+    private DocumentChunkBulkUpdateRepository chunkBulkUpdateRepository;
     
     @Autowired
     private DocumentParserService documentParserService;
@@ -42,16 +46,24 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
     
     @Override
     public Mono<List<DocumentChunkDto>> createDocumentChunks(Long documentId, Long knowledgeBaseId, String content) {
-        return Mono.fromCallable(() -> {
+        return chunkRepository.findByDocumentIdOrderByChunkIndex(documentId)
+        .collectList()
+        .flatMap(existingChunks -> {
+            if (!existingChunks.isEmpty()) {
+                log.info("复用已创建的文档块: documentId={}, chunkCount={}", documentId, existingChunks.size());
+                return Mono.just(existingChunks.stream().map(this::toDto).toList());
+            }
+
+            return Mono.fromCallable(() -> {
             log.info("开始创建文档块: documentId={}, knowledgeBaseId={}, contentLength={}", 
                     documentId, knowledgeBaseId, content.length());
             
             // 创建文档对象
             Document document = Document.from(content);
             return document;
-        })
-        .flatMap(document -> documentParserService.splitDocument(document))
-        .flatMap(textSegments -> {
+            })
+            .flatMap(document -> documentParserService.splitDocument(document))
+            .flatMap(textSegments -> {
             // 转换为实体对象
             List<KnowledgeDocumentChunk> chunks = IntStream.range(0, textSegments.size())
                 .mapToObj(i -> {
@@ -89,6 +101,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
                 .map(savedChunks -> savedChunks.stream()
                     .map(this::toDto)
                     .toList());
+            });
         })
         .doOnSuccess(chunks -> log.info("文档块创建成功: documentId={}, chunkCount={}", 
                 documentId, chunks.size()))
@@ -134,24 +147,8 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
     
     @Override
     public Mono<Boolean> batchUpdateChunkEmbeddingStatus(List<Long> chunkIds, List<String> embeddingIds, String status) {
-        return Flux.fromIterable(chunkIds)
-            .index()
-            .flatMap(indexedChunkId -> {
-                Long chunkId = indexedChunkId.getT2();
-                String embeddingId = embeddingIds.get(indexedChunkId.getT1().intValue());
-                
-                return chunkRepository.findById(chunkId)
-                    .flatMap(chunk -> {
-                        chunk.setEmbeddingId(embeddingId);
-                        chunk.setEmbeddingStatus(status);
-                        chunk.setIsEmbedded(DocumentProcessingConstants.Status.COMPLETED.equals(status));
-                        chunk.setUpdatedAt(LocalDateTime.now());
-                        
-                        return chunkRepository.save(chunk);
-                    });
-            })
-            .collectList()
-            .map(savedChunks -> savedChunks.size() == chunkIds.size())
+        return chunkBulkUpdateRepository.updateEmbeddingStatus(chunkIds, embeddingIds, status)
+            .map(updatedRows -> updatedRows == chunkIds.size())
             .doOnSuccess(result -> log.info("批量更新文档块向量化状态: chunkCount={}, status={}, result={}", 
                     chunkIds.size(), status, result))
             .onErrorReturn(false);
@@ -168,14 +165,14 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
     @Override
     public Mono<Integer> countDocumentChunks(Long documentId) {
         return chunkRepository.countByDocumentId(documentId)
-            .cast(Integer.class)
+            .map(Math::toIntExact)
             .doOnSuccess(count -> log.debug("统计文档块数量: documentId={}, count={}", documentId, count));
     }
     
     @Override
     public Mono<Integer> countEmbeddedChunks(Long documentId) {
         return chunkRepository.countByDocumentIdAndIsEmbedded(documentId, true)
-            .cast(Integer.class)
+            .map(Math::toIntExact)
             .doOnSuccess(count -> log.debug("统计已向量化文档块数量: documentId={}, count={}", documentId, count));
     }
     

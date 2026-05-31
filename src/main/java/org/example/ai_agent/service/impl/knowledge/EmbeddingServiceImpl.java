@@ -3,27 +3,24 @@ package org.example.ai_agent.service.impl.knowledge;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
-import dev.langchain4j.store.embedding.filter.logical.And;
 import dev.langchain4j.store.embedding.filter.logical.Or;
 import lombok.extern.slf4j.Slf4j;
-import org.example.ai_agent.config.ai.AiModelProperties;
 import org.example.ai_agent.service.EmbeddingService;
+import org.example.ai_agent.service.registry.AiModelRegistry;
+import org.example.ai_agent.service.registry.EmbeddingStoreRegistry;
+import org.example.ai_agent.service.registry.EmbeddingStoreRegistry.EmbeddingProfile;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 
 /**
@@ -41,16 +38,10 @@ import java.util.stream.IntStream;
 public class EmbeddingServiceImpl implements EmbeddingService {
     
     @Autowired
-    private AiModelProperties aiModelProperties;
+    private AiModelRegistry aiModelRegistry;
     
     @Autowired
-    private EmbeddingStore<TextSegment> embeddingStore;
-    
-    @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
-    private String defaultEmbeddingModel;
-    
-    // 缓存不同模型的EmbeddingModel实例
-    private final Map<String, EmbeddingModel> embeddingModelCache = new ConcurrentHashMap<>();
+    private EmbeddingStoreRegistry embeddingStoreRegistry;
     
     @Override
     public Mono<Embedding> embedText(TextSegment textSegment, String modelId) {
@@ -94,9 +85,12 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     
     @Override
     public Mono<String> storeEmbedding(Long knowledgeBaseId, Long documentId, Long chunkId, 
-                                     Embedding embedding, TextSegment textSegment) {
+                                     Embedding embedding, TextSegment textSegment,
+                                     String modelId, String indexName) {
         return Mono.fromCallable(() -> {
             try {
+                EmbeddingProfile profile = embeddingStoreRegistry.requireProfile(modelId, indexName);
+                EmbeddingStore<TextSegment> embeddingStore = embeddingStoreRegistry.getWritableStore(profile);
                 // 添加元数据
                 TextSegment enhancedSegment = TextSegment.from(
                     textSegment.text(),
@@ -104,6 +98,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                         .put("knowledge_base_id", knowledgeBaseId.toString())
                         .put("document_id", documentId.toString())
                         .put("chunk_id", chunkId.toString())
+                        .put("embedding_model", profile.modelAlias())
+                        .put("embedding_version", profile.version())
                         .put("stored_time", System.currentTimeMillis())
                 );
                 
@@ -124,9 +120,12 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     
     @Override
     public Mono<List<String>> storeEmbeddings(Long knowledgeBaseId, Long documentId, List<Long> chunkIds,
-                                            List<Embedding> embeddings, List<TextSegment> textSegments) {
+                                            List<Embedding> embeddings, List<TextSegment> textSegments,
+                                            String modelId, String indexName) {
         return Mono.fromCallable(() -> {
             try {
+                EmbeddingProfile profile = embeddingStoreRegistry.requireProfile(modelId, indexName);
+                EmbeddingStore<TextSegment> embeddingStore = embeddingStoreRegistry.getWritableStore(profile);
                 // 增强文本段，添加元数据
                 List<TextSegment> enhancedSegments = IntStream.range(0, textSegments.size())
                     .mapToObj(i -> {
@@ -138,6 +137,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                                 .put("knowledge_base_id", knowledgeBaseId.toString())
                                 .put("document_id", documentId.toString())
                                 .put("chunk_id", chunkId.toString())
+                                .put("embedding_model", profile.modelAlias())
+                                .put("embedding_version", profile.version())
                                 .put("stored_time", System.currentTimeMillis())
                         );
                     })
@@ -160,10 +161,13 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     
     @Override
     public Mono<List<EmbeddingService.EmbeddingSearchResult>> searchSimilarEmbeddings(
-            Embedding queryEmbedding, List<Long> knowledgeBaseIds, Integer maxResults, Double minScore) {
+            Embedding queryEmbedding, List<Long> knowledgeBaseIds, Integer maxResults, Double minScore,
+            String modelId, String indexName) {
         
         return Mono.fromCallable(() -> {
             try {
+                EmbeddingProfile profile = embeddingStoreRegistry.requireProfile(modelId, indexName);
+                EmbeddingStore<TextSegment> embeddingStore = embeddingStoreRegistry.getStore(profile);
                 var requestBuilder = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(maxResults != null ? maxResults : 10)
@@ -209,38 +213,24 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     @Override
     public Mono<Boolean> deleteDocumentEmbeddings(Long documentId) {
         return Mono.fromCallable(() -> {
-            try {
-                Filter filter = new IsEqualTo("document_id", documentId.toString());
-                embeddingStore.removeAll(filter);
-                
-                log.info("文档向量删除成功: documentId={}", documentId);
-                return true;
-                
-            } catch (Exception e) {
-                if (isIndexNotFound(e)) {
-                    log.warn("向量索引不存在，文档向量清理视为完成: documentId={}, error={}", documentId, e.getMessage());
-                    return true;
-                }
-                log.error("文档向量删除失败: documentId={}, error={}", documentId, e.getMessage(), e);
-                return false;
+            boolean success = true;
+            for (EmbeddingProfile profile : embeddingStoreRegistry.getCleanupProfiles()) {
+                success &= removeAll(profile, new IsEqualTo("document_id", documentId.toString()),
+                        "文档", documentId);
             }
+            return success;
         }).subscribeOn(Schedulers.boundedElastic());
     }
     
     @Override
     public Mono<Boolean> deleteKnowledgeBaseEmbeddings(Long knowledgeBaseId) {
         return Mono.fromCallable(() -> {
-            try {
-                Filter filter = new IsEqualTo("knowledge_base_id", knowledgeBaseId.toString());
-                embeddingStore.removeAll(filter);
-                
-                log.info("知识库向量删除成功: knowledgeBaseId={}", knowledgeBaseId);
-                return true;
-                
-            } catch (Exception e) {
-                log.error("知识库向量删除失败: knowledgeBaseId={}, error={}", knowledgeBaseId, e.getMessage(), e);
-                return false;
+            boolean success = true;
+            for (EmbeddingProfile profile : embeddingStoreRegistry.getCleanupProfiles()) {
+                success &= removeAll(profile, new IsEqualTo("knowledge_base_id", knowledgeBaseId.toString()),
+                        "知识库", knowledgeBaseId);
             }
+            return success;
         }).subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -248,21 +238,24 @@ public class EmbeddingServiceImpl implements EmbeddingService {
      * 获取向量化模型实例
      */
     private EmbeddingModel getEmbeddingModel(String modelId) {
-        String actualModelId = modelId != null ? modelId : defaultEmbeddingModel;
-        
-        return embeddingModelCache.computeIfAbsent(actualModelId, id -> {
-            String globalApiKey = aiModelProperties.getApiKey();
-            String globalBaseUrl = aiModelProperties.getBaseUrl();
-            
-            log.info("创建向量化模型实例: modelId={}", actualModelId);
-            
-            // 使用硅基流动的Qwen嵌入模型
-            return OpenAiEmbeddingModel.builder()
-                    .apiKey(globalApiKey)
-                    .baseUrl(globalBaseUrl)
-                    .modelName("Qwen/Qwen3-Embedding-8B")
-                    .build();
-        });
+        String actualModelId = modelId != null ? modelId : aiModelRegistry.getDefaultEmbeddingModel();
+        return aiModelRegistry.getEmbeddingModel(actualModelId);
+    }
+
+    private boolean removeAll(EmbeddingProfile profile, Filter filter, String resourceType, Long resourceId) {
+        try {
+            embeddingStoreRegistry.getStore(profile).removeAll(filter);
+            log.info("{}向量删除成功: resourceId={}, indexName={}", resourceType, resourceId, profile.indexName());
+            return true;
+        } catch (Exception e) {
+            if (isIndexNotFound(e)) {
+                log.debug("向量索引不存在，清理视为完成: indexName={}", profile.indexName());
+                return true;
+            }
+            log.error("{}向量删除失败: resourceId={}, indexName={}, error={}",
+                    resourceType, resourceId, profile.indexName(), e.getMessage(), e);
+            return false;
+        }
     }
     
     /**

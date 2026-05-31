@@ -1,55 +1,20 @@
-// API配置文件
-// 统一管理API地址，方便部署时配置
+// API base URL configuration shared by Axios and streaming fetch clients.
+const normalizeBaseUrl = (url) => {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+};
 
-// 获取API基础URL
+const DEFAULT_API_BASE_URL = '/api';
+
 const getApiBaseUrl = () => {
-  // 在开发环境中，使用相对路径，由Vite代理处理
-  // 在生产环境中，使用云服务器地址
-  if (import.meta.env.PROD) {
-    return 'http://119.29.109.190:8080/api';
+  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  if (configuredBaseUrl && configuredBaseUrl.trim()) {
+    return normalizeBaseUrl(configuredBaseUrl.trim());
   }
-  return '/api';
+  return DEFAULT_API_BASE_URL;
 };
 
-// API端点配置
-export const API_ENDPOINTS = {
-  // 用户相关
-  USER_REGISTER: '/users/register',
-  USER_LOGIN: '/users/login',
-  USER_GUEST: '/users/guest', // 新增：创建游客用户的端点
-  
-  // 模型相关
-  MODELS: '/ai/models',
-  
-  // 对话相关
-  CONVERSATIONS: '/conversations',
-  CONVERSATIONS_RECENT: '/conversations/recent',
-  CONVERSATION_MESSAGES: (conversationId) => `/conversations/${conversationId}/messages`,
-  
-  // 消息相关
-  MESSAGES_AI_STREAM: '/messages/ai-response-stream',
-  
-  // 搜索相关
-  SEARCH_FULL_TEXT: '/search/full-text',
-  SEARCH_ADVANCED: '/search/advanced',
-  SEARCH_INTELLIGENT: '/search/intelligent',
-  SEARCH_VECTOR: '/search/vector',
-  SEARCH_TIME_RANGE: '/search/time-range',
-  SEARCH_SUGGESTIONS: '/search/suggestions'
-};
-
-// 获取完整的API URL
-export const getApiUrl = (endpoint) => {
-  const baseUrl = getApiBaseUrl();
-  return `${baseUrl}${endpoint}`;
-};
-
-// 导出基础URL（用于需要直接使用的场景）
 export const API_BASE_URL = getApiBaseUrl();
 
-// 默认导出配置对象
 export default {
-  baseUrl: API_BASE_URL,
-  endpoints: API_ENDPOINTS,
-  getUrl: getApiUrl
+  baseUrl: API_BASE_URL
 };

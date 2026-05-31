@@ -2,7 +2,7 @@ package org.example.ai_agent.controller;
 
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.example.ai_agent.config.ai.AiModelProperties;
+import org.example.ai_agent.config.ai.ModelCatalogProperties;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
@@ -11,7 +11,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,7 +24,6 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class AiController {
 
     private final AiModelRegistry aiModelRegistry;
@@ -39,7 +37,7 @@ public class AiController {
     }
 
     @GetMapping("/models")
-    public Mono<List<AiModelProperties.Metadata>> getAvailableModels() {
+    public Mono<List<ModelCatalogProperties.Metadata>> getAvailableModels() {
         return Mono.just(aiModelRegistry.getModelMetadata());
     }
 

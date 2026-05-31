@@ -36,7 +36,6 @@ export const SearchApiService = {
       });
       return response.data;
     } catch (error) {
-      console.error('搜索失败:', error);
       throw error;
     }
   },
@@ -59,7 +58,6 @@ export const SearchApiService = {
       });
       return response.data; // 统一返回 data
     } catch (error) {
-      console.error('智能搜索失败:', error);
       throw error;
     }
   },
@@ -80,7 +78,6 @@ export const SearchApiService = {
       });
       return response.data; // 统一返回 data
     } catch (error) {
-      console.error('获取搜索建议失败:', error);
       throw error;
     }
   },
@@ -100,7 +97,6 @@ export const SearchApiService = {
       });
       return response.data;
     } catch (error) {
-      console.error('记录搜索历史失败:', error);
       throw error;
     }
   },
@@ -117,7 +113,6 @@ export const SearchApiService = {
       });
       return response.data;
     } catch (error) {
-      console.error('获取搜索历史失败:', error);
       throw error;
     }
   },
@@ -131,7 +126,6 @@ export const SearchApiService = {
       const response = await apiClient.delete('/search/history');
       return response.data;
     } catch (error) {
-      console.error('清空搜索历史失败:', error);
       throw error;
     }
   },
@@ -145,7 +139,6 @@ export const SearchApiService = {
       const response = await apiClient.post('/search/history/cleanup');
       return response.data;
     } catch (error) {
-      console.error('清理重复搜索历史失败:', error);
       throw error;
     }
   },

@@ -4,7 +4,9 @@ import org.example.ai_agent.document.ConversationDocument;
 import org.example.ai_agent.dto.search.SearchHistoryDto;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.SearchService;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -15,8 +17,6 @@ import reactor.core.publisher.Mono;
  */
 @RestController
 @RequestMapping("/api/search")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
-
 public class SearchController {
 
     private final SearchService searchService;
@@ -48,9 +48,9 @@ public class SearchController {
             @RequestParam(name = "size", defaultValue = "10") int size) {
 
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> ctx.getAuthentication().getName())
-                .flatMap(userRepository::findByUsername)
-                .flatMapMany(user -> searchService.searchConversations(user.getUserId(), query, startDate, endDate, models, page, size));
+                .map(SecurityContext::getAuthentication)
+                .flatMap(this::resolveCurrentUserId)
+                .flatMapMany(userId -> searchService.searchConversations(userId, query, startDate, endDate, models, page, size));
     }
 
     /**
@@ -73,33 +73,55 @@ public class SearchController {
             return Mono.empty(); 
         }
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> ctx.getAuthentication().getName())
-                .flatMap(userRepository::findByUsername)
-                .flatMap(user -> searchService.recordSearchHistory(user.getUserId(), searchHistoryDto.getQuery(), searchHistoryDto.getType()));
+                .map(SecurityContext::getAuthentication)
+                .flatMap(this::resolveCurrentUserId)
+                .flatMap(userId -> searchService.recordSearchHistory(userId, searchHistoryDto.getQuery(), searchHistoryDto.getType()));
     }
 
     @GetMapping("/history")
     public Flux<ConversationDocument> getSearchHistory(@RequestParam(defaultValue = "20") int size) {
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> ctx.getAuthentication().getName())
-                .flatMap(userRepository::findByUsername)
-                .flatMapMany(user -> searchService.getSearchHistory(user.getUserId(), size));
+                .map(SecurityContext::getAuthentication)
+                .flatMap(this::resolveCurrentUserId)
+                .flatMapMany(userId -> searchService.getSearchHistory(userId, size));
     }
 
     @DeleteMapping("/history")
     public Mono<Void> clearSearchHistory() {
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> ctx.getAuthentication().getName())
-                .flatMap(userRepository::findByUsername)
-                .flatMap(user -> searchService.clearSearchHistory(user.getUserId()));
+                .map(SecurityContext::getAuthentication)
+                .flatMap(this::resolveCurrentUserId)
+                .flatMap(searchService::clearSearchHistory);
     }
 
     @PostMapping("/history/cleanup")
     public Mono<String> cleanupDuplicateSearchHistory() {
         return ReactiveSecurityContextHolder.getContext()
-                .map(ctx -> ctx.getAuthentication().getName())
-                .flatMap(userRepository::findByUsername)
-                .flatMap(user -> searchService.cleanupDuplicateSearchHistory(user.getUserId()));
+                .map(SecurityContext::getAuthentication)
+                .flatMap(this::resolveCurrentUserId)
+                .flatMap(searchService::cleanupDuplicateSearchHistory);
+    }
+
+    private Mono<Long> resolveCurrentUserId(Authentication authentication) {
+        if (authentication == null) {
+            return Mono.error(new SecurityException("Current user is not authenticated"));
+        }
+
+        Object details = authentication.getDetails();
+        if (details instanceof Number number) {
+            return Mono.just(number.longValue());
+        }
+        if (details instanceof String value && !value.isBlank()) {
+            try {
+                return Mono.just(Long.parseLong(value));
+            } catch (NumberFormatException ignored) {
+                // Fall back to the username lookup for legacy authentication sources.
+            }
+        }
+
+        return userRepository.findByUsername(authentication.getName())
+                .map(user -> user.getUserId())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")));
     }
 }
 

@@ -1,5 +1,7 @@
 package org.example.ai_agent.service.impl.chat;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.entity.Conversation;
@@ -11,11 +13,12 @@ import org.example.ai_agent.service.assistant.GeneralAssistant;
 import org.example.ai_agent.service.assistant.GeneralAssistantFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import com.alibaba.fastjson.JSON;
 import java.util.Map;
+import java.util.UUID;
 
 
 
@@ -26,13 +29,16 @@ public class AiChatServiceImpl implements AiChatService {
     private final GeneralAssistantFactory generalAssistantFactory;
     private final ConversationService conversationService;
     private final RagService ragService;
+    private final ObjectMapper objectMapper;
 
     public AiChatServiceImpl(GeneralAssistantFactory generalAssistantFactory,
                              ConversationService conversationService,
-                             RagService ragService) {
+                             RagService ragService,
+                             ObjectMapper objectMapper) {
         this.generalAssistantFactory = generalAssistantFactory;
         this.conversationService = conversationService;
         this.ragService = ragService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -56,7 +62,7 @@ public class AiChatServiceImpl implements AiChatService {
                 "conversationId", request.getConversationId(),
                 "mode", request.isRagMode() ? "rag" : "normal"
         );
-        String metadataJson = JSON.toJSONString(metadata);
+        String metadataJson = toJson(metadata);
         Flux<ServerSentEvent<String>> metadataFlux = Flux.just(
                 ServerSentEvent.<String>builder()
                         .event("metadata")
@@ -78,7 +84,7 @@ public class AiChatServiceImpl implements AiChatService {
                 "code", "CHAT_ERROR",
                 "message", "聊天处理失败：" + ex.getMessage()
         );
-        String errorJson = JSON.toJSONString(errorPayload);
+        String errorJson = toJson(errorPayload);
         return Flux.just(
                 ServerSentEvent.<String>builder()
                         .event("error")
@@ -116,6 +122,7 @@ public class AiChatServiceImpl implements AiChatService {
         userMessage.setSender("user");
         userMessage.setContent(chatRequest.getTrimmedMessage());
         userMessage.setModel(chatRequest.getEffectiveModelId());
+        userMessage.setDeduplicationKey(messageDeduplicationKey("user", chatRequest));
 
         return conversationService.addMessageToConversation(userMessage)
                 .flatMapMany(savedUserMessage -> buildAssistantInput(chatRequest)
@@ -125,28 +132,29 @@ public class AiChatServiceImpl implements AiChatService {
     private Flux<ServerSentEvent<String>> streamAssistantResponse(ChatRequest chatRequest, String assistantInput) {
         try {
             GeneralAssistant assistant = generalAssistantFactory.createAssistant(chatRequest);
-            String memoryId = String.valueOf(chatRequest.getConversationId());
+            String effectiveModelId = chatRequest.getEffectiveModelId();
+            String memoryId = chatRequest.getConversationId() + ":" + effectiveModelId;
             StringBuilder responseBuilder = new StringBuilder();
 
+            log.info("Assistant调用模型: conversationId={}, modelId={}, memoryId={}",
+                    chatRequest.getConversationId(), effectiveModelId, memoryId);
+
             return assistant.chat(memoryId, assistantInput)
+                    .subscribeOn(Schedulers.boundedElastic()) // 隔离：防止 LangChain4j 同步读取 Redis ChatMemory 阻塞 Netty 事件循环线程
                     .doOnNext(responseBuilder::append)
                     .map(chunk -> ServerSentEvent.<String>builder()
                             .event("message")
                             .data(chunk)
                             .build())
-                    .doOnComplete(() -> {
+                    .concatWith(Mono.defer(() -> {
                         if (responseBuilder.length() > 0) {
-                            saveAiMessage(chatRequest, responseBuilder.toString())
-                                    .subscribeOn(Schedulers.boundedElastic())
-                                    .subscribe(
-                                            savedAiMessage -> {
-                                                if (savedAiMessage != null) {
-                                                    log.info("Assistant AI消息已保存，ID: {}", savedAiMessage.getId());
-                                                }
-                                            },
-                                            error -> log.error("保存Assistant AI消息失败", error)
-                                    );
+                            return saveAiMessage(chatRequest, responseBuilder.toString())
+                                    .doOnNext(savedAiMessage -> log.info("Assistant AI消息已保存，ID: {}", savedAiMessage.getId()))
+                                    .then(Mono.<ServerSentEvent<String>>empty());
                         }
+                        return Mono.<ServerSentEvent<String>>empty();
+                    }))
+                    .doOnComplete(() -> {
                         log.info("Assistant对话完成: conversationId={}, ragMode={}",
                                 chatRequest.getConversationId(), chatRequest.isRagMode());
                     });
@@ -165,7 +173,9 @@ public class AiChatServiceImpl implements AiChatService {
                         request.getTrimmedMessage(),
                         request.getKnowledgeBaseIds(),
                         request.getMaxRetrievedDocs(),
-                        request.getMinSimilarity()
+                        request.getMinSimilarity(),
+                        request.getUserId(),
+                        request.isAdminRequest()
                 )
                 .map(context -> buildKnowledgeAugmentedPrompt(request, context))
                 .doOnSuccess(prompt -> log.info("知识增强输入已构建: conversationId={}, knowledgeBaseCount={}",
@@ -203,8 +213,9 @@ public class AiChatServiceImpl implements AiChatService {
         aiMessage.setSender("ai");
         aiMessage.setContent(content.trim());
         aiMessage.setModel(chatRequest.getEffectiveModelId());
+        aiMessage.setDeduplicationKey(messageDeduplicationKey("ai", chatRequest));
         
-        // 使用ConversationService来保存AI消息，并添加重试机制
+        // 幂等键保证整条保存链重试时不会重复插入消息。
         return conversationService.addMessageToConversation(aiMessage)
                 .retry(3) // 最多重试3次
                 .doOnSuccess(savedMessage -> log.info("AI消息已成功保存，ID: {}, 内容长度: {}", 
@@ -215,5 +226,21 @@ public class AiChatServiceImpl implements AiChatService {
                     log.error("最终保存AI消息失败，将返回空结果", e);
                     return Mono.empty();
                 });
+    }
+
+    private String messageDeduplicationKey(String sender, ChatRequest request) {
+        String requestId = StringUtils.hasText(request.getClientMessageId())
+                ? request.getClientMessageId().trim()
+                : UUID.randomUUID().toString();
+        return sender + ":" + request.getUserId() + ":" + request.getConversationId() + ":" + requestId;
+    }
+
+    private String toJson(Map<String, Object> payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            log.warn("SSE载荷序列化失败: {}", payload, e);
+            return "{\"type\":\"error\",\"code\":\"JSON_SERIALIZATION_ERROR\",\"message\":\"响应序列化失败\"}";
+        }
     }
 }

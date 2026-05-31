@@ -55,7 +55,7 @@
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #c82333;
+  background-color: var(--danger-text);
   transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
 }
@@ -196,8 +196,8 @@
 }
 
 .modal-close {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--border-radius-full);
   border: none;
   background: none;
@@ -288,7 +288,7 @@
 }
 
 /* 加载动画 */
-.loading {
+.loading-spinner {
   display: inline-block;
   width: 20px;
   height: 20px;
@@ -313,7 +313,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(255, 255, 255, 0.8);
+  background-color: oklch(0.145 0.012 285 / 0.84);
   z-index: 10;
 }
 
@@ -329,7 +329,8 @@
 .progress-bar {
   height: 100%;
   background-color: var(--primary-color);
-  transition: width var(--transition-base);
+  transform-origin: left center;
+  transition: transform var(--transition-base);
 }
 
 /* 工具提示 */
@@ -364,7 +365,7 @@
 /* 滚动条美化 */
 .custom-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #c1c1c1 #f1f1f1;
+  scrollbar-color: var(--surface-3) var(--surface-1);
 }
 
 .custom-scroll::-webkit-scrollbar {
@@ -372,21 +373,27 @@
 }
 
 .custom-scroll::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--surface-1);
   border-radius: 3px;
 }
 
 .custom-scroll::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--surface-3);
   border-radius: 3px;
 }
 
 .custom-scroll::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: var(--border-strong);
 }
 
 /* 响应式辅助类 */
 @media (max-width: 768px) {
+  .btn-base,
+  .btn-sm,
+  .btn-icon {
+    min-height: 44px;
+  }
+
   .mobile-hidden {
     display: none !important;
   }
@@ -398,6 +405,17 @@
   .modal {
     margin: var(--spacing-md);
     max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -6,37 +6,46 @@ import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const isProduction = mode === 'production';
+  const enableCompression = env.VITE_ENABLE_COMPRESSION === 'true';
+  const useTerser = env.VITE_MINIFY === 'terser';
 
   return {
     plugins: [
       vue(),
-      viteCompression({
+      enableCompression && viteCompression({
         algorithm: 'gzip',
         ext: '.gz',
         threshold: 1024,
         deleteOriginFile: false
       }),
-      viteCompression({
+      enableCompression && viteCompression({
         algorithm: 'brotliCompress',
         ext: '.br',
         threshold: 1024,
         deleteOriginFile: false
       }),
-      visualizer({
+      env.VITE_ENABLE_ANALYZE === 'true' && visualizer({
         filename: 'dist/stats.html',
         open: false,
         gzipSize: true,
         brotliSize: true
       })
-    ],
+    ].filter(Boolean),
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
     build: {
-      rollupOptions: {
+      rolldownOptions: {
         output: {
+          minify: useTerser ? undefined : {
+            compress: {
+              dropConsole: isProduction && env.VITE_DROP_CONSOLE !== 'false',
+              dropDebugger: true
+            }
+          },
           manualChunks(id) {
             if (!id.includes('node_modules')) {
               return undefined;
@@ -61,10 +70,10 @@ export default defineConfig(({ mode }) => {
         }
       },
       chunkSizeWarningLimit: 1000,
-      minify: 'terser',
-      terserOptions: {
+      minify: useTerser ? 'terser' : 'oxc',
+      terserOptions: useTerser ? {
         compress: {
-          drop_console: false,
+          drop_console: isProduction ? env.VITE_DROP_CONSOLE !== 'false' : false,
           drop_debugger: true,
           dead_code: true
         },
@@ -74,11 +83,12 @@ export default defineConfig(({ mode }) => {
         format: {
           comments: false
         }
-      },
+      } : undefined,
       target: 'es2020',
       cssCodeSplit: true,
-      sourcemap: true,
-      modulePreload: false
+      sourcemap: env.VITE_SOURCEMAP === 'true',
+      modulePreload: true,
+      reportCompressedSize: enableCompression
     },
     base: env.VITE_BASE_PATH || '/',
     server: {

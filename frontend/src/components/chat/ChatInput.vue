@@ -1,210 +1,247 @@
 <template>
-  <div class="chat-input-container">
-    <!-- 工具栏 -->
-    <div class="input-toolbar">
-      <ModelSelector 
-        v-model="localSelectedModel"
-        :models="availableModels"
-      />
-      <KnowledgeSelector
-        v-model="knowledgeBaseIds"
-        @mode-change="handleModeChange"
-      />
-      <button 
-        class="btn-base btn-outline btn-sm"
-        @click="$emit('clear')" 
-        title="清空对话"
-      >
-        🗑️ 清空
-      </button>
-    </div>
-    
-    <!-- 输入区域 -->
-    <div class="input-area">
-      <textarea
-        v-model="localMessage"
-        @keydown.enter.ctrl="handleSend"
-        @keydown.enter.exact="handleEnterKey"
-        placeholder="请输入消息... (Ctrl+Enter 发送)"
-        class="input-base message-input"
-        ref="textareaRef"
-      ></textarea>
-      
-      <div class="send-button-container">
-        <button 
-          v-if="!isLoading"
-          class="btn-base btn-primary"
-          @click="handleSend"
-          :disabled="!localMessage.trim()"
-        >
-          发送(Ctrl+Enter)
+  <section class="composer" :class="{ immersive }" aria-label="消息输入">
+    <textarea
+      ref="textareaRef"
+      v-model="localMessage"
+      class="composer-input"
+      placeholder="开始新的聊天"
+      aria-label="聊天消息"
+      rows="1"
+      @keydown.enter.ctrl="handleSend"
+      @keydown.enter.exact="handleEnterKey"
+    ></textarea>
+
+    <div class="composer-footer">
+      <div class="composer-tools">
+        <ModelPills
+          v-model="localSelectedModel"
+          :models="availableModels"
+        />
+        <KnowledgeSelector
+          v-model="knowledgeBaseIds"
+          @mode-change="$emit('mode-change', $event)"
+        />
+      </div>
+
+      <div class="composer-actions">
+        <button class="quiet-action" type="button" title="清空上下文" aria-label="清空上下文" @click="$emit('clear')">
+          清空
         </button>
-        <button 
+        <button
+          v-if="!isLoading"
+          class="send-action"
+          type="button"
+          :disabled="!localMessage.trim()"
+          aria-label="发送消息"
+          @click="handleSend"
+        >
+          ↑
+        </button>
+        <button
           v-else
-          class="btn-base btn-danger"
+          class="stop-action"
+          type="button"
+          aria-label="停止生成"
           @click="$emit('stop')"
         >
-          <span class="loading"></span>
-          停止生成
+          ■
         </button>
       </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import ModelSelector from '../common/ModelSelector.vue'
-import KnowledgeSelector from '../knowledge/KnowledgeSelector.vue'
+import { computed, nextTick, ref, watch } from 'vue';
+import ModelPills from './ModelPills.vue';
+import KnowledgeSelector from '../knowledge/KnowledgeSelector.vue';
 
-// Props
 const props = defineProps({
-  message: {
-    type: String,
-    default: ''
-  },
-  selectedModel: {
-    type: String,
-    default: 'zai-org/GLM-4.5-Air'
-  },
-  availableModels: {
-    type: Array,
-    default: () => []
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
-  },
-  selectedKnowledgeBaseIds: {
-    type: Array,
-    default: () => []
-  }
-})
+  message: { type: String, default: '' },
+  selectedModel: { type: String, default: 'chat-fast' },
+  availableModels: { type: Array, default: () => [] },
+  isLoading: { type: Boolean, default: false },
+  selectedKnowledgeBaseIds: { type: Array, default: () => [] },
+  immersive: { type: Boolean, default: false }
+});
 
-// Emits
-const emit = defineEmits(['update:message', 'update:selectedModel', 'update:selectedKnowledgeBaseIds', 'send', 'clear', 'mode-change', 'stop'])
+const emit = defineEmits([
+  'update:message',
+  'update:selectedModel',
+  'update:selectedKnowledgeBaseIds',
+  'send',
+  'clear',
+  'mode-change',
+  'stop'
+]);
 
-// 本地状态
-const textareaRef = ref(null)
-const knowledgeBaseIds = ref(props.selectedKnowledgeBaseIds || [])
+const textareaRef = ref(null);
+const knowledgeBaseIds = ref(props.selectedKnowledgeBaseIds || []);
 
-// 双向绑定
 const localMessage = computed({
   get: () => props.message,
   set: (value) => emit('update:message', value)
-})
+});
 
 const localSelectedModel = computed({
   get: () => props.selectedModel,
   set: (value) => emit('update:selectedModel', value)
-})
+});
 
-// 发送消息
 const handleSend = () => {
-  if (!localMessage.value.trim() || props.isLoading) return
-  
-  emit('send', localMessage.value.trim(), localSelectedModel.value, knowledgeBaseIds.value)
-}
+  if (!localMessage.value.trim() || props.isLoading) return;
+  emit('send', localMessage.value.trim(), localSelectedModel.value, knowledgeBaseIds.value);
+};
 
-// 处理知识库模式切换
-const handleModeChange = (mode) => {
-  emit('mode-change', mode)
-}
-
-// 监听知识库选择变化
-watch(knowledgeBaseIds, (newVal) => {
-  emit('update:selectedKnowledgeBaseIds', newVal)
-}, { deep: true })
-
-// 处理Enter键
 const handleEnterKey = (event) => {
-  if (!event.shiftKey) {
-    event.preventDefault()
-    handleSend()
-  }
-}
+  if (event.shiftKey) return;
+  event.preventDefault();
+  handleSend();
+};
 
-// 自动调整高度
 const adjustHeight = () => {
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto'
-    textareaRef.value.style.height = textareaRef.value.scrollHeight + 'px'
-  }
-}
+  nextTick(() => {
+    if (!textareaRef.value) return;
+    textareaRef.value.style.height = 'auto';
+    textareaRef.value.style.height = `${Math.min(textareaRef.value.scrollHeight, 180)}px`;
+  });
+};
 
-// 监听消息变化调整高度
-watch(localMessage, adjustHeight)
+watch(localMessage, adjustHeight);
+watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value), { deep: true });
 </script>
 
 <style scoped>
-.chat-input-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
+.composer {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  margin: 0 auto;
+  max-width: var(--chat-column-width);
+  padding: 13px;
+  width: 100%;
 }
 
-.input-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
+.composer:focus-within {
+  border-color: oklch(0.57 0.14 285);
+  box-shadow: 0 0 0 3px oklch(0.68 0.18 285 / 0.12);
+}
+
+.composer-input {
+  background: transparent;
+  border: 0;
   color: var(--text-primary);
+  display: block;
+  font: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  max-height: 180px;
+  min-height: 52px;
+  outline: none;
+  padding: 2px 4px 10px;
+  resize: none;
+  width: 100%;
 }
 
-.input-area {
+.composer-input::placeholder {
+  color: var(--text-muted);
+}
+
+.composer-footer,
+.composer-tools,
+.composer-actions {
+  align-items: center;
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
 }
 
-.message-input {
-  min-height: 80px;
-  max-height: 200px;
-  resize: vertical;
-  font-family: var(--font-family);
-  line-height: 1.5;
+.composer-footer {
+  gap: 10px;
+  justify-content: space-between;
 }
 
-.send-button-container {
-  display: flex;
-  justify-content: flex-end;
+.composer-tools {
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
-.send-button-container .btn-base {
-  min-width: 140px;
-  gap: var(--spacing-sm);
+.composer-actions {
+  gap: 6px;
 }
 
-.btn-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border: none;
-  border-radius: var(--border-radius-base);
-  font-weight: 500;
+.quiet-action,
+.send-action,
+.stop-action {
+  align-items: center;
+  border-radius: var(--border-radius-md);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 15px rgba(220, 38, 38, 0.2);
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  justify-content: center;
+  min-height: 36px;
 }
 
-.btn-danger:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.3);
+.quiet-action {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 0 8px;
 }
 
-.btn-danger:active {
-  transform: translateY(1px);
+.quiet-action:hover {
+  background: var(--surface-3);
+  color: var(--text-secondary);
 }
 
-/* 响应式设计 */
+.send-action,
+.stop-action {
+  border: 0;
+  color: var(--text-white);
+  font-size: 18px;
+  height: 36px;
+  width: 36px;
+}
+
+.send-action {
+  background: var(--accent-color);
+}
+
+.send-action:disabled {
+  background: var(--surface-3);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.stop-action {
+  background: var(--danger-color);
+  font-size: var(--font-size-xs);
+}
+
 @media (max-width: 768px) {
-  .input-toolbar {
-    flex-direction: column;
-    gap: var(--spacing-md);
-    align-items: stretch;
+  .composer {
+    border-radius: 12px;
+    padding: 10px;
   }
-  
-  .send-button-container .btn-base {
-    width: 100%;
+
+  .composer-input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .composer-footer {
+    align-items: flex-end;
+  }
+
+  .composer-tools {
+    gap: 6px;
+  }
+
+  .send-action,
+  .stop-action {
+    height: 44px;
+    width: 44px;
   }
 }
 </style>

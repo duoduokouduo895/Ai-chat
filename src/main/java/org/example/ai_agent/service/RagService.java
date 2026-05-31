@@ -25,7 +25,8 @@ public interface RagService {
      * @param searchRequest 搜索请求
      * @return 搜索结果
      */
-    Mono<KnowledgeSearchResultDto> searchKnowledge(KnowledgeSearchDto searchRequest);
+    Mono<KnowledgeSearchResultDto> searchKnowledge(KnowledgeSearchDto searchRequest,
+                                                   Long requesterUserId, boolean isAdmin);
     
     /**
      * RAG对话 - 非流式
@@ -33,7 +34,7 @@ public interface RagService {
      * @param ragRequest RAG请求
      * @return 对话响应
      */
-    Mono<RagChatResponseDto> ragChat(RagChatDto ragRequest);
+    Mono<RagChatResponseDto> ragChat(RagChatDto ragRequest, Long requesterUserId, boolean isAdmin);
     
     /**
      * RAG对话 - 流式
@@ -41,7 +42,7 @@ public interface RagService {
      * @param ragRequest RAG请求
      * @return 流式响应
      */
-    Flux<String> ragChatStream(RagChatDto ragRequest);
+    Flux<String> ragChatStream(RagChatDto ragRequest, Long requesterUserId, boolean isAdmin);
     
     /**
      * 获取问题的相关上下文
@@ -52,8 +53,9 @@ public interface RagService {
      * @param minSimilarity 最小相似度
      * @return 相关上下文
      */
-    Mono<RetrievalContext> retrieveContext(String question, java.util.List<Long> knowledgeBaseIds, 
-                                         Integer maxResults, Double minSimilarity);
+    Mono<RetrievalContext> retrieveContext(String question, java.util.List<Long> knowledgeBaseIds,
+                                           Integer maxResults, Double minSimilarity,
+                                           Long requesterUserId, boolean isAdmin);
     
     /**
      * 检索上下文信息

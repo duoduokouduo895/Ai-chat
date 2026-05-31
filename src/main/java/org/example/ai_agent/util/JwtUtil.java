@@ -147,8 +147,13 @@ public class JwtUtil {
     }
 
     public String generateToken(String username, Long userId) {
+        return generateToken(username, userId, false);
+    }
+
+    public String generateToken(String username, Long userId, boolean isGuest) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("principalType", "USER");
+        claims.put("isGuest", isGuest);
         if (userId != null) {
             claims.put("userId", userId);
         }
@@ -375,6 +380,15 @@ public class JwtUtil {
             });
         } catch (Exception e) {
             log.error("从Token中提取管理员ID失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    public Boolean getIsGuestFromToken(String token) {
+        try {
+            return getClaimFromToken(token, claims -> claims.get("isGuest", Boolean.class));
+        } catch (Exception e) {
+            log.error("从Token中提取游客标记失败: {}", e.getMessage(), e);
             return null;
         }
     }

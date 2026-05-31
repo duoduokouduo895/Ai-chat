@@ -1,5 +1,6 @@
 HELP.md
 target/
+target-codex/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
@@ -24,6 +25,11 @@ target/
 /nbbuild/
 /dist/
 /nbdist/
+frontend/**/dist/
+frontend/**/node_modules/
+frontend_admin/**/dist/
+frontend_admin/**/node_modules/
+**/.npm-cache/
 /.nb-gradle/
 build/
 !**/src/main/**/build/
@@ -32,3 +38,15 @@ build/
 ### VS Code ###
 .vscode/
 /DEFAULT_GROUP.zip
+
+### Local secrets and deployment state ###
+/DEFAULT_GROUP/
+/.wrangler/
+/deploy/deploy.config.json
+/deploy/deploy.config.jsonc
+**/.env
+**/.env.*.local
+!**/.env.example
+
+### Local database exports ###
+/sql/ai_agent_db.sql

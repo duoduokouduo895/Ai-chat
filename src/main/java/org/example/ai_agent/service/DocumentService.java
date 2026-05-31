@@ -1,5 +1,6 @@
 package org.example.ai_agent.service;
 
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.document.DocumentDto;
 import org.example.ai_agent.entity.KnowledgeDocument;
 import org.springframework.web.multipart.MultipartFile;
@@ -51,6 +52,9 @@ public interface DocumentService {
      * @return 文档列表
      */
     Flux<DocumentDto> getAllDocuments(Integer page, Integer size);
+
+    Mono<AdminPageDto<DocumentDto>> getAllDocumentsPage(Integer page, Integer size, String keyword,
+                                                        String parseStatus, String embeddingStatus);
 
     /**
      * 获取指定上传用户的文档列表（管理员视角）

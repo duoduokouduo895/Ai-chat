@@ -4,12 +4,13 @@
       v-model="selectedKnowledgeBaseIds"
       multiple
       placeholder="选择知识库"
-      style="width: 200px"
+      aria-label="选择知识库"
+      class="knowledge-select"
       size="small"
       @change="handleSelectionChange"
     >
       <template #empty>
-        <div style="padding: 20px; text-align: center; color: #999;">
+        <div class="knowledge-empty">
           {{ isGuest ? '登录后可用' : '暂无数据' }}
         </div>
       </template>
@@ -29,8 +30,9 @@
 </template>
 
 <script>
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import { knowledgeApiService } from '@/services/knowledgeApi';
+import { getApiErrorMessage } from '@/services/apiErrorService';
 
 export default {
   name: 'KnowledgeSelector',
@@ -68,8 +70,7 @@ export default {
         const response = await knowledgeApiService.getKnowledgeBases({ _t: timestamp });
         this.knowledgeBases = response.data || [];
       } catch (error) {
-        console.error('Failed to load knowledge bases:', error);
-        ElMessage.error('加载知识库列表失败');
+        ElMessage.error(getApiErrorMessage(error, '加载知识库列表失败'));
       } finally {
         this.loading = false;
       }
@@ -109,6 +110,10 @@ export default {
   align-items: center;
 }
 
+.knowledge-select {
+  width: 168px;
+}
+
 .knowledge-option {
   display: flex;
   justify-content: space-between;
@@ -122,6 +127,41 @@ export default {
 
 .kb-info {
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
+}
+
+.knowledge-empty {
+  color: var(--text-muted);
+  padding: 20px;
+  text-align: center;
+}
+
+:deep(.el-select__wrapper) {
+  background: transparent;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset;
+  min-height: 30px;
+}
+
+:deep(.el-select__wrapper:hover),
+:deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px var(--accent-color) inset;
+}
+
+:deep(.el-select__placeholder),
+:deep(.el-select__selected-item),
+:deep(.el-tag__content) {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 768px) {
+  .knowledge-selector-compact {
+    width: 100%;
+  }
+
+  .knowledge-select {
+    width: 100%;
+  }
 }
 </style>

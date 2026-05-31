@@ -1,5 +1,37 @@
 import { library } from '@fortawesome/fontawesome-svg-core';
-import { faDog } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBookOpen,
+  faBars,
+  faClockRotateLeft,
+  faCodeBranch,
+  faComments,
+  faGear,
+  faLightbulb,
+  faMagnifyingGlass,
+  faMessage,
+  faPlus,
+  faRightFromBracket,
+  faRightToBracket,
+  faTrashCan,
+  faXmark
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 
-library.add(faDog);
+library.add(
+  faBookOpen,
+  faBars,
+  faClockRotateLeft,
+  faCodeBranch,
+  faComments,
+  faGear,
+  faLightbulb,
+  faMagnifyingGlass,
+  faMessage,
+  faPlus,
+  faRightFromBracket,
+  faRightToBracket,
+  faTrashCan,
+  faXmark
+);
+
+export { FontAwesomeIcon };

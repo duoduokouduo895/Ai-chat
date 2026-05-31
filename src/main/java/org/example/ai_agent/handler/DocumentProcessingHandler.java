@@ -6,11 +6,13 @@ import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
+import org.example.ai_agent.service.impl.document.DocumentProcessingAlreadyHandledException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 
@@ -80,32 +82,36 @@ public class DocumentProcessingHandler {
                 message.getDocumentId(), message.getProcessingType(), 
                 message.getRetryCount(), message.getErrorMessage());
         
-        // 记录失败信息，可以考虑发送通知或者存储到失败记录表
-        recordProcessingFailure(message);
+        try {
+            recordProcessingFailure(message).block();
+        } catch (RuntimeException error) {
+            log.error("保存死信处理记录失败: documentId={}, error={}",
+                    message.getDocumentId(), error.getMessage(), error);
+        }
     }
     
     /**
      * 处理失败情况
      */
-    private void handleProcessingFailure(DocumentProcessingMessage message, String errorMessage) {
+    private Mono<Void> handleProcessingFailure(DocumentProcessingMessage message, String errorMessage) {
         message.setErrorMessage(errorMessage);
 
         log.error("文档处理最终失败: documentId={}, processingType={}, retryCount={}, error={}",
                 message.getDocumentId(), message.getProcessingType(), message.getRetryCount(), errorMessage);
 
-        updateDocumentStatusToFailed(message, errorMessage);
-        recordService.failProcessing(
+        return updateDocumentStatusToFailed(message, errorMessage)
+            .then(recordService.failProcessing(
                 message.getDocumentId(),
                 message.getProcessingType(),
                 errorMessage,
-                null)
-            .subscribe();
+                null))
+            .then();
     }
     
     /**
      * 更新文档状态为失败
      */
-    private void updateDocumentStatusToFailed(DocumentProcessingMessage message, String errorMessage) {
+    private Mono<Void> updateDocumentStatusToFailed(DocumentProcessingMessage message, String errorMessage) {
         String parseStatus = null;
         String embeddingStatus = null;
         
@@ -118,31 +124,27 @@ public class DocumentProcessingHandler {
                 break;
         }
         
-        documentProcessingService.updateDocumentStatus(
+        return documentProcessingService.updateDocumentStatus(
                 message.getDocumentId(), parseStatus, embeddingStatus, errorMessage)
-            .subscribe(result -> {
-                log.info("文档状态更新为失败: documentId={}, result={}", 
-                        message.getDocumentId(), result);
-            });
+            .doOnNext(result -> log.info("文档状态更新为失败: documentId={}, result={}",
+                    message.getDocumentId(), result))
+            .then();
     }
     
     /**
      * 记录处理失败信息
      */
-    private void recordProcessingFailure(DocumentProcessingMessage message) {
-        // 保存到处理记录表
-        recordService.failProcessing(
+    private Mono<Void> recordProcessingFailure(DocumentProcessingMessage message) {
+        return recordService.failProcessing(
                 message.getDocumentId(),
                 message.getProcessingType(),
                 message.getErrorMessage(),
                 null)
-            .subscribe(record -> {
-                log.info("文档处理失败记录已保存: documentId={}, processingType={}, recordId={}",
-                        message.getDocumentId(), message.getProcessingType(), record.getId());
-            });
-        
-        log.error("文档处理最终失败: documentId={}, processingType={}, errorMessage={}", 
-                message.getDocumentId(), message.getProcessingType(), message.getErrorMessage());
+            .doOnNext(record -> log.info("文档处理失败记录已保存: documentId={}, processingType={}, recordId={}",
+                    message.getDocumentId(), message.getProcessingType(), record.getId()))
+            .doOnSubscribe(subscription -> log.error("文档处理最终失败: documentId={}, processingType={}, errorMessage={}",
+                    message.getDocumentId(), message.getProcessingType(), message.getErrorMessage()))
+            .then();
     }
     
     /**
@@ -177,89 +179,111 @@ public class DocumentProcessingHandler {
 
     private void processMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
                                 reactor.core.publisher.Mono<Boolean> processingMono, String failureMessage) {
-        processingMono.subscribe(result -> {
-            if (Boolean.TRUE.equals(result)) {
-                log.info("文档处理成功: documentId={}, processingType={}",
-                        message.getDocumentId(), message.getProcessingType());
-                ackMessage(channel, deliveryTag, message, "处理成功");
-                return;
-            }
+        processingMono
+            .flatMap(result -> {
+                if (Boolean.TRUE.equals(result)) {
+                    log.info("文档处理成功: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
+                    return ackMessage(channel, deliveryTag, message, "处理成功");
+                }
 
-            log.warn("文档处理返回失败: documentId={}, processingType={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), failureMessage);
-            scheduleRetryOrFail(message, failureMessage, channel, deliveryTag);
-        }, error -> {
-            log.error("文档处理异常: documentId={}, processingType={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
+                log.warn("文档处理返回失败: documentId={}, processingType={}, error={}",
+                        message.getDocumentId(), message.getProcessingType(), failureMessage);
+                return scheduleRetryOrFail(message, failureMessage, channel, deliveryTag);
+            })
+            .onErrorResume(error -> {
+                log.error("文档处理异常: documentId={}, processingType={}, error={}",
+                        message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
 
-            if (isDocumentNotFoundError(error)) {
-                log.warn("文档不存在，丢弃消息: documentId={}, processingType={}",
-                        message.getDocumentId(), message.getProcessingType());
-                recordDocumentNotFoundFailure(message, error.getMessage());
-                ackMessage(channel, deliveryTag, message, "文档不存在");
-                return;
-            }
+                if (isDocumentNotFoundError(error)) {
+                    log.warn("文档不存在，丢弃消息: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
+                    return recordDocumentNotFoundFailure(message, error.getMessage())
+                            .then(ackMessage(channel, deliveryTag, message, "文档不存在"));
+                }
 
-            scheduleRetryOrFail(message, error.getMessage(), channel, deliveryTag);
-        });
+                if (error instanceof DocumentProcessingAlreadyHandledException) {
+                    DocumentProcessingAlreadyHandledException handled =
+                            (DocumentProcessingAlreadyHandledException) error;
+                    if (handled.isCompleted()) {
+                        log.info("文档阶段已完成，确认重复消息: documentId={}, processingType={}",
+                                message.getDocumentId(), message.getProcessingType());
+                        return ackMessage(channel, deliveryTag, message, "重复消息");
+                    }
+
+                    log.info("文档阶段仍在处理中，延迟重投: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
+                    return deferInFlightMessage(message, channel, deliveryTag);
+                }
+
+                return scheduleRetryOrFail(message, error.getMessage(), channel, deliveryTag);
+            })
+            .block();
     }
 
-    private void scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,
+    private Mono<Void> scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,
                                      Channel channel, long deliveryTag) {
         message.incrementRetryCount();
         message.setErrorMessage(errorMessage);
 
         if (message.getRetryCount() >= DocumentProcessingConstants.Retry.MAX_ATTEMPTS) {
-            handleProcessingFailure(message, errorMessage);
-            ackMessage(channel, deliveryTag, message, "最终失败");
-            return;
+            return handleProcessingFailure(message, errorMessage)
+                    .then(ackMessage(channel, deliveryTag, message, "最终失败"));
         }
 
         String retryRoutingKey = getRetryRoutingKeyByProcessingType(message.getProcessingType());
-        documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
-                .subscribe(result -> {
+        return recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
+            .then(documentProcessingService.sendProcessingMessage(message, retryRoutingKey))
+                .flatMap(result -> {
                     if (Boolean.TRUE.equals(result)) {
-                        recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
-                                .subscribe();
                         log.info("重试消息发送成功: documentId={}, processingType={}, retryCount={}",
                                 message.getDocumentId(), message.getProcessingType(), message.getRetryCount());
-                        ackMessage(channel, deliveryTag, message, "已投递重试队列");
-                    } else {
-                        log.error("重试消息发送失败，消息重新入队: documentId={}, processingType={}",
-                                message.getDocumentId(), message.getProcessingType());
-                        nackMessage(channel, deliveryTag, message, true, "重试投递失败");
+                        return ackMessage(channel, deliveryTag, message, "已投递重试队列");
                     }
-                }, error -> {
+
+                    log.error("重试消息发送失败，消息重新入队: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
+                    return nackMessage(channel, deliveryTag, message, true, "重试投递失败");
+                })
+                .onErrorResume(error -> {
                     log.error("重试消息发送异常，消息重新入队: documentId={}, processingType={}, error={}",
                             message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
-                    nackMessage(channel, deliveryTag, message, true, "重试投递异常");
+                    return nackMessage(channel, deliveryTag, message, true, "重试投递异常");
                 });
     }
 
-    private boolean ackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message, String scene) {
+    private Mono<Void> deferInFlightMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag) {
+        String retryRoutingKey = getRetryRoutingKeyByProcessingType(message.getProcessingType());
+        return documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
+                .flatMap(sent -> sent
+                        ? ackMessage(channel, deliveryTag, message, "处理中消息延迟重投")
+                        : nackMessage(channel, deliveryTag, message, true, "处理中消息延迟重投失败"));
+    }
+
+    private Mono<Void> ackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message, String scene) {
         try {
             channel.basicAck(deliveryTag, false);
             log.debug("消息确认成功: documentId={}, processingType={}, scene={}",
                     message.getDocumentId(), message.getProcessingType(), scene);
-            return true;
+            return Mono.empty();
         } catch (IOException e) {
             log.error("消息确认失败: documentId={}, processingType={}, scene={}, error={}",
                     message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
-            return false;
+            return Mono.error(e);
         }
     }
 
-    private boolean nackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message,
+    private Mono<Void> nackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message,
                                 boolean requeue, String scene) {
         try {
             channel.basicNack(deliveryTag, false, requeue);
             log.debug("消息拒绝成功: documentId={}, processingType={}, scene={}, requeue={}",
                     message.getDocumentId(), message.getProcessingType(), scene, requeue);
-            return true;
+            return Mono.empty();
         } catch (IOException e) {
             log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, error={}",
                     message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
-            return false;
+            return Mono.error(e);
         }
     }
 
@@ -275,21 +299,21 @@ public class DocumentProcessingHandler {
     /**
      * 记录文档不存在的失败情况（不进行重试）
      */
-    private void recordDocumentNotFoundFailure(DocumentProcessingMessage message, String errorMessage) {
+    private Mono<Void> recordDocumentNotFoundFailure(DocumentProcessingMessage message, String errorMessage) {
         log.info("记录文档不存在的失败情况: documentId={}, processingType={}", 
                 message.getDocumentId(), message.getProcessingType());
         
-        // 不进行重试，直接记录为最终失败
-        recordService.failProcessing(
+        return recordService.failProcessing(
                 message.getDocumentId(),
                 message.getProcessingType(),
                 "文档不存在: " + errorMessage,
                 null
-        ).subscribe(
-            record -> log.info("文档不存在失败记录已保存: documentId={}, recordId={}", 
-                    message.getDocumentId(), record != null ? record.getId() : "null"),
-            error -> log.error("保存文档不存在失败记录失败: documentId={}, error={}", 
-                    message.getDocumentId(), error.getMessage())
-        );
+        )
+        .doOnNext(record -> log.info("文档不存在失败记录已保存: documentId={}, recordId={}",
+                message.getDocumentId(), record != null ? record.getId() : "null"))
+        .doOnError(error -> log.error("保存文档不存在失败记录失败: documentId={}, error={}",
+                message.getDocumentId(), error.getMessage()))
+        .onErrorResume(error -> Mono.empty())
+        .then();
     }
 }

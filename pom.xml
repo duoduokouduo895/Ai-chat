@@ -125,6 +125,29 @@
             <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
         </dependency>
 
+        <!-- ===== Flyway 数据库版本管理 ===== -->
+        <!-- Flyway 核心：执行 db/migration/ 下的版本化迁移脚本 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- Flyway MySQL 方言支持 (Spring Boot 3.x 需要独立引入) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+        <!-- JDBC 桥接：Flyway 不支持 R2DBC，需通过传统 JDBC 执行 DDL，仅启动期使用 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <!-- MySQL JDBC 驱动：仅供 Flyway 启动期使用 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Actuator 监控依赖，提供MeterRegistry等监控组件 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

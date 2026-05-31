@@ -1,5 +1,7 @@
 package org.example.ai_agent.controller;
 
+import jakarta.validation.Valid;
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.chat.ConversationWithPreview;
 import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.entity.Conversation;
@@ -8,7 +10,7 @@ import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.ConversationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,11 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.security.Principal;
-
 @RestController
 @RequestMapping("/api/conversations")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class ConversationController {
 
     private final ConversationService conversationService;
@@ -36,44 +35,43 @@ public class ConversationController {
     }
 
     @PostMapping
-    public Mono<Conversation> createConversation(Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
-                .flatMap(user -> {
+    public Mono<Conversation> createConversation(Authentication authentication) {
+        return resolveCurrentUserId(authentication)
+                .flatMap(userId -> {
                     Conversation conversation = new Conversation();
-                    conversation.setUserId(user.getUserId());
+                    conversation.setUserId(userId);
                     conversation.setTitle("New Conversation");
                     return conversationService.createConversation(conversation);
                 });
     }
 
     @PostMapping("/{conversationId}/messages")
-    public Mono<Message> addMessage(@PathVariable Long conversationId, @RequestBody MessageDto messageDto, Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
-                .flatMap(user -> conversationService.getConversationById(conversationId, user.getUserId()))
-                .flatMap(conversation -> {
-                    Message message = new Message();
-                    message.setConversationId(conversation.getId());
-                    message.setSender(messageDto.getSender());
-                    message.setContent((String) messageDto.getContent());
-                    message.setModel(messageDto.getModel());
-                    return conversationService.addMessageToConversation(message);
-                });
+    public Mono<Message> addMessage(@PathVariable Long conversationId, @Valid @RequestBody MessageDto messageDto, Authentication authentication) {
+        return resolveCurrentUserId(authentication)
+                .flatMap(userId -> conversationService.getConversationById(conversationId, userId)
+                        .flatMap(conversation -> {
+                            Message message = new Message();
+                            message.setConversationId(conversation.getId());
+                            message.setSender("user");
+                            message.setContent((String) messageDto.getContent());
+                            message.setModel(messageDto.getModel());
+                            if (org.springframework.util.StringUtils.hasText(messageDto.getClientMessageId())) {
+                                message.setDeduplicationKey("user:" + userId + ":" + messageDto.getClientMessageId().trim());
+                            }
+                            return conversationService.addMessageToConversation(message);
+                        }));
     }
 
     @GetMapping("/{conversationId}/messages")
-    public Flux<Message> getMessages(@PathVariable Long conversationId, Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
-                .flatMapMany(user -> conversationService.getMessagesByConversationId(conversationId, user.getUserId()));
+    public Flux<Message> getMessages(@PathVariable Long conversationId, Authentication authentication) {
+        return resolveCurrentUserId(authentication)
+                .flatMapMany(userId -> conversationService.getMessagesByConversationId(conversationId, userId));
     }
 
     @GetMapping("/recent")
-    public Flux<ConversationWithPreview> getRecentConversations(Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
-                .flatMapMany(user -> conversationService.getRecentConversationsWithPreview(user.getUserId()));
+    public Flux<ConversationWithPreview> getRecentConversations(Authentication authentication) {
+        return resolveCurrentUserId(authentication)
+                .flatMapMany(conversationService::getRecentConversationsWithPreview);
     }
 
     @GetMapping("/admin")
@@ -82,11 +80,18 @@ public class ConversationController {
         return conversationService.getAllRecentConversations(page, size);
     }
 
+    @GetMapping("/admin/page")
+    public Mono<AdminPageDto<ConversationWithPreview>> getAllConversationsPageForAdmin(
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "10") Integer size,
+            @RequestParam(required = false) String keyword) {
+        return conversationService.getAllRecentConversationsPage(page, size, keyword);
+    }
+
     @DeleteMapping("/{conversationId}")
-    public Mono<ResponseEntity<Void>> deleteConversation(@PathVariable Long conversationId, Principal principal) {
-        return userRepository.findByUsername(principal.getName())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")))
-                .flatMap(user -> conversationService.deleteConversation(conversationId, user.getUserId()))
+    public Mono<ResponseEntity<Void>> deleteConversation(@PathVariable Long conversationId, Authentication authentication) {
+        return resolveCurrentUserId(authentication)
+                .flatMap(userId -> conversationService.deleteConversation(conversationId, userId))
                 .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
     }
 
@@ -94,6 +99,28 @@ public class ConversationController {
     public Mono<ResponseEntity<Void>> deleteConversationForAdmin(@PathVariable Long conversationId) {
         return conversationService.deleteConversationAsAdmin(conversationId)
                 .thenReturn(new ResponseEntity<Void>(HttpStatus.NO_CONTENT));
+    }
+
+    private Mono<Long> resolveCurrentUserId(Authentication authentication) {
+        if (authentication == null) {
+            return Mono.error(new SecurityException("Current user is not authenticated"));
+        }
+
+        Object details = authentication.getDetails();
+        if (details instanceof Number number) {
+            return Mono.just(number.longValue());
+        }
+        if (details instanceof String value && !value.isBlank()) {
+            try {
+                return Mono.just(Long.parseLong(value));
+            } catch (NumberFormatException ignored) {
+                // Fall back to the username lookup for legacy authentication sources.
+            }
+        }
+
+        return userRepository.findByUsername(authentication.getName())
+                .map(user -> user.getUserId())
+                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")));
     }
 }
 

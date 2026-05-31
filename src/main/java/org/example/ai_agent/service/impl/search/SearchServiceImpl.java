@@ -22,6 +22,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +34,7 @@ public class SearchServiceImpl implements SearchService {
     private final ConversationDocumentRepository conversationDocumentRepository;
     private final ReactiveElasticsearchOperations elasticsearchOperations;
     private final SearchHistoryRepository searchHistoryRepository;
+    private final AtomicBoolean rebuildRunning = new AtomicBoolean(false);
 
     public SearchServiceImpl(ConversationRepository conversationRepository,
                              MessageRepository messageRepository,
@@ -49,14 +51,24 @@ public class SearchServiceImpl implements SearchService {
     @Override
     public Mono<Void> indexConversation(Long conversationId) {
         return conversationRepository.findById(conversationId)
-                .flatMap(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversationId)
-                        .collectList()
-                        .flatMap(messages -> {
-                            ConversationDocument doc = createConversationDocument(conversation, messages);
-                            return conversationDocumentRepository.save(doc);
-                        }))
-                .doOnSuccess(doc -> log.info("成功为对话建立索引: {}", doc.getConversationId()))
+                .flatMap(this::indexConversation)
+                .doOnSuccess(v -> log.info("成功为对话建立索引: {}", conversationId))
                 .doOnError(e -> log.error("为对话建立索引失败: " + conversationId, e))
+                .then();
+    }
+
+    private Mono<Void> indexConversation(Conversation conversation) {
+        if (conversation == null || conversation.getId() == null) {
+            return Mono.empty();
+        }
+        return messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId())
+                .collectList()
+                .flatMap(messages -> {
+                    ConversationDocument doc = createConversationDocument(conversation, messages);
+                    return conversationDocumentRepository.save(doc);
+                })
+                .doOnSuccess(doc -> log.info("成功为对话建立索引 (使用已有实体): {}", doc.getConversationId()))
+                .doOnError(e -> log.error("为对话建立索引失败 (使用已有实体): " + conversation.getId(), e))
                 .then();
     }
 
@@ -212,27 +224,45 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public Mono<Void> rebuildAllIndexes() {
-        log.info("🔄 开始重建 ES 索引...");
-        
-        return conversationDocumentRepository.deleteAll()
-                .doOnSuccess(v -> log.info("✅ 清空现有索引完成"))
-                .then(conversationRepository.findAllConversationsFromRegisteredUsers()
-                        .doOnNext(conversation -> log.debug("正在处理对话: {}", conversation.getId()))
-                        .buffer(50) // 批处理，每次50个对话一批
-                        .flatMap(conversations -> {
-                            log.debug("正在处理一批 {} 个对话", conversations.size());
-                            return Flux.fromIterable(conversations)
-                                    .flatMap(conversation -> indexConversation(conversation.getId())
-                                            .onErrorResume(error -> {
-                                                log.warn("索引对话 {} 失败: {}", conversation.getId(), error.getMessage());
-                                                return Mono.empty(); // 失败时继续处理其他对话
-                                            }), 5); // 并发度限制为5
-                        })
-                        .count()
-                        .doOnSuccess(count -> log.info("✅ ES 索引重建完成，处理了 {} 个对话", count))
-                        .then()
-                )
-                .doOnError(error -> log.error("🚨 ES 索引重建失败", error));
+        if (!rebuildRunning.compareAndSet(false, true)) {
+            return Mono.error(new IllegalStateException("ES 索引重建任务正在执行"));
+        }
+
+        log.info("开始无损重建 ES 索引...");
+
+        return conversationRepository.findAllConversationsFromRegisteredUsers()
+                .doOnNext(conversation -> log.debug("正在更新对话索引: {}", conversation.getId()))
+                .buffer(50)
+                .concatMap(conversations -> Flux.fromIterable(conversations)
+                        .flatMap(this::indexConversation, 5)
+                        .then())
+                .then(pruneStaleConversationIndexes())
+                .doOnSuccess(deleted -> log.info("ES 索引无损重建完成，清理了 {} 条失效索引", deleted))
+                .then()
+                .doOnError(error -> log.error("ES 索引无损重建失败，保留已有可用索引", error))
+                .doFinally(signal -> rebuildRunning.set(false));
+    }
+
+    private Mono<Long> pruneStaleConversationIndexes() {
+        return conversationDocumentRepository.findAll()
+                .flatMap(document -> resolveConversationId(document)
+                        .flatMap(conversationId -> conversationRepository.existsRegisteredConversationById(conversationId)
+                                .filter(Boolean.FALSE::equals)
+                                .flatMap(ignored -> conversationDocumentRepository.deleteById(document.getId())
+                                        .thenReturn(1L))), 5)
+                .reduce(0L, Long::sum);
+    }
+
+    private Mono<Long> resolveConversationId(ConversationDocument document) {
+        if (document.getConversationId() != null) {
+            return Mono.just(document.getConversationId());
+        }
+        try {
+            return Mono.just(Long.parseLong(document.getId()));
+        } catch (NumberFormatException error) {
+            log.warn("删除无法识别业务ID的失效会话索引: esId={}", document.getId());
+            return conversationDocumentRepository.deleteById(document.getId()).then(Mono.empty());
+        }
     }
 
     @Override

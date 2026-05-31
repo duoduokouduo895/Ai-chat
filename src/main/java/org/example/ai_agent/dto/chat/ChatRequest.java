@@ -94,6 +94,12 @@ public class ChatRequest {
      */
     @Size(max = 200, message = "会话标题长度不能超过200个字符")
     private String title;
+
+    /**
+     * 客户端为本次发送生成的稳定ID，用于网络重试时去重。
+     */
+    @Size(max = 100, message = "客户端消息ID长度不能超过100个字符")
+    private String clientMessageId;
     
     /**
      * 是否保存消息到数据库

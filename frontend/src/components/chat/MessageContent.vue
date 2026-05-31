@@ -1,5 +1,5 @@
 <template>
-  <div v-if="plain" class="message-content plain-message-content">{{ text }}</div>
+  <div v-if="plain || !completed" class="message-content plain-message-content">{{ text }}</div>
   <div v-else ref="contentRef" class="message-content" v-html="renderedHtml"></div>
 </template>
 
@@ -18,6 +18,10 @@ const props = defineProps({
   plain: {
     type: Boolean,
     default: false
+  },
+  completed: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -129,7 +133,7 @@ onBeforeUnmount(() => {
 .message-content {
   word-wrap: break-word;
   line-height: 1.7;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   overflow-wrap: break-word;
   hyphens: auto;
@@ -172,7 +176,7 @@ onBeforeUnmount(() => {
 .message-content :deep(blockquote) {
   margin: 1em 0;
   padding: 0.25em 1em;
-  border-left: 4px solid var(--border-light);
+  border: 1px solid var(--border-light);
   background-color: var(--bg-secondary);
   color: var(--text-secondary);
 }
@@ -205,8 +209,8 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(code) {
-  background: var(--bg-tertiary, #f0f0f0);
-  color: var(--text-accent, #c7254e);
+  background: var(--bg-tertiary);
+  color: var(--text-accent);
   padding: 0.2em 0.4em;
   border-radius: 4px;
   font-size: 0.875em;
@@ -216,9 +220,9 @@ onBeforeUnmount(() => {
 .message-content :deep(pre) {
   margin: 1em 0;
   padding: 0;
-  background: #2d2d2d;
+  background: var(--surface-1);
   border-radius: 8px;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .message-content :deep(.code-container pre) {
@@ -230,8 +234,8 @@ onBeforeUnmount(() => {
   margin: 1em 0;
   border-radius: 8px;
   overflow: hidden;
-  background: #2d2d2d;
-  border: 1px solid #444;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
 }
 
 .message-content :deep(.code-header) {
@@ -239,8 +243,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: #3a3a3a;
-  color: #ccc;
+  background: var(--surface-2);
+  color: var(--text-secondary);
   font-size: 0.8em;
 }
 
@@ -250,8 +254,8 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.copy-btn) {
-  background: #555;
-  color: #eee;
+  background: var(--surface-3);
+  color: var(--text-primary);
   border: none;
   padding: 4px 8px;
   border-radius: 4px;
@@ -261,7 +265,7 @@ onBeforeUnmount(() => {
 }
 
 .message-content :deep(.copy-btn:hover) {
-  background: #666;
+  background: var(--surface-hover);
 }
 
 .message-content :deep(pre code),
@@ -279,7 +283,7 @@ onBeforeUnmount(() => {
 
 .message-content::selection,
 .message-content :deep(::selection) {
-  background-color: var(--accent-color, #007acc);
-  color: white;
+  background-color: var(--accent-color);
+  color: var(--text-white);
 }
 </style>

@@ -46,9 +46,6 @@ public class DocumentParserServiceImpl implements DocumentParserService {
     @Value("${knowledge-base.document.supported-types}")
     private String[] supportedTypes;
     
-    @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
-    private String defaultAiModel;
-    
     @Override
     public Mono<Document> parseDocument(InputStream inputStream, String fileName, String fileType) {
         return Mono.fromCallable(() -> {
@@ -180,7 +177,8 @@ public class DocumentParserServiceImpl implements DocumentParserService {
      */
     private String enhanceWithAI(String originalText, String fileName, String fileType, String modelId) {
         try {
-            StreamingChatModel chatModel = aiModelRegistry.getStreamingModel(modelId != null ? modelId : defaultAiModel);
+            StreamingChatModel chatModel = aiModelRegistry.getStreamingModel(
+                    modelId != null ? modelId : aiModelRegistry.getDefaultChatModel());
             if (chatModel == null) {
                 log.warn("未找到指定的AI模型: {}, 使用原始解析结果", modelId);
                 return originalText;

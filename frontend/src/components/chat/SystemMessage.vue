@@ -17,11 +17,11 @@ defineProps({
 .system-message {
   text-align: center;
   color: var(--text-muted);
-  font-style: italic;
-  padding: var(--spacing-md);
-  background: var(--bg-secondary);
+  font-size: var(--font-size-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
   border-radius: var(--border-radius-md);
   margin: var(--spacing-md) 0;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border-subtle);
 }
 </style>

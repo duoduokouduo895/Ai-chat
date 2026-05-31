@@ -6,6 +6,7 @@ import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.SearchService;
 import org.example.ai_agent.service.UserService;
 import org.example.ai_agent.util.JwtUtil;
+import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,13 +30,17 @@ public class UserServiceImpl implements UserService {
     private final JwtUtil jwtUtil;
     private final ReactiveStringRedisTemplate redisTemplate; // 注入 Redis 模板
     private final SearchService searchService; // 新增：注入SearchService
+    private final RegisteredUserCleanupService registeredUserCleanupService;
 
-    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil, ReactiveStringRedisTemplate redisTemplate, SearchService searchService) {
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil,
+                           ReactiveStringRedisTemplate redisTemplate, SearchService searchService,
+                           RegisteredUserCleanupService registeredUserCleanupService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
         this.redisTemplate = redisTemplate;
         this.searchService = searchService; // 新增
+        this.registeredUserCleanupService = registeredUserCleanupService;
     }
 
     @Override
@@ -93,6 +98,7 @@ public class UserServiceImpl implements UserService {
         // 2. 提取 token
         String token = authorizationHeader.substring(7).trim(); // 去除token中的空白字符
         String jti = jwtUtil.getIdFromToken(token);
+        Long userId = jwtUtil.getUserIdFromToken(token);
 
         // 3. 校验 JTI
         if (jti == null) {
@@ -100,12 +106,17 @@ public class UserServiceImpl implements UserService {
         }
 
         // 4. 从 Redis 白名单中删除 JTI
-        String redisKey = "token:jti:" + jti;
-        return redisTemplate.delete(redisKey).then();
+        String redisKey = TokenRedisKeys.jti(jti);
+        Mono<Long> deleteJti = redisTemplate.delete(redisKey);
+        if (userId == null) {
+            return deleteJti.then();
+        }
+        return deleteJti
+                .then(redisTemplate.opsForSet().remove(TokenRedisKeys.userJtis(userId), jti))
+                .then();
     }
 
     @Override
-    @Transactional
     public Mono<Void> deleteRegisteredUserAsAdmin(Long userId) {
         return userRepository.findById(userId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("用户不存在")))
@@ -114,7 +125,8 @@ public class UserServiceImpl implements UserService {
                         return Mono.error(new IllegalArgumentException("游客账号不允许在此处删除"));
                     }
 
-                    return userRepository.deleteById(userId);
+                    return registeredUserCleanupService.cleanup(user)
+                            .then(userRepository.deleteById(userId));
                 });
     }
 
@@ -147,7 +159,7 @@ public class UserServiceImpl implements UserService {
     }
 
     private Mono<String> issueToken(User user) {
-        String token = jwtUtil.generateToken(user.getUsername(), user.getUserId());
+        String token = jwtUtil.generateToken(user.getUsername(), user.getUserId(), Boolean.TRUE.equals(user.getIsGuest()));
         String jti = jwtUtil.getIdFromToken(token);
         Date expiration = jwtUtil.getExpirationDateFromToken(token);
 
@@ -160,7 +172,7 @@ public class UserServiceImpl implements UserService {
             return Mono.error(new IllegalStateException("Token 的过期时间无效。"));
         }
 
-        String redisKey = "token:jti:" + jti;
+        String redisKey = TokenRedisKeys.jti(jti);
         log.info("尝试将JTI存储到Redis，key: {}, value: {}, ttl: {}ms", redisKey, user.getUsername(), ttl.toMillis());
         log.debug("Redis操作详情 - key类型: {}, value类型: {}, TTL类型: {}",
                 redisKey.getClass().getSimpleName(),
@@ -168,6 +180,8 @@ public class UserServiceImpl implements UserService {
                 ttl.getClass().getSimpleName());
 
         return redisTemplate.opsForValue().set(redisKey, user.getUsername(), ttl)
+                .then(redisTemplate.opsForSet().add(TokenRedisKeys.userJtis(user.getUserId()), jti))
+                .then(redisTemplate.expire(TokenRedisKeys.userJtis(user.getUserId()), ttl))
                 .doOnSuccess(result -> log.info("JTI成功存储到Redis，key: {}, result: {}", redisKey, result))
                 .doOnError(error -> {
                     log.error("JTI存储到Redis失败，key: {}, 错误类型: {}, 错误消息: {}",

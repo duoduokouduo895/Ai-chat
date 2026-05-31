@@ -1,7 +1,9 @@
 package org.example.ai_agent.service;
 
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
+import org.example.ai_agent.dto.knowledge.KnowledgeBaseStatsDto;
 import org.example.ai_agent.entity.KnowledgeBase;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -47,6 +49,8 @@ public interface KnowledgeBaseService {
      */
     Flux<KnowledgeBaseDto> getAllKnowledgeBases(Integer page, Integer size);
 
+    Mono<AdminPageDto<KnowledgeBaseDto>> getAllKnowledgeBasesPage(Integer page, Integer size, String keyword);
+
     /**
      * 管理员视角获取指定用户创建的知识库
      *
@@ -66,6 +70,8 @@ public interface KnowledgeBaseService {
     Mono<KnowledgeBaseDto> getKnowledgeBase(Long id);
 
     Mono<KnowledgeBaseDto> getKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin);
+
+    Mono<KnowledgeBaseStatsDto> getKnowledgeBaseStats(Long id, Long requesterUserId, boolean isAdmin);
     
     /**
      * 更新知识库
@@ -104,6 +110,11 @@ public interface KnowledgeBaseService {
      * @return 更新结果
      */
     Mono<KnowledgeBase> updateDocumentCount(Long id, Integer documentCount);
+
+    /**
+     * 原子增减知识库文档数量，避免并发上传或删除时发生计数覆盖。
+     */
+    Mono<Void> adjustDocumentCount(Long id, Integer delta);
     
     /**
      * 转换实体为DTO

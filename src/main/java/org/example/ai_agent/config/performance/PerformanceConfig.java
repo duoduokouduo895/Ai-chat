@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.server.WebFilter;
@@ -17,6 +18,9 @@ public class PerformanceConfig {
     @Autowired
     private MeterRegistry meterRegistry;
 
+    @Value("${performance.api.slow-threshold-ms:1000}")
+    private long slowApiThresholdMs;
+
     @Bean
     public WebFilter apiPerformanceFilter() {
         return (exchange, chain) -> {
@@ -27,18 +31,26 @@ public class PerformanceConfig {
                 Timer.Sample sample = Timer.start(meterRegistry);
                 return chain.filter(exchange)
                         .doFinally(signalType -> {
-                            Integer status = exchange.getResponse().getRawStatusCode();
-                            String statusStr = status != null ? String.valueOf(status) : "UNKNOWN";
+                            String statusStr = exchange.getResponse().getStatusCode() != null
+                                    ? String.valueOf(exchange.getResponse().getStatusCode().value())
+                                    : "UNKNOWN";
 
                             Timer timer = Timer.builder("api.request.duration")
                                     .tag("method", method)
-                                    .tag("uri", uri)
+                                    .tag("uri", normalizeUri(uri))
                                     .tag("status", statusStr)
+                                    .publishPercentiles(0.50, 0.95, 0.99)
+                                    .publishPercentileHistogram()
+                                    .serviceLevelObjectives(
+                                            Duration.ofMillis(100),
+                                            Duration.ofMillis(300),
+                                            Duration.ofSeconds(1),
+                                            Duration.ofSeconds(3))
                                     .register(meterRegistry);
 
                             long durationNanos = sample.stop(timer);
                             Duration duration = Duration.ofNanos(durationNanos);
-                            if (duration.toMillis() > 1000 && !uri.equals("/api/ai/chat")) {
+                            if (duration.toMillis() > slowApiThresholdMs && !uri.equals("/api/ai/chat")) {
                                 log.warn("慢 API 警告: {} {} 耗时 {} ms", method, uri, duration.toMillis());
                             }
                         });
@@ -46,6 +58,14 @@ public class PerformanceConfig {
 
             return chain.filter(exchange);
         };
+    }
+
+    private String normalizeUri(String uri) {
+        if (uri == null || uri.isBlank()) {
+            return "unknown";
+        }
+        return uri.replaceAll("/\\d+(?=/|$)", "/{id}")
+                .replaceAll("/[0-9a-fA-F-]{16,}(?=/|$)", "/{id}");
     }
 
     @Bean

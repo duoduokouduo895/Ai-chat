@@ -59,7 +59,7 @@ public class HealthCheckTask {
                     log.warn("定时健康检查失败: {}", error.getMessage());
                     return Mono.empty();
                 })
-                .block(Duration.ofSeconds(12));
+                .subscribe();
     }
 
     private void checkApplicationStatus() {

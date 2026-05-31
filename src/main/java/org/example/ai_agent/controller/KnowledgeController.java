@@ -2,6 +2,7 @@ package org.example.ai_agent.controller;
 
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.chat.RagChatDto;
 import org.example.ai_agent.dto.chat.RagChatResponseDto;
 import org.example.ai_agent.dto.document.DocumentBatchUploadDto;
@@ -9,6 +10,7 @@ import org.example.ai_agent.dto.document.DocumentDto;
 import org.example.ai_agent.dto.document.DocumentUploadDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
+import org.example.ai_agent.dto.knowledge.KnowledgeBaseStatsDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
 import org.example.ai_agent.repository.auth.UserRepository;
@@ -47,7 +49,6 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/knowledge")
-@CrossOrigin(origins = {"https://dduo.chat", "http://dduo.chat", "http://localhost:3000", "http://localhost:5173"}, allowCredentials = "true")
 public class KnowledgeController {
 
     @Autowired
@@ -79,8 +80,7 @@ public class KnowledgeController {
                 searchRequest.getQuery(), searchRequest.getKnowledgeBaseIds(), searchRequest.getMaxResults());
 
         return resolveAccessContext(authentication)
-                .flatMap(access -> validateKnowledgeBaseReadAccess(searchRequest.getKnowledgeBaseIds(), access)
-                        .then(ragService.searchKnowledge(searchRequest)))
+                .flatMap(access -> ragService.searchKnowledge(searchRequest, access.userId(), access.isAdmin()))
                 .doOnSuccess(result -> log.info("知识库搜索完成: resultCount={}, searchTime={}ms",
                         result.getTotalCount(), result.getSearchTime()))
                 .doOnError(error -> log.error("知识库搜索失败: query={}, error={}",
@@ -100,8 +100,7 @@ public class KnowledgeController {
                 ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
 
         return resolveAccessContext(authentication)
-                .flatMap(access -> validateKnowledgeBaseReadAccess(ragRequest.getKnowledgeBaseIds(), access)
-                        .then(ragService.ragChat(ragRequest)))
+                .flatMap(access -> ragService.ragChat(ragRequest, access.userId(), access.isAdmin()))
                 .doOnSuccess(response -> log.info("RAG对话完成: question={}, processingTime={}ms",
                         ragRequest.getQuestion(), response.getProcessingTime()))
                 .doOnError(error -> log.error("RAG对话失败: question={}, error={}",
@@ -121,8 +120,7 @@ public class KnowledgeController {
                 ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
 
         return resolveAccessContext(authentication)
-                .flatMapMany(access -> validateKnowledgeBaseReadAccess(ragRequest.getKnowledgeBaseIds(), access)
-                        .thenMany(ragService.ragChatStream(ragRequest)))
+                .flatMapMany(access -> ragService.ragChatStream(ragRequest, access.userId(), access.isAdmin()))
                 .doOnSubscribe(subscription -> log.info("开始RAG流式对话: question={}", ragRequest.getQuestion()))
                 .doOnComplete(() -> log.info("RAG流式对话完成: question={}", ragRequest.getQuestion()))
                 .doOnError(error -> log.error("RAG流式对话失败: question={}, error={}",
@@ -198,6 +196,17 @@ public class KnowledgeController {
     }
 
     /**
+     * 管理员视角分页查询全站知识库，包含真实聚合统计。
+     */
+    @GetMapping("/admin/bases/page")
+    public Mono<AdminPageDto<KnowledgeBaseDto>> getAllKnowledgeBasesPageForAdmin(
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "10") Integer size,
+            @RequestParam(required = false) String keyword) {
+        return knowledgeBaseService.getAllKnowledgeBasesPage(page, size, keyword);
+    }
+
+    /**
      * 获取知识库详情
      */
     @GetMapping("/bases/{id}")
@@ -208,6 +217,21 @@ public class KnowledgeController {
                 .flatMap(access -> knowledgeBaseService.getKnowledgeBase(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}, name={}", id, dto.getName()))
                 .doOnError(error -> log.error("知识库详情查询失败: id={}, error={}", id, error.getMessage()));
+    }
+
+    /**
+     * 获取知识库聚合统计。
+     */
+    @GetMapping("/bases/{id}/stats")
+    public Mono<KnowledgeBaseStatsDto> getKnowledgeBaseStats(@PathVariable Long id,
+                                                             Authentication authentication) {
+        log.info("查询知识库统计: id={}", id);
+
+        return resolveAccessContext(authentication)
+                .flatMap(access -> knowledgeBaseService.getKnowledgeBaseStats(id, access.userId(), access.isAdmin()))
+                .doOnSuccess(stats -> log.info("知识库统计查询成功: id={}, documentCount={}",
+                        id, stats.getDocumentCount()))
+                .doOnError(error -> log.error("知识库统计查询失败: id={}, error={}", id, error.getMessage()));
     }
 
     /**
@@ -486,6 +510,19 @@ public class KnowledgeController {
         return documentService.getAllDocuments(page, size)
                 .doOnComplete(() -> log.info("管理员全站文档列表查询完成"))
                 .doOnError(error -> log.error("管理员全站文档列表查询失败: error={}", error.getMessage()));
+    }
+
+    /**
+     * 管理员视角分页查询全站文档，包含筛选条件与真实聚合统计。
+     */
+    @GetMapping("/admin/documents/page")
+    public Mono<AdminPageDto<DocumentDto>> getAllDocumentsPageForAdmin(
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "10") Integer size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String parseStatus,
+            @RequestParam(required = false) String embeddingStatus) {
+        return documentService.getAllDocumentsPage(page, size, keyword, parseStatus, embeddingStatus);
     }
 
     /**
@@ -806,18 +843,6 @@ public class KnowledgeController {
                     .flatMap(access -> access.isAdmin()
                             ? Mono.<Void>empty()
                             : Mono.error(new SecurityException("当前用户无权访问管理员资源")));
-        }
-
-        private Mono<Void> validateKnowledgeBaseReadAccess(java.util.List<Long> knowledgeBaseIds, AccessContext access) {
-            if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) {
-                return Mono.empty();
-            }
-
-            return Flux.fromIterable(knowledgeBaseIds)
-                    .concatMap(knowledgeBaseId -> knowledgeBaseService
-                            .getAuthorizedKnowledgeBase(knowledgeBaseId, access.userId(), access.isAdmin(), false)
-                            .then())
-                    .then();
         }
 
         private Mono<Long> resolveAdminUploaderId(Long knowledgeBaseId, Long uploaderId) {

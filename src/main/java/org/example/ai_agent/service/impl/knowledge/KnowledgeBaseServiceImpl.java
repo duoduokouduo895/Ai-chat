@@ -1,8 +1,12 @@
 package org.example.ai_agent.service.impl.knowledge;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.dto.admin.AdminPageDto;
+import org.example.ai_agent.dto.knowledge.AdminKnowledgeBaseSummaryProjection;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
+import org.example.ai_agent.dto.knowledge.KnowledgeBaseDocumentStatsProjection;
+import org.example.ai_agent.dto.knowledge.KnowledgeBaseStatsDto;
 import org.example.ai_agent.entity.KnowledgeBase;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
@@ -12,11 +16,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 知识库服务实现类
@@ -93,14 +100,14 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                 return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
             } else if (creatorId != null) {
                 // Return user's private bases + all public bases
-                return knowledgeBaseRepository.findByCreatorIdOrIsPublicAndStatusOrderByCreatedAtDesc(creatorId, true, "ACTIVE", pageable);
+                return knowledgeBaseRepository.findByCreatorIdOrPublicAndStatus(creatorId, true, "ACTIVE", pageable);
             } else {
                 // If no user is logged in, only return public bases
                 return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
             }
         })
         .flatMapMany(flux -> flux)
-        .flatMap(this::toDtoWithDocumentCount) // 使用新的方法，动态计算文档数量
+        .map(this::toDto)
         .doOnComplete(() -> log.info("知识库列表查询完成"))
         .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()))
         .subscribeOn(Schedulers.boundedElastic());
@@ -118,10 +125,32 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             return knowledgeBaseRepository.findByStatusOrderByCreatedAtDesc("ACTIVE", pageable);
         })
         .flatMapMany(flux -> flux)
-        .flatMap(this::toDtoWithDocumentCount)
+        .map(this::toDto)
         .doOnComplete(() -> log.info("管理员全站知识库列表查询完成"))
         .doOnError(error -> log.error("管理员全站知识库列表查询失败: error={}", error.getMessage()))
         .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<AdminPageDto<KnowledgeBaseDto>> getAllKnowledgeBasesPage(Integer page, Integer size, String keyword) {
+        int finalPage = page != null && page >= 0 ? page : 0;
+        int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
+        String finalKeyword = normalizeFilter(keyword);
+        long offset = (long) finalPage * finalSize;
+
+        return Mono.zip(
+                knowledgeBaseRepository.findAdminPage(finalKeyword, finalSize, offset)
+                        .map(this::toDto)
+                        .collectList(),
+                knowledgeBaseRepository.countAdminPage(finalKeyword),
+                knowledgeBaseRepository.summarizeForAdmin()
+                        .defaultIfEmpty(new AdminKnowledgeBaseSummaryProjection())
+        ).map(tuple -> new AdminPageDto<>(
+                tuple.getT1(),
+                tuple.getT2(),
+                toAdminSummary(tuple.getT3())
+        )).doOnSuccess(result -> log.info("管理员知识库分页查询完成: page={}, size={}, total={}",
+                finalPage, finalSize, result.getTotal()));
     }
 
     @Override
@@ -136,7 +165,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             return knowledgeBaseRepository.findByCreatorIdOrderByCreatedAtDesc(creatorId, pageable);
         })
         .flatMapMany(flux -> flux)
-        .flatMap(this::toDtoWithDocumentCount)
+        .map(this::toDto)
         .doOnComplete(() -> log.info("管理员用户知识库列表查询完成: creatorId={}", creatorId))
         .doOnError(error -> log.error("管理员用户知识库列表查询失败: creatorId={}, error={}", creatorId, error.getMessage()))
         .subscribeOn(Schedulers.boundedElastic());
@@ -252,6 +281,34 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
+    public Mono<KnowledgeBaseStatsDto> getKnowledgeBaseStats(Long id, Long requesterUserId, boolean isAdmin) {
+        return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, false)
+            .flatMap(knowledgeBase -> documentRepository.summarizeByKnowledgeBaseId(id)
+                    .defaultIfEmpty(new KnowledgeBaseDocumentStatsProjection())
+                    .map(stats -> toStatsDto(knowledgeBase, stats)))
+            .doOnSuccess(stats -> log.info("知识库统计查询成功: id={}, documentCount={}",
+                    id, stats.getDocumentCount()))
+            .doOnError(error -> log.warn("知识库统计查询失败: id={}, error={}", id, error.getMessage()))
+            .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<Void> adjustDocumentCount(Long id, Integer delta) {
+        if (id == null || delta == null || delta == 0) {
+            return Mono.empty();
+        }
+
+        return knowledgeBaseRepository.adjustDocumentCount(id, delta)
+            .flatMap(rowsUpdated -> rowsUpdated > 0
+                    ? Mono.<Void>empty()
+                    : Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
+            .doOnSuccess(unused -> log.info("知识库文档数量原子调整成功: id={}, delta={}", id, delta))
+            .doOnError(error -> log.error("知识库文档数量原子调整失败: id={}, delta={}, error={}",
+                    id, delta, error.getMessage()))
+            .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
     public KnowledgeBaseDto toDto(KnowledgeBase entity) {
         if (entity == null) {
             return null;
@@ -274,40 +331,35 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return dto;
     }
 
-    /**
-     * 转换实体为DTO（动态计算文档数量）
-     */
-    private Mono<KnowledgeBaseDto> toDtoWithDocumentCount(KnowledgeBase entity) {
-        if (entity == null) {
-            return Mono.empty();
-        }
-
-        log.info("动态计算知识库文档数量: knowledgeBaseId={}", entity.getId());
-
-        // 动态查询实际文档数量
-        return documentRepository.countByKnowledgeBaseId(entity.getId())
-            .doOnNext(count -> log.info("知识库 {} 的实际文档数量: {}", entity.getId(), count))
-            .map(count -> {
-                KnowledgeBaseDto dto = new KnowledgeBaseDto();
-                dto.setId(entity.getId());
-                dto.setName(entity.getName());
-                dto.setDescription(entity.getDescription());
-                dto.setCreatorId(entity.getCreatorId());
-                dto.setIsPublic(entity.getIsPublic());
-                dto.setStatus(entity.getStatus());
-                dto.setDocumentCount(count.intValue()); // 使用实际统计的文档数量
-                dto.setVectorDimension(entity.getVectorDimension());
-                dto.setEmbeddingModel(entity.getEmbeddingModel());
-                dto.setIndexName(entity.getIndexName());
-                dto.setCreatedAt(entity.getCreatedAt());
-                dto.setUpdatedAt(entity.getUpdatedAt());
-
-                log.info("返回知识库 {} 的DTO，文档数量: {}", entity.getId(), count.intValue());
-                return dto;
-            })
-            .doOnError(error -> log.error("查询知识库 {} 文档数量失败: {}", entity.getId(), error.getMessage()))
-            .defaultIfEmpty(toDto(entity)); // 如果查询失败，使用原始方法
+    private KnowledgeBaseStatsDto toStatsDto(KnowledgeBase knowledgeBase,
+                                              KnowledgeBaseDocumentStatsProjection stats) {
+        KnowledgeBaseStatsDto dto = new KnowledgeBaseStatsDto();
+        dto.setKnowledgeBaseId(knowledgeBase.getId());
+        dto.setKnowledgeBaseName(knowledgeBase.getName());
+        dto.setDocumentCount(defaultCount(stats.getDocumentCount()));
+        dto.setParsedDocumentCount(defaultCount(stats.getParsedDocumentCount()));
+        dto.setFailedDocumentCount(defaultCount(stats.getFailedDocumentCount()));
+        dto.setEmbeddedDocumentCount(defaultCount(stats.getEmbeddedDocumentCount()));
+        return dto;
     }
+
+    private long defaultCount(Long value) {
+        return value != null ? value : 0L;
+    }
+
+    private Map<String, Object> toAdminSummary(AdminKnowledgeBaseSummaryProjection projection) {
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("knowledgeBaseCount", defaultCount(projection.getKnowledgeBaseCount()));
+        summary.put("documentCount", defaultCount(projection.getDocumentCount()));
+        summary.put("publicKnowledgeBaseCount", defaultCount(projection.getPublicKnowledgeBaseCount()));
+        return summary;
+    }
+
+    private String normalizeFilter(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+
 
     @Override
     public KnowledgeBase toEntity(KnowledgeBaseCreateDto createDto, Long creatorId) {
