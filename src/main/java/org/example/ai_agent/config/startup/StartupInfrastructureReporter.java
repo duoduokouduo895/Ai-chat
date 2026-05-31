@@ -88,6 +88,13 @@ public class StartupInfrastructureReporter {
     }
 
     private void reportNacos() {
+        boolean configEnabled = environment.getProperty("spring.cloud.nacos.config.enabled", Boolean.class, false);
+        boolean discoveryEnabled = environment.getProperty("spring.cloud.nacos.discovery.enabled", Boolean.class, false);
+        if (!configEnabled && !discoveryEnabled) {
+            log.info("组件状态 | Nacos=SKIPPED | 未启用，需要时通过 nacos profile 显式开启");
+            return;
+        }
+
         List<String> nacosSources = nacosPropertySources();
         List<String> expectedDataIds = expectedNacosDataIds();
         List<String> missingKeys = missingImportantConfigKeys();
