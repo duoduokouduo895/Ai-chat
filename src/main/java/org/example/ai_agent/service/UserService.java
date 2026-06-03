@@ -1,0 +1,24 @@
+package org.example.ai_agent.service;
+
+import org.example.ai_agent.dto.auth.UserRegistrationDto;
+import org.example.ai_agent.entity.User; // 添加缺失的导入
+import reactor.core.publisher.Mono;
+
+public interface UserService {
+
+    Mono<Void> registerUser(UserRegistrationDto registrationDto);
+
+    Mono<String> loginUser(String username, String password);
+
+    Mono<String> createGuestAndLogin();
+
+    /**
+     * 用户登出。
+     * @param authorizationHeader 完整的 "Authorization" 请求头 (例如, "Bearer ...")。
+     * @return 操作完成的 Mono<Void>。
+     */
+    Mono<Void> logoutUser(String authorizationHeader);
+
+    Mono<Void> deleteRegisteredUserAsAdmin(Long userId);
+
+}

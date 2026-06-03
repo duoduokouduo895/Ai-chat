@@ -1,0 +1,19 @@
+:root {
+  --color-primary: #6685ff;
+  --color-bg-light: #f5f6f8;
+  --color-bg-dark: #0f1323;
+  --color-sidebar: #0f172a;
+  --color-card: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
+
+body.dark {
+  --color-card: #111827;
+  --color-border: #1f2937;
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+}

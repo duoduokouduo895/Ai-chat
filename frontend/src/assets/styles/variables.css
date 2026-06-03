@@ -1,0 +1,107 @@
+/* Dduo dark workspace tokens. Compatibility aliases stay in this file while
+   the feature panels migrate away from their older local styles. */
+:root {
+  color-scheme: dark;
+
+  --canvas: oklch(0.145 0.012 285);
+  --surface-1: oklch(0.175 0.012 285);
+  --surface-2: oklch(0.205 0.014 285);
+  --surface-3: oklch(0.245 0.016 285);
+  --surface-hover: oklch(0.285 0.02 285);
+  --border-subtle: oklch(0.31 0.018 285);
+  --border-strong: oklch(0.39 0.025 285);
+  --accent-color: oklch(0.68 0.18 285);
+  --accent-hover: oklch(0.74 0.17 285);
+  --accent-soft: oklch(0.3 0.08 285);
+
+  --primary-color: var(--accent-color);
+  --primary-hover: var(--accent-hover);
+  --success-color: oklch(0.72 0.15 155);
+  --success-hover: oklch(0.66 0.15 155);
+  --danger-color: oklch(0.67 0.19 25);
+  --warning-color: oklch(0.78 0.14 80);
+  --info-color: oklch(0.73 0.12 230);
+
+  --success-bg: oklch(0.24 0.05 155);
+  --success-text: oklch(0.82 0.12 155);
+  --warning-bg: oklch(0.25 0.055 80);
+  --warning-text: oklch(0.86 0.12 80);
+  --danger-bg: oklch(0.24 0.06 25);
+  --danger-text: oklch(0.82 0.12 25);
+  --info-bg: oklch(0.24 0.045 230);
+  --info-text: oklch(0.82 0.1 230);
+  --info-border: oklch(0.43 0.08 230);
+  --info-hover-bg: oklch(0.28 0.055 230);
+  --info-hover-border: oklch(0.51 0.09 230);
+
+  --text-primary: oklch(0.965 0.008 285);
+  --text-secondary: oklch(0.79 0.012 285);
+  --text-muted: oklch(0.67 0.012 285);
+  --text-accent: oklch(0.8 0.12 285);
+  --text-white: oklch(0.98 0.005 285);
+  --text-white-muted: oklch(0.8 0.01 285);
+
+  --bg-primary: var(--canvas);
+  --bg-secondary: var(--surface-1);
+  --bg-tertiary: var(--surface-2);
+  --bg-dark: var(--surface-1);
+  --bg-darker: var(--surface-2);
+  --bg-sidebar: var(--surface-1);
+  --bg-glass: oklch(0.25 0.015 285 / 0.88);
+  --bg-glass-hover: oklch(0.3 0.02 285 / 0.92);
+
+  --border-light: var(--border-subtle);
+  --border-medium: var(--border-strong);
+  --border-dark: var(--border-subtle);
+  --border-focus: var(--accent-color);
+  --border-glass: oklch(0.42 0.025 285 / 0.45);
+
+  --shadow-sm: 0 1px 2px oklch(0.07 0.01 285 / 0.28);
+  --shadow-md: 0 8px 24px oklch(0.07 0.01 285 / 0.24);
+  --shadow-lg: 0 18px 48px oklch(0.07 0.01 285 / 0.34);
+  --shadow-primary: 0 0 0 1px oklch(0.68 0.18 285 / 0.24);
+  --shadow-success: 0 0 0 1px oklch(0.72 0.15 155 / 0.2);
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+  
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-md: 18px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  
+  --border-radius-base: 8px;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 18px;
+  --border-radius-full: 50%;
+  
+  --transition-base: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-normal: 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-slow: 240ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  --activity-rail-width: 64px;
+  --history-drawer-width: 288px;
+  --sidebar-width: var(--history-drawer-width);
+  --header-height: 60px;
+  --chat-input-height: 140px;
+  --chat-column-width: 860px;
+
+  --z-dropdown: 1000;
+  --z-modal: 1050;
+  --z-tooltip: 1060;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
