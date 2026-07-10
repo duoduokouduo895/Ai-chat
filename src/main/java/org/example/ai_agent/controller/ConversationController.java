@@ -53,7 +53,7 @@ public class ConversationController {
                             Message message = new Message();
                             message.setConversationId(conversation.getId());
                             message.setSender("user");
-                            message.setContent((String) messageDto.getContent());
+                            message.setContent(messageDto.getContent());
                             message.setModel(messageDto.getModel());
                             if (org.springframework.util.StringUtils.hasText(messageDto.getClientMessageId())) {
                                 message.setDeduplicationKey("user:" + userId + ":" + messageDto.getClientMessageId().trim());

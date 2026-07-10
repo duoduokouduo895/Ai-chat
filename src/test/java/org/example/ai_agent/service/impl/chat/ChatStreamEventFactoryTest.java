@@ -47,13 +47,23 @@ class ChatStreamEventFactoryTest {
     }
 
     @Test
-    void error_shouldKeepFrontendContract() throws Exception {
-        var event = eventFactory.error(new RuntimeException("模型不可用"));
+    void error_shouldKeepFrontendContractWithoutLeakingTheRootCause() throws Exception {
+        var event = eventFactory.error(new RuntimeException("provider secret and internal address"));
         JsonNode json = objectMapper.readTree(event.data());
 
         org.junit.jupiter.api.Assertions.assertEquals("error", event.event());
         org.junit.jupiter.api.Assertions.assertEquals("error", json.get("type").asText());
         org.junit.jupiter.api.Assertions.assertEquals("CHAT_ERROR", json.get("code").asText());
-        org.junit.jupiter.api.Assertions.assertEquals("聊天处理失败：模型不可用", json.get("message").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("聊天处理失败，请稍后重试或切换模型", json.get("message").asText());
+        org.junit.jupiter.api.Assertions.assertFalse(json.get("message").asText().contains("provider secret"));
+    }
+
+    @Test
+    void error_shouldExposeOnlyClassifiedClientErrors() throws Exception {
+        var event = eventFactory.error(ChatStreamClientException.modelTimeout());
+        JsonNode json = objectMapper.readTree(event.data());
+
+        org.junit.jupiter.api.Assertions.assertEquals("CHAT_TIMEOUT", json.get("code").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("模型响应超时，请稍后重试或切换模型。", json.get("message").asText());
     }
 }

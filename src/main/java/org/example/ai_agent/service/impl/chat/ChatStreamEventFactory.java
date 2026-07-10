@@ -44,10 +44,16 @@ public class ChatStreamEventFactory {
     }
 
     public ServerSentEvent<String> error(Throwable ex) {
+        String errorCode = "CHAT_ERROR";
+        String message = "聊天处理失败，请稍后重试或切换模型";
+        if (ex instanceof ChatStreamClientException clientException) {
+            errorCode = clientException.getErrorCode();
+            message = clientException.getMessage();
+        }
         Map<String, Object> errorPayload = Map.of(
                 "type", "error",
-                "code", "CHAT_ERROR",
-                "message", "聊天处理失败：" + ex.getMessage()
+                "code", errorCode,
+                "message", message
         );
         return ServerSentEvent.<String>builder()
                 .event("error")

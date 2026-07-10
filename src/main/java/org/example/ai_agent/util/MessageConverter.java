@@ -1,12 +1,9 @@
 package org.example.ai_agent.util;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.entity.Message;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 /**
  * 消息转换器工具类
@@ -19,8 +16,6 @@ import java.util.Map;
  */
 @Component
 public class MessageConverter {
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * 将Message实体转换为MessageDto
@@ -35,7 +30,7 @@ public class MessageConverter {
         MessageDto dto = new MessageDto();
         BeanUtils.copyProperties(message, dto, "content"); // 排除content，手动处理
 
-        // 安全地将String类型的content设置到Object类型的dto.content
+        // MessageDto 的内容与实体一致，保持为受限文本。
         dto.setContent(message.getContent());
 
         // 处理关联对象的转换
@@ -59,21 +54,7 @@ public class MessageConverter {
         Message message = new Message();
         BeanUtils.copyProperties(dto, message, "content"); // 排除content，手动处理
 
-        // 手动处理Object类型的content字段
-        if (dto.getContent() != null) {
-            if (dto.getContent() instanceof String) {
-                message.setContent((String) dto.getContent());
-            } else if (dto.getContent() instanceof Map) {
-                // 如果是Map，尝试提取通用键
-                @SuppressWarnings("unchecked")
-                Map<String, Object> contentMap = (Map<String, Object>) dto.getContent();
-                String text = (String) contentMap.getOrDefault("text", contentMap.getOrDefault("content", contentMap.toString()));
-                message.setContent(text);
-            } else {
-                // 其他类型，调用toString()作为备用
-                message.setContent(dto.getContent().toString());
-            }
-        }
+        message.setContent(dto.getContent());
 
         return message;
     }

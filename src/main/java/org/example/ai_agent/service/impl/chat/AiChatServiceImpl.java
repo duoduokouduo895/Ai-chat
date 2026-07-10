@@ -134,7 +134,7 @@ public class AiChatServiceImpl implements AiChatService {
                 .subscribeOn(Schedulers.boundedElastic()) // 隔离：防止 LangChain4j 同步读取 Redis ChatMemory 或同步构造流时阻塞 Netty 事件循环线程
                 .timeout(
                         Duration.ofMillis(Math.max(1L, streamTimeoutMs)),
-                        Flux.error(new RuntimeException("模型响应超时，请稍后重试或切换模型。")));
+                        Flux.error(ChatStreamClientException.modelTimeout()));
     }
 
     private long elapsedMs(long startNanos) {
