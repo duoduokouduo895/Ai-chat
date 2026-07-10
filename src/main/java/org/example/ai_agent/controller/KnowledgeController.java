@@ -3,8 +3,6 @@ package org.example.ai_agent.controller;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.admin.AdminPageDto;
-import org.example.ai_agent.dto.chat.RagChatDto;
-import org.example.ai_agent.dto.chat.RagChatResponseDto;
 import org.example.ai_agent.dto.document.DocumentBatchUploadDto;
 import org.example.ai_agent.dto.document.DocumentDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
@@ -75,7 +73,7 @@ public class KnowledgeController {
      */
     @PostMapping("/search")
     public Mono<KnowledgeSearchResultDto> searchKnowledge(
-            @RequestBody KnowledgeSearchDto searchRequest,
+            @Valid @RequestBody KnowledgeSearchDto searchRequest,
             Authentication authentication) {
 
         log.info("知识库搜索请求: query={}, knowledgeBaseIds={}, maxResults={}",
@@ -89,44 +87,31 @@ public class KnowledgeController {
                         searchRequest.getQuery(), error.getMessage()));
     }
 
-    /**
-     * 旧 RAG 对话兼容接口。
-     * 主推荐入口已经收敛到 /api/ai/chat。
-     */
+    /** 旧 RAG 生成入口已关闭，避免绕过统一聊天链路的额度与并发控制。 */
     @Deprecated
     @PostMapping("/chat")
-    public Mono<RagChatResponseDto> ragChat(@RequestBody RagChatDto ragRequest,
-                                            Authentication authentication) {
-
-        log.info("RAG对话请求: question={}, modelId={}, knowledgeBaseIds={}",
-                ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
-
-        return accessContextResolver.resolve(authentication)
-                .flatMap(access -> ragService.ragChat(ragRequest, access.userId(), access.isAdmin()))
-                .doOnSuccess(response -> log.info("RAG对话完成: question={}, processingTime={}ms",
-                        ragRequest.getQuestion(), response.getProcessingTime()))
-                .doOnError(error -> log.error("RAG对话失败: question={}, error={}",
-                        ragRequest.getQuestion(), error.getMessage()));
+    public Mono<ResponseEntity<Map<String, Object>>> ragChat() {
+        return legacyRagEndpointClosed();
     }
 
-    /**
-     * 旧 RAG 流式对话兼容接口。
-     * 主推荐入口已经收敛到 /api/ai/chat。
-     */
+    /** 旧 RAG 流式入口已关闭，调用方应改用 /api/ai/chat 的 SSE 协议。 */
     @Deprecated
-    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8")
-    public Flux<String> ragChatStream(@RequestBody RagChatDto ragRequest,
-                                      Authentication authentication) {
+    @PostMapping("/chat/stream")
+    public Mono<ResponseEntity<Map<String, Object>>> ragChatStream() {
+        return legacyRagEndpointClosed();
+    }
 
-        log.info("RAG流式对话请求: question={}, modelId={}, knowledgeBaseIds={}",
-                ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
-
-        return accessContextResolver.resolve(authentication)
-                .flatMapMany(access -> ragService.ragChatStream(ragRequest, access.userId(), access.isAdmin()))
-                .doOnSubscribe(subscription -> log.info("开始RAG流式对话: question={}", ragRequest.getQuestion()))
-                .doOnComplete(() -> log.info("RAG流式对话完成: question={}", ragRequest.getQuestion()))
-                .doOnError(error -> log.error("RAG流式对话失败: question={}, error={}",
-                        ragRequest.getQuestion(), error.getMessage()));
+    private Mono<ResponseEntity<Map<String, Object>>> legacyRagEndpointClosed() {
+        Map<String, Object> body = Map.of(
+                "code", HttpStatus.GONE.value(),
+                "errorCode", "LEGACY_RAG_ENDPOINT_RETIRED",
+                "message", "该接口已停用，请改用 /api/ai/chat",
+                "replacement", "/api/ai/chat"
+        );
+        return Mono.just(ResponseEntity.status(HttpStatus.GONE)
+                .header("Deprecation", "true")
+                .header(HttpHeaders.LINK, "</api/ai/chat>; rel=\"successor-version\"")
+                .body(body));
     }
 
     /**

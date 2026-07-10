@@ -43,8 +43,8 @@
           <div v-if="selectedFiles.length === 0" class="upload-placeholder">
             <div class="upload-icon" aria-hidden="true">DOC</div>
             <h3>拖拽文件到这里或点击选择</h3>
-            <p>支持 PDF, DOC, DOCX, TXT, MD, PPT, PPTX, XLS, XLSX 格式</p>
-            <p class="file-limit">最大支持 50MB，单次最多上传 10 个文件</p>
+            <p>支持 {{ supportedExtensionsLabel }} 格式</p>
+            <p class="file-limit">{{ isCapabilitiesLoading ? '正在读取上传限制…' : fileLimitLabel }}</p>
           </div>
           
           <div v-else class="file-list">
@@ -78,7 +78,7 @@
           ref="fileInput"
           type="file"
           multiple
-          accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx"
+          :accept="acceptAttribute"
           aria-label="选择要上传的文档"
           @change="handleFileSelect"
           style="display: none;"
@@ -144,7 +144,7 @@
         <button 
           class="btn-base btn-primary"
           @click="handleUpload"
-          :disabled="selectedFiles.length === 0 || isUploading"
+          :disabled="selectedFiles.length === 0 || isUploading || isCapabilitiesLoading"
         >
           <span v-if="isUploading" class="loading-spinner"></span>
           {{ isUploading ? '上传中...' : `上传 ${selectedFiles.length} 个文件` }}
@@ -177,19 +177,23 @@ const emit = defineEmits(['close', 'uploaded'])
 const dialogRef = ref(null)
 const closeButtonRef = ref(null)
 const {
+  acceptAttribute,
   enableVectorization,
   fileInput,
+  fileLimitLabel,
   formatFileSize,
   getFileIcon,
   getProgressStatusText,
   handleDrop,
   handleFileSelect,
   handleUpload,
+  isCapabilitiesLoading,
   isDragOver,
   isUploading,
   parseMode,
   removeFile,
   selectedFiles,
+  supportedExtensionsLabel,
   triggerFileInput,
   uploadProgress
 } = useDocumentUploadQueue(props, emit)

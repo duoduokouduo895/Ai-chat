@@ -1,26 +1,44 @@
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index';
 import { knowledgeApiService } from '@/services/knowledgeApi.js';
 import { getApiErrorMessage } from '@/services/apiErrorService.js';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const MAX_FILE_COUNT = 10;
-const SUPPORTED_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'ppt', 'pptx', 'xls', 'xlsx'];
-const SUPPORTED_TYPES = {
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'text/plain': 'txt',
-  'text/markdown': 'md',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx'
+const SAFE_DEFAULT_CAPABILITIES = Object.freeze({
+  maxFileBytes: 10 * 1024 * 1024,
+  maxRequestBytes: 15 * 1024 * 1024,
+  maxBatchFiles: 5,
+  supportedExtensions: ['pdf', 'docx', 'doc', 'txt', 'md', 'pptx', 'xlsx']
+});
+
+const normalizeCapabilities = (value) => {
+  const maxFileBytes = Number(value?.maxFileBytes);
+  const maxRequestBytes = Number(value?.maxRequestBytes);
+  const maxBatchFiles = Number(value?.maxBatchFiles);
+  const supportedExtensions = Array.isArray(value?.supportedExtensions)
+    ? value.supportedExtensions
+      .filter((extension) => typeof extension === 'string' && /^[a-z0-9]{1,20}$/i.test(extension))
+      .map((extension) => extension.toLowerCase())
+    : [];
+
+  return {
+    maxFileBytes: Number.isFinite(maxFileBytes) && maxFileBytes > 0
+      ? maxFileBytes
+      : SAFE_DEFAULT_CAPABILITIES.maxFileBytes,
+    maxRequestBytes: Number.isFinite(maxRequestBytes) && maxRequestBytes > 0
+      ? maxRequestBytes
+      : SAFE_DEFAULT_CAPABILITIES.maxRequestBytes,
+    maxBatchFiles: Number.isInteger(maxBatchFiles) && maxBatchFiles > 0
+      ? maxBatchFiles
+      : SAFE_DEFAULT_CAPABILITIES.maxBatchFiles,
+    supportedExtensions: supportedExtensions.length > 0
+      ? [...new Set(supportedExtensions)]
+      : SAFE_DEFAULT_CAPABILITIES.supportedExtensions
+  };
 };
 
-const isValidFileExtension = (fileName) => {
+const fileExtension = (fileName) => {
   const ext = fileName.toLowerCase().split('.').pop();
-  return SUPPORTED_EXTENSIONS.includes(ext);
+  return ext || '';
 };
 
 export const getFileIcon = (fileName) => {
@@ -55,16 +73,70 @@ export function useDocumentUploadQueue(props, emit) {
   const parseMode = ref('auto');
   const enableVectorization = ref(true);
   const uploadProgress = ref([]);
+  const uploadCapabilities = ref(SAFE_DEFAULT_CAPABILITIES);
+  const isCapabilitiesLoading = ref(false);
+
+  const acceptAttribute = computed(() => uploadCapabilities.value.supportedExtensions
+    .map((extension) => `.${extension}`)
+    .join(','));
+  const supportedExtensionsLabel = computed(() => uploadCapabilities.value.supportedExtensions
+    .map((extension) => extension.toUpperCase())
+    .join(', '));
+  const fileLimitLabel = computed(() => (
+    `最大支持 ${formatFileSize(uploadCapabilities.value.maxFileBytes)}，单次最多上传 ${uploadCapabilities.value.maxBatchFiles} 个文件`
+  ));
+
+  const isAllowedFile = (file, capabilities = uploadCapabilities.value) => {
+    return capabilities.supportedExtensions.includes(fileExtension(file.name));
+  };
+
+  const reconcileSelectedFiles = () => {
+    const capabilities = uploadCapabilities.value;
+    const retained = selectedFiles.value
+      .filter((file) => isAllowedFile(file, capabilities) && file.size <= capabilities.maxFileBytes)
+      .slice(0, capabilities.maxBatchFiles);
+    if (retained.length !== selectedFiles.value.length) {
+      selectedFiles.value = retained;
+      ElMessage.warning('上传限制已更新，不符合新限制的文件已移除');
+    }
+  };
+
+  const refreshUploadCapabilities = async () => {
+    isCapabilitiesLoading.value = true;
+    try {
+      uploadCapabilities.value = normalizeCapabilities(
+        await knowledgeApiService.getDocumentUploadCapabilities({ force: true })
+      );
+      reconcileSelectedFiles();
+    } catch (error) {
+      uploadCapabilities.value = normalizeCapabilities(uploadCapabilities.value);
+      ElMessage.warning('无法读取当前上传限制，已按安全默认值处理');
+    } finally {
+      isCapabilitiesLoading.value = false;
+    }
+  };
+
+  watch(() => props.visible, (visible) => {
+    if (visible) {
+      void refreshUploadCapabilities();
+    }
+  }, { immediate: true });
 
   const addFiles = (files) => {
+    if (isCapabilitiesLoading.value) {
+      ElMessage.info('正在读取上传限制，请稍候');
+      return;
+    }
+
+    const capabilities = uploadCapabilities.value;
     const validFiles = files.filter((file) => {
-      if (!SUPPORTED_TYPES[file.type] && !isValidFileExtension(file.name)) {
+      if (!isAllowedFile(file, capabilities)) {
         ElMessage.warning(`文件 "${file.name}" 格式不支持`);
         return false;
       }
 
-      if (file.size > MAX_FILE_SIZE) {
-        ElMessage.warning(`文件 "${file.name}" 超过 50MB 大小限制`);
+      if (file.size > capabilities.maxFileBytes) {
+        ElMessage.warning(`文件 "${file.name}" 超过 ${formatFileSize(capabilities.maxFileBytes)} 大小限制`);
         return false;
       }
 
@@ -76,9 +148,9 @@ export function useDocumentUploadQueue(props, emit) {
       return true;
     });
 
-    const remainingSlots = MAX_FILE_COUNT - selectedFiles.value.length;
+    const remainingSlots = Math.max(0, capabilities.maxBatchFiles - selectedFiles.value.length);
     if (validFiles.length > remainingSlots) {
-      ElMessage.warning(`最多只能选择 10 个文件，当前剩余 ${remainingSlots} 个位置`);
+      ElMessage.warning(`最多只能选择 ${capabilities.maxBatchFiles} 个文件，当前剩余 ${Math.max(0, remainingSlots)} 个位置`);
       validFiles.splice(remainingSlots);
     }
 
@@ -104,6 +176,9 @@ export function useDocumentUploadQueue(props, emit) {
   };
 
   const handleUpload = async () => {
+    if (selectedFiles.value.length === 0 || isCapabilitiesLoading.value) return;
+
+    reconcileSelectedFiles();
     if (selectedFiles.value.length === 0) return;
 
     isUploading.value = true;
@@ -152,7 +227,9 @@ export function useDocumentUploadQueue(props, emit) {
 
   return {
     enableVectorization,
+    acceptAttribute,
     fileInput,
+    fileLimitLabel,
     formatFileSize,
     getFileIcon,
     getProgressStatusText,
@@ -160,10 +237,13 @@ export function useDocumentUploadQueue(props, emit) {
     handleFileSelect,
     handleUpload,
     isDragOver,
+    isCapabilitiesLoading,
     isUploading,
     parseMode,
     removeFile,
+    refreshUploadCapabilities,
     selectedFiles,
+    supportedExtensionsLabel,
     triggerFileInput,
     uploadProgress
   };

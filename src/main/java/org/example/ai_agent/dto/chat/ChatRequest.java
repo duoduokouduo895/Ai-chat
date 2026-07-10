@@ -127,7 +127,7 @@ public class ChatRequest {
      * 可选字段，如果提供则使用RAG模式进行对话
      */
     @Size(max = 20, message = "知识库数量不能超过20个")
-    private java.util.List<Long> knowledgeBaseIds;
+    private java.util.List<@Positive(message = "知识库ID必须为正数") Long> knowledgeBaseIds;
     
     /**
      * 最大检索文档数

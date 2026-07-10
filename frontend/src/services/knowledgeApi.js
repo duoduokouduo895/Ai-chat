@@ -2,6 +2,7 @@ import apiClient from './apiClient.js'
 
 const KNOWLEDGE_BASE_CACHE_TTL_MS = 30_000
 let knowledgeBaseCache = null
+let uploadCapabilitiesCache = null
 
 const normalizeParams = (params = {}) => {
   const normalized = { ...params }
@@ -42,6 +43,19 @@ export const knowledgeApiService = {
 
   invalidateKnowledgeBaseCache() {
     knowledgeBaseCache = null
+  },
+
+  async getDocumentUploadCapabilities({ force = false } = {}) {
+    if (!force && uploadCapabilitiesCache && Date.now() - uploadCapabilitiesCache.createdAt < KNOWLEDGE_BASE_CACHE_TTL_MS) {
+      return uploadCapabilitiesCache.value
+    }
+
+    const response = await apiClient.get('/knowledge/upload-capabilities')
+    uploadCapabilitiesCache = {
+      value: response.data,
+      createdAt: Date.now()
+    }
+    return uploadCapabilitiesCache.value
   },
 
   // 创建知识库
