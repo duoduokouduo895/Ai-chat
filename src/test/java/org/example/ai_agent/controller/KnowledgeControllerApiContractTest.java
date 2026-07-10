@@ -12,6 +12,7 @@ import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
 import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
 import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
 import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
+import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.DocumentChunkService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
@@ -69,7 +70,8 @@ class KnowledgeControllerApiContractTest {
                 new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
         ReactiveMultipartFormReader formReader = new ReactiveMultipartFormReader();
         KnowledgeDocumentUploadFacade uploadFacade =
-                new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader);
+                new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader,
+                        new DocumentUploadProperties());
         controller = new KnowledgeController(
                 ragService,
                 knowledgeBaseService,

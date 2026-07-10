@@ -14,6 +14,7 @@ import org.example.ai_agent.service.DocumentIngestionService;
 import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
+import org.example.ai_agent.service.document.DocumentUploadValidator;
 import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -61,6 +63,9 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Autowired
     private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+
+    @Autowired
+    private DocumentUploadValidator documentUploadValidator;
     
     @Value("${knowledge-base.document.supported-types:pdf,docx,doc,txt,md,pptx,xlsx}")
     private String[] supportedTypes;
@@ -73,28 +78,10 @@ public class DocumentServiceImpl implements DocumentService {
                     file.getOriginalFilename(), knowledgeBaseId, parseMode, enableVectorization);
             
             // 参数验证
-            if (file.isEmpty()) {
-                throw new IllegalArgumentException("文件不能为空");
-            }
-            
             if (knowledgeBaseId == null) {
                 throw new IllegalArgumentException("知识库ID不能为空");
             }
-            
-            String fileName = file.getOriginalFilename();
-            if (fileName == null) {
-                throw new IllegalArgumentException("文件名不能为空");
-            }
-            
-            // 检查文件类型
-            if (!isSupportedFileType(fileName)) {
-                throw new IllegalArgumentException("不支持的文件类型: " + getFileExtension(fileName));
-            }
-            
-            // 检查文件大小 (50MB)
-            if (file.getSize() > 50 * 1024 * 1024) {
-                throw new IllegalArgumentException("文件大小不能超过50MB");
-            }
+            documentUploadValidator.validate(file, supportedTypes);
 
             if (!isAdmin && (requesterUserId == null || requesterUserId <= 0)) {
                 throw new SecurityException("当前用户无权上传文档");
@@ -403,23 +390,30 @@ public class DocumentServiceImpl implements DocumentService {
      * 上传文件到OSS
      */
     private Mono<OssService.OssFileInfo> uploadToOss(MultipartFile file, Long knowledgeBaseId) {
-        return Mono.fromCallable(() -> {
-            try {
-                return file.getInputStream();
-            } catch (Exception e) {
-                throw new RuntimeException("OSS上传失败: " + e.getMessage(), e);
-            }
-        })
-        .flatMap(inputStream -> {
-            return ossService.uploadKnowledgeDocument(
+        return Mono.usingWhen(
+            Mono.fromCallable(file::getInputStream),
+            inputStream -> ossService.uploadKnowledgeDocument(
                 knowledgeBaseId,
                 file.getOriginalFilename(),
                 inputStream,
                 file.getSize(),
                 file.getContentType()
-            );
-        })
+            ),
+            inputStream -> closeInputStream(inputStream),
+            (inputStream, error) -> closeInputStream(inputStream),
+            inputStream -> closeInputStream(inputStream)
+        )
         .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private Mono<Void> closeInputStream(InputStream inputStream) {
+        return Mono.fromRunnable(() -> {
+            try {
+                inputStream.close();
+            } catch (Exception error) {
+                log.warn("关闭上传文件输入流失败", error);
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
     
     /**

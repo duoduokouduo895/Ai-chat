@@ -1,6 +1,7 @@
 package org.example.ai_agent.controller.support;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.dto.document.DocumentBatchUploadDto;
 import org.example.ai_agent.dto.document.DocumentDto;
 import org.example.ai_agent.service.DocumentService;
@@ -13,6 +14,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 @Slf4j
 @Component
@@ -21,13 +23,16 @@ public class KnowledgeDocumentUploadFacade {
     private final DocumentService documentService;
     private final KnowledgeAccessContextResolver accessContextResolver;
     private final ReactiveMultipartFormReader formReader;
+    private final DocumentUploadProperties uploadProperties;
 
     public KnowledgeDocumentUploadFacade(DocumentService documentService,
                                          KnowledgeAccessContextResolver accessContextResolver,
-                                         ReactiveMultipartFormReader formReader) {
+                                         ReactiveMultipartFormReader formReader,
+                                         DocumentUploadProperties uploadProperties) {
         this.documentService = documentService;
         this.accessContextResolver = accessContextResolver;
         this.formReader = formReader;
+        this.uploadProperties = uploadProperties;
     }
 
     public Mono<DocumentDto> uploadDocumentDirect(ServerWebExchange exchange,
@@ -77,10 +82,8 @@ public class KnowledgeDocumentUploadFacade {
 
                             return accessContextResolver.requireAdmin(authentication)
                                     .then(accessContextResolver.resolveAdminUploaderId(knowledgeBaseId, uploaderId))
-                                    .flatMap(validUploaderId -> formReader.toMultipartFile(filePart)
-                                            .flatMap(multipartFile -> documentService.uploadDocument(
-                                                    multipartFile, knowledgeBaseId, parseMode,
-                                                    enableVectorization, validUploaderId, true)));
+                                    .flatMap(validUploaderId -> uploadStagedFile(filePart, knowledgeBaseId, parseMode,
+                                            enableVectorization, validUploaderId, true));
                         }))
                 .onErrorMap(NumberFormatException.class,
                         error -> new IllegalArgumentException("知识库ID或上传用户ID格式错误"));
@@ -101,6 +104,20 @@ public class KnowledgeDocumentUploadFacade {
                                                              String parseMode,
                                                              Boolean enableVectorization,
                                                              Authentication authentication) {
+        if (files == null || files.length == 0) {
+            return Mono.error(new IllegalArgumentException("请至少选择一个文件"));
+        }
+        if (files.length > uploadProperties.effectiveMaxBatchFiles()) {
+            return Mono.error(new IllegalArgumentException("一次最多上传"
+                    + uploadProperties.effectiveMaxBatchFiles() + "个文件"));
+        }
+        long totalBytes = Arrays.stream(files)
+                .mapToLong(file -> file != null ? Math.max(0L, file.getSize()) : 0L)
+                .sum();
+        if (totalBytes > uploadProperties.effectiveMaxRequestBytes()) {
+            return Mono.error(new IllegalArgumentException("本次上传总大小不能超过"
+                    + uploadProperties.effectiveMaxRequestBytes() / (1024 * 1024) + "MB"));
+        }
         return accessContextResolver.requireUser(authentication)
                 .flatMap(access -> Flux.fromArray(files)
                         .flatMap(file -> documentService.uploadDocument(
@@ -109,7 +126,7 @@ public class KnowledgeDocumentUploadFacade {
                                 .cast(Object.class)
                                 .onErrorReturn(new DocumentBatchUploadDto.FailedDocument(
                                         file.getOriginalFilename(),
-                                        "文件上传失败")), 3)
+                                        "文件上传失败")), Math.min(2, uploadProperties.effectiveMaxBatchFiles()))
                         .collectList()
                         .map(results -> {
                             DocumentBatchUploadDto response = new DocumentBatchUploadDto();
@@ -138,10 +155,28 @@ public class KnowledgeDocumentUploadFacade {
                                              Boolean enableVectorization,
                                              Authentication authentication) {
         return accessContextResolver.requireUser(authentication)
-                .flatMap(access -> formReader.toMultipartFile(filePart)
-                        .flatMap(multipartFile -> documentService.uploadDocument(
-                                multipartFile, knowledgeBaseId, parseMode,
-                                enableVectorization, access.userId(), false)));
+                .flatMap(access -> uploadStagedFile(filePart, knowledgeBaseId, parseMode,
+                        enableVectorization, access.userId(), false));
+    }
+
+    private Mono<DocumentDto> uploadStagedFile(FilePart filePart, Long knowledgeBaseId, String parseMode,
+                                                Boolean enableVectorization, Long uploaderId, boolean isAdmin) {
+        return Mono.usingWhen(formReader.stageToTemporaryFile(filePart),
+                stagedFile -> documentService.uploadDocument(stagedFile, knowledgeBaseId, parseMode,
+                        enableVectorization, uploaderId, isAdmin),
+                this::closeStagedFile,
+                (stagedFile, error) -> closeStagedFile(stagedFile),
+                this::closeStagedFile);
+    }
+
+    private Mono<Void> closeStagedFile(ReactiveMultipartFormReader.TemporaryMultipartFile stagedFile) {
+        return Mono.<Void>fromRunnable(() -> {
+            try {
+                stagedFile.close();
+            } catch (java.io.IOException ignored) {
+                // Temporary files are best-effort cleanup; upload outcome has already been decided.
+            }
+        }).subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
     }
 
     private Long parseKnowledgeBaseId(String value) {

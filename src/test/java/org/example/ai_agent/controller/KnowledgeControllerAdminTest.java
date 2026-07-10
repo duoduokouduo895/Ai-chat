@@ -6,6 +6,7 @@ import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
 import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
 import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
+import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.DocumentChunkService;
@@ -68,7 +69,8 @@ class KnowledgeControllerAdminTest {
                 new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
         ReactiveMultipartFormReader formReader = new ReactiveMultipartFormReader();
         KnowledgeDocumentUploadFacade uploadFacade =
-                new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader);
+                new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader,
+                        new DocumentUploadProperties());
         controller = new KnowledgeController(
                 ragService,
                 knowledgeBaseService,
@@ -178,8 +180,16 @@ class KnowledgeControllerAdminTest {
     private FilePart mockFilePart(String filename, String content) {
         FilePart filePart = org.mockito.Mockito.mock(FilePart.class);
         when(filePart.filename()).thenReturn(filename);
-        when(filePart.content()).thenReturn(Flux.just(new DefaultDataBufferFactory()
-                .wrap(content.getBytes(StandardCharsets.UTF_8))));
+        when(filePart.transferTo(org.mockito.ArgumentMatchers.any(java.nio.file.Path.class))).thenAnswer(invocation -> {
+            java.nio.file.Path path = invocation.getArgument(0);
+            return Mono.fromRunnable(() -> {
+                try {
+                    java.nio.file.Files.write(path, content.getBytes(StandardCharsets.UTF_8));
+                } catch (java.io.IOException error) {
+                    throw new IllegalStateException(error);
+                }
+            });
+        });
         return filePart;
     }
 }
