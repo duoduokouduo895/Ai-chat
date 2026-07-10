@@ -5,6 +5,11 @@ import heartbeatService from './heartbeatService.js';
 import guestSessionService from './guestSessionService.js';
 import authSessionService from './authSessionService.js';
 import { getApiErrorMessage } from './apiErrorService.js';
+import {
+  isLoggedIn,
+  markGuestSession,
+  markRegisteredSession
+} from './sessionStore.mjs';
 
 // 用户API服务
 export const userApiService = {
@@ -32,9 +37,7 @@ export const userApiService = {
 
       // 存储token（去除空白字符）
       const cleanToken = token.trim();
-      authSessionService.setToken(cleanToken);
-      localStorage.removeItem('isGuest');
-      localStorage.removeItem('guestMessageCount');
+      markRegisteredSession(cleanToken);
       guestSessionService.clearGuestSession();
 
       // 登录成功后启动心跳服务
@@ -59,11 +62,7 @@ export const userApiService = {
       const { token } = response.data;
 
       const cleanToken = token.trim();
-      authSessionService.setToken(cleanToken);
-      // 存储游客标记和消息计数
-      localStorage.setItem('isGuest', 'true');
-      localStorage.setItem('guestMessageCount', '0');
-      guestSessionService.markGuestSessionStarted();
+      markGuestSession(cleanToken);
 
       heartbeatService.start();
       guestSessionService.start();
@@ -102,7 +101,7 @@ export const userApiService = {
 
   // 检查登录状态
   isLoggedIn: () => {
-    return !!authSessionService.getToken();
+    return isLoggedIn();
   },
 
   // 获取当前用户token

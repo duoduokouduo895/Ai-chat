@@ -1,20 +1,54 @@
 import apiClient from './apiClient.js'
 
+const KNOWLEDGE_BASE_CACHE_TTL_MS = 30_000
+let knowledgeBaseCache = null
+
+const normalizeParams = (params = {}) => {
+  const normalized = { ...params }
+  delete normalized._t
+  delete normalized.noCache
+  return normalized
+}
+
+const cacheKeyFor = (params = {}) => JSON.stringify(normalizeParams(params))
+
+const isKnowledgeBaseCacheFresh = (key) => (
+  knowledgeBaseCache &&
+  knowledgeBaseCache.key === key &&
+  Date.now() - knowledgeBaseCache.createdAt < KNOWLEDGE_BASE_CACHE_TTL_MS
+)
+
 export const knowledgeApiService = {
   // 获取知识库列表
   async getKnowledgeBases(params = {}) {
     try {
+      const cacheKey = cacheKeyFor(params)
+      if (!params.noCache && isKnowledgeBaseCacheFresh(cacheKey)) {
+        return knowledgeBaseCache.response
+      }
       const response = await apiClient.get('/knowledge/bases', { params })
+      if (!params.noCache) {
+        knowledgeBaseCache = {
+          key: cacheKey,
+          response,
+          createdAt: Date.now()
+        }
+      }
       return response
     } catch (error) {
       throw error
     }
   },
 
+  invalidateKnowledgeBaseCache() {
+    knowledgeBaseCache = null
+  },
+
   // 创建知识库
   async createKnowledgeBase(data) {
     try {
       const response = await apiClient.post('/knowledge/bases', data)
+      this.invalidateKnowledgeBaseCache()
       return response
     } catch (error) {
       throw error
@@ -25,6 +59,7 @@ export const knowledgeApiService = {
   async updateKnowledgeBase(id, data) {
     try {
       const response = await apiClient.put(`/knowledge/bases/${id}`, data)
+      this.invalidateKnowledgeBaseCache()
       return response
     } catch (error) {
       throw error
@@ -35,6 +70,7 @@ export const knowledgeApiService = {
   async deleteKnowledgeBase(id) {
     try {
       const response = await apiClient.delete(`/knowledge/bases/${id}`)
+      this.invalidateKnowledgeBaseCache()
       return response
     } catch (error) {
       throw error

@@ -8,8 +8,12 @@ import org.example.ai_agent.entity.KnowledgeDocument;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.DocumentChunkService;
+import org.example.ai_agent.service.DocumentParserService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.EmbeddingService;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
+import org.example.ai_agent.service.OssService;
+import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.example.ai_agent.service.registry.EmbeddingStoreRegistry;
 import org.example.ai_agent.service.registry.EmbeddingStoreRegistry.EmbeddingProfile;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +23,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -44,26 +47,47 @@ class DocumentProcessingServiceImplTest {
     @Mock
     private KnowledgeBaseRepository knowledgeBaseRepository;
     @Mock
+    private DocumentParserService documentParserService;
+    @Mock
     private DocumentChunkService documentChunkService;
     @Mock
     private EmbeddingService embeddingService;
     @Mock
+    private OssService ossService;
+    @Mock
     private EmbeddingStoreRegistry embeddingStoreRegistry;
     @Mock
     private DocumentProcessingRecordService recordService;
+    @Mock
+    private AiModelRegistry aiModelRegistry;
+    @Mock
+    private KnowledgeChunkSearchService knowledgeChunkSearchService;
+    @Mock
+    private DocumentProcessingPublisher publisher;
+    @Mock
+    private DocumentProcessingStages stages;
 
     private DocumentProcessingServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new DocumentProcessingServiceImpl();
-        ReflectionTestUtils.setField(service, "documentRepository", documentRepository);
-        ReflectionTestUtils.setField(service, "knowledgeBaseRepository", knowledgeBaseRepository);
-        ReflectionTestUtils.setField(service, "documentChunkService", documentChunkService);
-        ReflectionTestUtils.setField(service, "embeddingService", embeddingService);
-        ReflectionTestUtils.setField(service, "embeddingStoreRegistry", embeddingStoreRegistry);
-        ReflectionTestUtils.setField(service, "recordService", recordService);
-        ReflectionTestUtils.setField(service, "embeddingBatchSize", 2);
+        DocumentEmbeddingBatchProcessor embeddingBatchProcessor = new DocumentEmbeddingBatchProcessor(
+                documentRepository,
+                knowledgeBaseRepository,
+                documentChunkService,
+                embeddingService,
+                embeddingStoreRegistry,
+                knowledgeChunkSearchService);
+        service = new DocumentProcessingServiceImpl(
+                documentRepository,
+                documentChunkService,
+                embeddingService,
+                recordService,
+                knowledgeChunkSearchService,
+                publisher,
+                stages,
+                embeddingBatchProcessor,
+                2);
     }
 
     @Test
@@ -72,9 +96,11 @@ class DocumentProcessingServiceImplTest {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setId(9L);
         document.setKnowledgeBaseId(77L);
+        document.setTitle("测试文档");
 
         KnowledgeBase knowledgeBase = new KnowledgeBase();
         knowledgeBase.setId(77L);
+        knowledgeBase.setName("测试知识库");
 
         EmbeddingProfile profile = new EmbeddingProfile(
                 "embedding-default", "v1", 3, "knowledge_base_embeddings_v1", false);
@@ -101,6 +127,7 @@ class DocumentProcessingServiceImplTest {
                         .toList()));
         when(documentChunkService.batchUpdateChunkEmbeddingStatus(anyList(), anyList(), eq("COMPLETED")))
                 .thenReturn(Mono.just(true));
+        when(knowledgeChunkSearchService.indexDocumentChunks(9L)).thenReturn(Mono.empty());
 
         StepVerifier.create(service.processDocumentEmbedding(DocumentProcessingMessage.createEmbedMessage(9L, 77L)))
                 .expectNext(true)
@@ -114,6 +141,7 @@ class DocumentProcessingServiceImplTest {
                 chunkIdsCaptor.getAllValues());
         org.junit.jupiter.api.Assertions.assertTrue(document.getIsEmbedded());
         org.junit.jupiter.api.Assertions.assertEquals("COMPLETED", document.getEmbeddingStatus());
+        verify(knowledgeChunkSearchService).indexDocumentChunks(9L);
     }
 
     private DocumentChunkDto chunk(Long id) {

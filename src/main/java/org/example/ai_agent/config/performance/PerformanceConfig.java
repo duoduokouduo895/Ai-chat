@@ -51,7 +51,8 @@ public class PerformanceConfig {
                             long durationNanos = sample.stop(timer);
                             Duration duration = Duration.ofNanos(durationNanos);
                             if (duration.toMillis() > slowApiThresholdMs && !uri.equals("/api/ai/chat")) {
-                                log.warn("慢 API 警告: {} {} 耗时 {} ms", method, uri, duration.toMillis());
+                                log.warn("慢 API 警告: {} {} status={} signal={} 耗时 {} ms",
+                                        method, uri, statusStr, signalType, duration.toMillis());
                             }
                         });
             }

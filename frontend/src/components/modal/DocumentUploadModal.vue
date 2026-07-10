@@ -156,10 +156,8 @@
 
 <script setup>
 import { ref, toRef } from 'vue'
-import { ElMessage } from 'element-plus/es/components/message/index'
+import { useDocumentUploadQueue } from '@/composables/useDocumentUploadQueue.js'
 import { useModalDialog } from '@/composables/useModalDialog.js'
-import { knowledgeApiService } from '@/services/knowledgeApi.js'
-import { getApiErrorMessage } from '@/services/apiErrorService.js'
 
 // Props
 const props = defineProps({
@@ -176,16 +174,25 @@ const props = defineProps({
 // Emits
 const emit = defineEmits(['close', 'uploaded'])
 
-// 状态管理
-const fileInput = ref(null)
-const selectedFiles = ref([])
-const isDragOver = ref(false)
-const isUploading = ref(false)
-const parseMode = ref('auto')
-const enableVectorization = ref(true)
-const uploadProgress = ref([])
 const dialogRef = ref(null)
 const closeButtonRef = ref(null)
+const {
+  enableVectorization,
+  fileInput,
+  formatFileSize,
+  getFileIcon,
+  getProgressStatusText,
+  handleDrop,
+  handleFileSelect,
+  handleUpload,
+  isDragOver,
+  isUploading,
+  parseMode,
+  removeFile,
+  selectedFiles,
+  triggerFileInput,
+  uploadProgress
+} = useDocumentUploadQueue(props, emit)
 
 const closeDialog = () => {
   emit('close')
@@ -197,162 +204,4 @@ useModalDialog({
   initialFocusRef: closeButtonRef,
   onClose: closeDialog
 })
-
-// 支持的文件类型
-const supportedTypes = {
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'text/plain': 'txt',
-  'text/markdown': 'md',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx'
-}
-
-// 文件拖拽处理
-const handleDrop = (event) => {
-  isDragOver.value = false
-  const files = Array.from(event.dataTransfer.files)
-  addFiles(files)
-}
-
-// 文件选择处理
-const handleFileSelect = (event) => {
-  const files = Array.from(event.target.files)
-  addFiles(files)
-  // 清空input以便重复选择同一文件
-  event.target.value = ''
-}
-
-// 添加文件
-const addFiles = (files) => {
-  const validFiles = files.filter(file => {
-    // 检查文件类型
-    if (!supportedTypes[file.type] && !isValidFileExtension(file.name)) {
-      ElMessage.warning(`文件 "${file.name}" 格式不支持`)
-      return false
-    }
-    
-    // 检查文件大小 (50MB)
-    if (file.size > 50 * 1024 * 1024) {
-      ElMessage.warning(`文件 "${file.name}" 超过 50MB 大小限制`)
-      return false
-    }
-    
-    // 检查重复文件
-    if (selectedFiles.value.some(f => f.name === file.name && f.size === file.size)) {
-      ElMessage.warning(`文件 "${file.name}" 已经选择`)
-      return false
-    }
-    
-    return true
-  })
-  
-  // 限制最多10个文件
-  const remainingSlots = 10 - selectedFiles.value.length
-  if (validFiles.length > remainingSlots) {
-    ElMessage.warning(`最多只能选择 10 个文件，当前剩余 ${remainingSlots} 个位置`)
-    validFiles.splice(remainingSlots)
-  }
-  
-  selectedFiles.value.push(...validFiles)
-}
-
-// 检查文件扩展名
-const isValidFileExtension = (fileName) => {
-  const ext = fileName.toLowerCase().split('.').pop()
-  return ['pdf', 'doc', 'docx', 'txt', 'md', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext)
-}
-
-// 移除文件
-const removeFile = (index) => {
-  selectedFiles.value.splice(index, 1)
-}
-
-// 触发文件选择
-const triggerFileInput = () => {
-  fileInput.value?.click()
-}
-
-// 获取文件图标
-const getFileIcon = (fileName) => {
-  const ext = fileName.toLowerCase().split('.').pop()
-  return ext ? ext.toUpperCase() : 'DOC'
-}
-
-// 格式化文件大小
-const formatFileSize = (bytes) => {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-// 获取进度状态文本
-const getProgressStatusText = (status) => {
-  const statusMap = {
-    'uploading': '上传中',
-    'processing': '解析中',
-    'vectorizing': '向量化中',
-    'success': '成功',
-    'error': '失败'
-  }
-  return statusMap[status] || '未知'
-}
-
-// 处理上传
-const handleUpload = async () => {
-  if (selectedFiles.value.length === 0) return
-  
-  isUploading.value = true
-  uploadProgress.value = selectedFiles.value.map(file => ({
-    fileName: file.name,
-    percent: 0,
-    status: 'uploading'
-  }))
-  
-  try {
-    // 批量上传文件
-    const uploadPromises = selectedFiles.value.map(async (file, index) => {
-      try {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('knowledgeBaseId', props.knowledgeBaseId)
-        formData.append('parseMode', parseMode.value)
-        formData.append('enableVectorization', enableVectorization.value)
-        
-        // 上传文件
-        await knowledgeApiService.uploadDocument(formData, (progress) => {
-          uploadProgress.value[index].percent = Math.round(progress * 100)
-        })
-        
-        uploadProgress.value[index].status = 'success'
-        uploadProgress.value[index].percent = 100
-        
-      } catch (error) {
-        uploadProgress.value[index].status = 'error'
-        uploadProgress.value[index].percent = 0
-        ElMessage.error(`${file.name} 上传失败：${getApiErrorMessage(error, '请稍后重试')}`)
-      }
-    })
-    
-    await Promise.all(uploadPromises)
-    
-    // 检查是否有成功上传的文件
-    const successCount = uploadProgress.value.filter(p => p.status === 'success').length
-    if (successCount > 0) {
-      setTimeout(() => {
-        emit('uploaded')
-      }, 1000)
-    }
-    
-  } catch (error) {
-    ElMessage.error(getApiErrorMessage(error, '批量上传失败，请稍后重试'))
-  } finally {
-    isUploading.value = false
-  }
-}
 </script>

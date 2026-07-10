@@ -5,7 +5,12 @@
       <img v-else src="/icon/OIP-C.webp" alt="">
     </div>
     <div class="message-body">
+      <div v-if="!message.text && message.completed === false" class="message-status" role="status" aria-live="polite">
+        <span class="status-dot"></span>
+        <span>{{ message.status || '正在准备回答' }}</span>
+      </div>
       <MessageContent
+        v-else
         :text="message.text"
         :plain="message.sender === 'user'"
         :completed="message.completed !== false"
@@ -29,6 +34,10 @@ defineProps({
   gap: 10px;
   max-width: min(100%, 72ch);
   position: relative;
+}
+
+.message:not(.user) {
+  width: min(100%, 72ch);
 }
 
 .message.user {
@@ -74,6 +83,11 @@ defineProps({
   padding: 12px 14px 8px;
 }
 
+.message:not(.user) .message-body {
+  min-height: 58px;
+  width: 100%;
+}
+
 .user .message-body {
   background: var(--accent-soft);
   border-color: oklch(0.49 0.1 285 / 0.75);
@@ -85,6 +99,36 @@ time {
   font-size: var(--font-size-xs);
   margin-top: 6px;
   text-align: right;
+}
+
+.message-status {
+  align-items: center;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: var(--font-size-sm);
+  gap: 8px;
+  min-height: 28px;
+}
+
+.status-dot {
+  animation: statusPulse 1s ease-in-out infinite;
+  background: var(--accent-color);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px oklch(0.68 0.18 285 / 0.12);
+  height: 7px;
+  width: 7px;
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (max-width: 980px) {

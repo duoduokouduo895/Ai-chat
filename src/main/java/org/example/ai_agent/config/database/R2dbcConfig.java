@@ -41,10 +41,10 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
     @Value("${spring.r2dbc.database}")
     private String database;
 
-    @Value("${spring.r2dbc.pool.initial-size:0}")
+    @Value("${spring.r2dbc.pool.initial-size:2}")
     private int initialSize;
 
-    @Value("${spring.r2dbc.pool.max-size:10}")
+    @Value("${spring.r2dbc.pool.max-size:20}")
     private int maxSize;
 
     @Value("${spring.r2dbc.pool.max-idle-time:30m}")
@@ -53,10 +53,10 @@ public class R2dbcConfig extends AbstractR2dbcConfiguration {
     @Value("${spring.r2dbc.pool.max-life-time:60m}")
     private Duration maxLifeTime;
 
-    @Value("${spring.r2dbc.pool.max-acquire-time:10s}")
+    @Value("${spring.r2dbc.pool.max-acquire-time:3s}")
     private Duration maxAcquireTime;
 
-    @Value("${spring.r2dbc.pool.max-create-connection-time:10s}")
+    @Value("${spring.r2dbc.pool.max-create-connection-time:3s}")
     private Duration maxCreateConnectionTime;
 
     @Value("${spring.r2dbc.pool.validation-query:SELECT 1}")

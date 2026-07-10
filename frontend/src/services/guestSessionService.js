@@ -1,7 +1,13 @@
 import heartbeatService from './heartbeatService.js';
 import { ElMessage } from 'element-plus/es/components/message/index';
+import {
+  clearGuestState,
+  clearSessionState,
+  getGuestSessionStartedAt,
+  isGuest,
+  setGuestSessionStartedAt
+} from './sessionStore.mjs';
 
-const GUEST_SESSION_KEY = 'guestSessionStartedAt';
 const GUEST_SESSION_MAX_MS = 3 * 60 * 60 * 1000;
 const GUEST_SESSION_CHECK_INTERVAL_MS = 60 * 1000;
 
@@ -12,22 +18,22 @@ class GuestSessionService {
   }
 
   markGuestSessionStarted(startedAt = Date.now()) {
-    localStorage.setItem(GUEST_SESSION_KEY, String(startedAt));
+    setGuestSessionStartedAt(startedAt);
     this.hasShownExpiryNotice = false;
   }
 
   clearGuestSession() {
     this.stop();
-    localStorage.removeItem(GUEST_SESSION_KEY);
+    clearGuestState();
     this.hasShownExpiryNotice = false;
   }
 
   isGuestSessionExpired() {
-    if (localStorage.getItem('isGuest') !== 'true') {
+    if (!isGuest()) {
       return false;
     }
 
-    const startedAt = Number(localStorage.getItem(GUEST_SESSION_KEY) || 0);
+    const startedAt = getGuestSessionStartedAt();
     if (!startedAt) {
       return false;
     }
@@ -42,11 +48,7 @@ class GuestSessionService {
 
     this.stop();
     heartbeatService.stop();
-
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('isGuest');
-    localStorage.removeItem('guestMessageCount');
+    clearSessionState();
     this.clearGuestSession();
 
     if (!this.hasShownExpiryNotice) {
@@ -60,7 +62,7 @@ class GuestSessionService {
 
   start() {
     this.stop();
-    if (localStorage.getItem('isGuest') !== 'true') {
+    if (!isGuest()) {
       return;
     }
 
@@ -78,7 +80,7 @@ class GuestSessionService {
   }
 
   syncWithAppState() {
-    if (localStorage.getItem('isGuest') === 'true') {
+    if (isGuest()) {
       this.start();
       return;
     }

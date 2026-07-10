@@ -1,4 +1,5 @@
 import apiClient from './apiClient.js';
+import { getToken } from './sessionStore.mjs';
 
 class HeartbeatService {
   constructor() {
@@ -41,7 +42,7 @@ class HeartbeatService {
   }
 
   shouldRun() {
-    return !!localStorage.getItem('token') && document.visibilityState === 'visible';
+    return !!getToken() && document.visibilityState === 'visible';
   }
 
   async sendHeartbeat() {

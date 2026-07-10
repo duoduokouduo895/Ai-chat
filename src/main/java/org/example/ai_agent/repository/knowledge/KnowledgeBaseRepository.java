@@ -119,8 +119,22 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
      * @param pageable 分页信息
      * @return 知识库列表
      */
-    @Query("SELECT * FROM knowledge_bases WHERE (creator_id = :creatorId OR is_public = :isPublic) AND status = :status ORDER BY created_at DESC LIMIT :#{#pageable.pageSize} OFFSET :#{#pageable.offset}")
-    Flux<KnowledgeBase> findByCreatorIdOrPublicAndStatus(Long creatorId, Boolean isPublic, String status, Pageable pageable);
+    @Query("""
+            SELECT *
+            FROM (
+                SELECT *
+                FROM knowledge_bases
+                WHERE creator_id = :creatorId AND status = :status
+                UNION
+                SELECT *
+                FROM knowledge_bases
+                WHERE is_public = :isPublic AND status = :status
+            ) kb
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+            """)
+    Flux<KnowledgeBase> findByCreatorIdOrPublicAndStatus(Long creatorId, Boolean isPublic, String status,
+                                                         int limit, long offset);
 
     @Query("UPDATE knowledge_bases SET document_count = GREATEST(document_count + :delta, 0) WHERE id = :id")
     Mono<Integer> adjustDocumentCount(Long id, Integer delta);

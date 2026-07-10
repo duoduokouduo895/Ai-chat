@@ -23,6 +23,7 @@ public class ModelCatalogProperties {
     private String defaultChatModel;
     private String defaultEmbeddingModel = "embedding-default";
     private Streaming streaming = new Streaming();
+    private Reliability reliability = new Reliability();
     private Legacy legacy = new Legacy();
     private Map<String, ModelConfig> models = new LinkedHashMap<>();
 
@@ -37,6 +38,15 @@ public class ModelCatalogProperties {
         private int maxPoolSize = 32;
         private int queueCapacity = 200;
         private int keepAliveSeconds = 60;
+    }
+
+    @Data
+    public static class Reliability {
+        private boolean retryEnabled = true;
+        private int retryMaxAttempts = 2;
+        private long retryBackoffMs = 500;
+        private boolean warmupEnabled = true;
+        private String warmupHost;
     }
 
     /**

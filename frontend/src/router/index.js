@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { userApiService } from '../services/userApi.js';
 import guestSessionService from '../services/guestSessionService.js';
+import {
+  clearGuestState,
+  clearToken,
+  isGuest
+} from '../services/sessionStore.mjs';
 
 const MarketingPlatform = () => import('../components/layout/MarketingPlatform.vue');
 const Login = () => import('../components/login/Login.vue');
@@ -58,17 +63,16 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.name === 'Login' || to.name === 'Register') {
-    const isGuest = localStorage.getItem('isGuest') === 'true';
+    const hasGuestSession = isGuest();
 
-    if (isLoggedIn && !isGuest) {
+    if (isLoggedIn && !hasGuestSession) {
       next('/');
       return;
     }
 
-    if (isGuest) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('isGuest');
-      localStorage.removeItem('guestMessageCount');
+    if (hasGuestSession) {
+      clearToken();
+      clearGuestState();
       guestSessionService.clearGuestSession();
     }
 

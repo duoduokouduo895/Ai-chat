@@ -1,6 +1,8 @@
 package org.example.ai_agent.repository.knowledge;
 
 import org.example.ai_agent.entity.KnowledgeDocumentChunk;
+import org.example.ai_agent.dto.knowledge.KnowledgeChunkIndexProjection;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -114,4 +116,78 @@ public interface KnowledgeDocumentChunkRepository extends ReactiveCrudRepository
      * @return 文档块
      */
     Mono<KnowledgeDocumentChunk> findByEmbeddingId(String embeddingId);
+
+    @Query("""
+            SELECT c.id AS chunk_id,
+                   c.document_id,
+                   c.knowledge_base_id,
+                   c.chunk_index,
+                   c.content,
+                   d.title AS document_title,
+                   kb.name AS knowledge_base_name,
+                   kb.creator_id AS knowledge_base_creator_id,
+                   kb.is_public AS knowledge_base_is_public,
+                   d.uploader_id AS document_uploader_id,
+                   kb.status AS knowledge_base_status,
+                   d.parse_status AS document_parse_status,
+                   d.embedding_status AS document_embedding_status,
+                   c.embedding_status AS chunk_embedding_status,
+                   c.created_at,
+                   c.updated_at
+            FROM knowledge_document_chunks c
+            JOIN knowledge_documents d ON d.id = c.document_id
+            JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
+            WHERE c.document_id = :documentId
+            ORDER BY c.chunk_index ASC
+            """)
+    Flux<KnowledgeChunkIndexProjection> findIndexRowsByDocumentId(Long documentId);
+
+    @Query("""
+            SELECT c.id AS chunk_id,
+                   c.document_id,
+                   c.knowledge_base_id,
+                   c.chunk_index,
+                   c.content,
+                   d.title AS document_title,
+                   kb.name AS knowledge_base_name,
+                   kb.creator_id AS knowledge_base_creator_id,
+                   kb.is_public AS knowledge_base_is_public,
+                   d.uploader_id AS document_uploader_id,
+                   kb.status AS knowledge_base_status,
+                   d.parse_status AS document_parse_status,
+                   d.embedding_status AS document_embedding_status,
+                   c.embedding_status AS chunk_embedding_status,
+                   c.created_at,
+                   c.updated_at
+            FROM knowledge_document_chunks c
+            JOIN knowledge_documents d ON d.id = c.document_id
+            JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
+            WHERE c.knowledge_base_id = :knowledgeBaseId
+            ORDER BY c.document_id ASC, c.chunk_index ASC
+            """)
+    Flux<KnowledgeChunkIndexProjection> findIndexRowsByKnowledgeBaseId(Long knowledgeBaseId);
+
+    @Query("""
+            SELECT c.id AS chunk_id,
+                   c.document_id,
+                   c.knowledge_base_id,
+                   c.chunk_index,
+                   c.content,
+                   d.title AS document_title,
+                   kb.name AS knowledge_base_name,
+                   kb.creator_id AS knowledge_base_creator_id,
+                   kb.is_public AS knowledge_base_is_public,
+                   d.uploader_id AS document_uploader_id,
+                   kb.status AS knowledge_base_status,
+                   d.parse_status AS document_parse_status,
+                   d.embedding_status AS document_embedding_status,
+                   c.embedding_status AS chunk_embedding_status,
+                   c.created_at,
+                   c.updated_at
+            FROM knowledge_document_chunks c
+            JOIN knowledge_documents d ON d.id = c.document_id
+            JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
+            ORDER BY c.knowledge_base_id ASC, c.document_id ASC, c.chunk_index ASC
+            """)
+    Flux<KnowledgeChunkIndexProjection> findAllIndexRows();
 }

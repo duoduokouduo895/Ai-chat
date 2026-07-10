@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.io.InputStream;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 
@@ -83,6 +84,8 @@ public class Utf8SpringRestClient implements HttpClient {
 
                             if (!springResponse.getStatusCode().is2xxSuccessful()) {
                                 String body = springResponse.bodyTo(String.class);
+                                log.warn("AI provider streaming request failed: target={}, status={}",
+                                        safeTarget(request.url()), statusCode);
                                 HttpException exception = new HttpException(statusCode, body);
                                 ignoringExceptions(() -> listener.onError(exception));
                                 return null;
@@ -106,6 +109,8 @@ public class Utf8SpringRestClient implements HttpClient {
                     log.debug("流式大模型调用已被下游取消，成功断开底层网络连接并静默退出。");
                     return;
                 }
+                log.warn("AI provider streaming request error: target={}, error={}",
+                        safeTarget(request.url()), e.toString());
                 if (e.getCause() instanceof SocketTimeoutException) {
                     ignoringExceptions(() -> listener.onError(new TimeoutException(e)));
                 } else {
@@ -137,5 +142,14 @@ public class Utf8SpringRestClient implements HttpClient {
         }
 
         return requestBodySpec;
+    }
+
+    private String safeTarget(String url) {
+        try {
+            URI uri = URI.create(url);
+            return uri.getHost() + uri.getPath();
+        } catch (Exception ignored) {
+            return "<invalid-url>";
+        }
     }
 }

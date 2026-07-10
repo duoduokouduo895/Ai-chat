@@ -50,3 +50,12 @@ build/
 
 ### Local database exports ###
 /sql/ai_agent_db.sql
+
+### Local performance test artifacts ###
+/perf/local/
+/perf/results/
+/jmeter.log
+
+### Local RAG evaluation artifacts ###
+/rag-eval/local/
+/rag-eval/results/

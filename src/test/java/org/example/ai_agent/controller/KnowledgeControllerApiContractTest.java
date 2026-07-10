@@ -9,11 +9,15 @@ import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseStatsDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
+import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
+import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
+import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.DocumentChunkService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.KnowledgeBaseService;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.example.ai_agent.service.RagService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -23,7 +27,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -52,6 +55,8 @@ class KnowledgeControllerApiContractTest {
     @Mock
     private DocumentChunkService documentChunkService;
     @Mock
+    private KnowledgeChunkSearchService knowledgeChunkSearchService;
+    @Mock
     private UserRepository userRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -60,13 +65,20 @@ class KnowledgeControllerApiContractTest {
 
     @BeforeEach
     void setUp() {
-        controller = new KnowledgeController();
-        ReflectionTestUtils.setField(controller, "ragService", ragService);
-        ReflectionTestUtils.setField(controller, "knowledgeBaseService", knowledgeBaseService);
-        ReflectionTestUtils.setField(controller, "documentService", documentService);
-        ReflectionTestUtils.setField(controller, "recordService", recordService);
-        ReflectionTestUtils.setField(controller, "documentChunkService", documentChunkService);
-        ReflectionTestUtils.setField(controller, "userRepository", userRepository);
+        KnowledgeAccessContextResolver accessContextResolver =
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+        ReactiveMultipartFormReader formReader = new ReactiveMultipartFormReader();
+        KnowledgeDocumentUploadFacade uploadFacade =
+                new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader);
+        controller = new KnowledgeController(
+                ragService,
+                knowledgeBaseService,
+                documentService,
+                recordService,
+                documentChunkService,
+                knowledgeChunkSearchService,
+                accessContextResolver,
+                uploadFacade);
     }
 
     @Test

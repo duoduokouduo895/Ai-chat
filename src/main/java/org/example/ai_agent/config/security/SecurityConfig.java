@@ -32,6 +32,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -146,14 +147,16 @@ public class SecurityConfig {
     private Mono<Authentication> loadAuthenticatedUser(String username, String credentials) {
         return userRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new BadCredentialsException("Authenticated user does not exist")))
-                .map(user -> createAuthenticatedToken(user.getUsername(), user.getUserId(), credentials));
+                .map(user -> createAuthenticatedToken(user.getUsername(), user.getUserId(), credentials,
+                        Boolean.TRUE.equals(user.getIsGuest())));
     }
 
     private Mono<Authentication> authenticateActiveUser(String username, Long userId, String credentials) {
         return redisTemplate.hasKey(TokenRedisKeys.userRevoked(userId))
                 .flatMap(revoked -> Boolean.TRUE.equals(revoked)
                         ? Mono.error(new BadCredentialsException("User token has been revoked"))
-                        : Mono.just(createAuthenticatedToken(username, userId, credentials)));
+                        : Mono.just(createAuthenticatedToken(username, userId, credentials,
+                                Boolean.TRUE.equals(jwtUtil.getIsGuestFromToken(credentials)))));
     }
 
     private Mono<Authentication> loadAuthenticatedAdmin(String username, String credentials) {
@@ -162,11 +165,16 @@ public class SecurityConfig {
                 .map(admin -> createAdminAuthenticationToken(admin.getUsername(), admin.getAdminId(), credentials));
     }
 
-    private Authentication createAuthenticatedToken(String username, Long userId, String credentials) {
+    private Authentication createAuthenticatedToken(String username, Long userId, String credentials, boolean guest) {
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+        if (guest) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_GUEST"));
+        }
         UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
                 username,
                 credentials,
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                authorities
         );
         authenticationToken.setDetails(userId);
         return authenticationToken;

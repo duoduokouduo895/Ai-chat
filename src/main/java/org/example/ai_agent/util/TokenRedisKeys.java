@@ -16,4 +16,20 @@ public final class TokenRedisKeys {
     public static String userRevoked(Long userId) {
         return "token:user-revoked:" + userId;
     }
+
+    public static String chatConcurrencyGlobal() {
+        return "admission:chat:concurrency:global";
+    }
+
+    public static String chatConcurrencyUser(Long userId) {
+        return "admission:chat:concurrency:user:" + userId;
+    }
+
+    public static String chatGuestQuota(Long userId) {
+        return "admission:chat:guest-quota:" + userId;
+    }
+
+    public static String guestCreation(String clientAddress) {
+        return "admission:guest:create:" + clientAddress;
+    }
 }

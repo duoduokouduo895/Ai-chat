@@ -3,8 +3,6 @@ package org.example.ai_agent.service.assistant;
 import dev.langchain4j.agent.tool.Tool;
 import org.example.ai_agent.dto.document.DocumentDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
-import org.example.ai_agent.service.DocumentService;
-import org.example.ai_agent.service.KnowledgeBaseService;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -15,22 +13,10 @@ import java.util.stream.Collectors;
  */
 public class KnowledgeAssistantTools {
 
-    private final Long requesterUserId;
-    private final boolean adminRequest;
-    private final List<Long> selectedKnowledgeBaseIds;
-    private final KnowledgeBaseService knowledgeBaseService;
-    private final DocumentService documentService;
+    private final KnowledgeAssistantToolGateway gateway;
 
-    public KnowledgeAssistantTools(Long requesterUserId,
-                                   boolean adminRequest,
-                                   List<Long> selectedKnowledgeBaseIds,
-                                   KnowledgeBaseService knowledgeBaseService,
-                                   DocumentService documentService) {
-        this.requesterUserId = requesterUserId;
-        this.adminRequest = adminRequest;
-        this.selectedKnowledgeBaseIds = selectedKnowledgeBaseIds;
-        this.knowledgeBaseService = knowledgeBaseService;
-        this.documentService = documentService;
+    public KnowledgeAssistantTools(KnowledgeAssistantToolGateway gateway) {
+        this.gateway = gateway;
     }
 
     @Tool("列出当前用户可访问的知识库。如果当前会话已经选择了知识库，则优先列出本次会话已选中的知识库。适合在回答前确认有哪些知识来源可用。")
@@ -59,7 +45,12 @@ public class KnowledgeAssistantTools {
             return "文档ID无效。";
         }
 
-        DocumentDto document = documentService.getDocument(documentId, requesterUserId, adminRequest).block();
+        return gateway.getDocument(documentId)
+                .map(this::formatDocumentStatus)
+                .orElse("未找到对应文档。");
+    }
+
+    private String formatDocumentStatus(DocumentDto document) {
         if (document == null) {
             return "未找到对应文档。";
         }
@@ -78,19 +69,7 @@ public class KnowledgeAssistantTools {
     }
 
     private List<KnowledgeBaseDto> loadCandidateKnowledgeBases() {
-        if (selectedKnowledgeBaseIds != null && !selectedKnowledgeBaseIds.isEmpty()) {
-            return selectedKnowledgeBaseIds.stream()
-                    .distinct()
-                    .map(id -> knowledgeBaseService.getKnowledgeBase(id, requesterUserId, adminRequest).block())
-                    .filter(java.util.Objects::nonNull)
-                    .toList();
-        }
-
-        Long effectiveRequester = adminRequest ? null : requesterUserId;
-        return knowledgeBaseService.getKnowledgeBases(effectiveRequester, null, 0, 10)
-                .collectList()
-                .blockOptional()
-                .orElseGet(List::of);
+        return gateway.loadCandidateKnowledgeBases();
     }
 
     private String safe(String value) {

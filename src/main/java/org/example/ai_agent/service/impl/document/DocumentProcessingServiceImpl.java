@@ -1,28 +1,16 @@
 package org.example.ai_agent.service.impl.document;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.segment.TextSegment;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
-import org.example.ai_agent.dto.document.DocumentChunkDto;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
-import org.example.ai_agent.entity.KnowledgeDocument;
-import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.*;
-import org.example.ai_agent.service.registry.EmbeddingStoreRegistry;
-import org.example.ai_agent.service.registry.EmbeddingStoreRegistry.EmbeddingProfile;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 文档处理工作流服务实现类
@@ -34,42 +22,36 @@ import java.util.List;
 @Slf4j
 @Service
 public class DocumentProcessingServiceImpl implements DocumentProcessingService {
-    
-    @Autowired
-    private KnowledgeDocumentRepository documentRepository;
 
-    @Autowired
-    private KnowledgeBaseRepository knowledgeBaseRepository;
-    
-    @Autowired
-    private DocumentParserService documentParserService;
-    
-    @Autowired
-    private DocumentChunkService documentChunkService;
-    
-    @Autowired
-    private EmbeddingService embeddingService;
-    
-    @Autowired
-    private OssService ossService;
-    
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    @Autowired
-    private DocumentProcessingRecordService recordService;
-    
-    @Autowired
-    private org.example.ai_agent.service.registry.AiModelRegistry aiModelRegistry;
+    private final KnowledgeDocumentRepository documentRepository;
+    private final DocumentChunkService documentChunkService;
+    private final EmbeddingService embeddingService;
+    private final DocumentProcessingRecordService recordService;
+    private final KnowledgeChunkSearchService knowledgeChunkSearchService;
+    private final DocumentProcessingPublisher publisher;
+    private final DocumentProcessingStages stages;
+    private final DocumentEmbeddingBatchProcessor embeddingBatchProcessor;
+    private final int embeddingBatchSize;
 
-    @Autowired
-    private EmbeddingStoreRegistry embeddingStoreRegistry;
-
-    @Value("${knowledge-base.embedding.batch-size:32}")
-    private int embeddingBatchSize;
+    public DocumentProcessingServiceImpl(KnowledgeDocumentRepository documentRepository,
+                                         DocumentChunkService documentChunkService,
+                                         EmbeddingService embeddingService,
+                                         DocumentProcessingRecordService recordService,
+                                         KnowledgeChunkSearchService knowledgeChunkSearchService,
+                                         DocumentProcessingPublisher publisher,
+                                         DocumentProcessingStages stages,
+                                         DocumentEmbeddingBatchProcessor embeddingBatchProcessor,
+                                         @Value("${knowledge-base.embedding.batch-size:32}") int embeddingBatchSize) {
+        this.documentRepository = documentRepository;
+        this.documentChunkService = documentChunkService;
+        this.embeddingService = embeddingService;
+        this.recordService = recordService;
+        this.knowledgeChunkSearchService = knowledgeChunkSearchService;
+        this.publisher = publisher;
+        this.stages = stages;
+        this.embeddingBatchProcessor = embeddingBatchProcessor;
+        this.embeddingBatchSize = embeddingBatchSize;
+    }
     
     @Override
     public Mono<Boolean> startDocumentProcessing(Long documentId, Long knowledgeBaseId, 
@@ -95,7 +77,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 // 更新状态为处理中
                 return updateDocumentStatus(message.getDocumentId(), 
                         DocumentProcessingConstants.Status.PROCESSING, null, null)
-                    .then(parseDocumentFromOss(document, message.getParseMode()))
+                    .then(stages.parseDocumentFromOss(document, message.getParseMode()))
                     .flatMap(parsedContent -> {
                         // 更新文档内容和状态
                         document.setContent(parsedContent);
@@ -143,14 +125,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                         .then(Mono.just(true));
                 }
                 
-                return documentChunkService.createDocumentChunks(
-                        message.getDocumentId(), message.getKnowledgeBaseId(), document.getContent())
-                    .flatMap(chunks -> {
+                return stages.createChunksAndIndex(message, document)
+                    .flatMap(chunkCount -> {
                         // 更新文档块数量
-                        document.setChunkCount(chunks.size());
+                        document.setChunkCount(chunkCount);
                         document.setUpdatedAt(LocalDateTime.now());
                         
-                        return documentRepository.save(document).thenReturn(chunks.size());
+                        return documentRepository.save(document).thenReturn(chunkCount);
                     })
                     .flatMap(chunkCount -> {
                         // 如果启用向量化，发送向量化消息
@@ -197,9 +178,9 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
                 return updateDocumentStatus(message.getDocumentId(), null, 
                         DocumentProcessingConstants.Status.PROCESSING, null)
-                    .then(resolveEmbeddingProfile(message.getKnowledgeBaseId()))
+                    .then(embeddingBatchProcessor.resolveEmbeddingProfile(message.getKnowledgeBaseId()))
                     .flatMapMany(profile -> batches.concatMap(batch ->
-                            processChunkBatch(batch, message, profile)));
+                            embeddingBatchProcessor.processChunkBatch(batch, message, profile)));
             })
             .reduce(new EmbeddingBatchResult(false, true), EmbeddingBatchResult::append)
             .flatMap(result -> {
@@ -213,7 +194,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 }
                 return updateDocumentStatus(message.getDocumentId(), null,
                         DocumentProcessingConstants.Status.COMPLETED, null)
-                    .then(updateDocumentEmbeddedFlag(message.getDocumentId()))
+                    .then(embeddingBatchProcessor.completeDocumentEmbedding(message.getDocumentId()))
                     .then(recordService.completeProcessing(
                             message.getDocumentId(), message.getProcessingType(), "Embedding completed"))
                     .thenReturn(true);
@@ -237,6 +218,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 document.setUpdatedAt(LocalDateTime.now());
                 
                 return documentRepository.save(document)
+                    .then(knowledgeChunkSearchService.deleteDocumentChunks(documentId))
                     .then(documentChunkService.deleteDocumentChunks(documentId))
                     .then(embeddingService.deleteDocumentEmbeddings(documentId))
                     .then(startDocumentProcessing(documentId, document.getKnowledgeBaseId(), 
@@ -254,9 +236,10 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 
                 // 重置向量化状态
                 return embeddingService.deleteDocumentEmbeddings(documentId)
-                    .then(resetChunksEmbeddingStatus(documentId))
+                    .then(embeddingBatchProcessor.resetChunksEmbeddingStatus(documentId, effectiveEmbeddingBatchSize()))
                     .then(updateDocumentStatus(documentId, null, 
                             DocumentProcessingConstants.Status.PENDING, null))
+                    .then(knowledgeChunkSearchService.indexDocumentChunks(documentId))
                     .then(Mono.fromCallable(() -> {
                         // 发送向量化消息
                         DocumentProcessingMessage message = DocumentProcessingMessage.createEmbedMessage(
@@ -272,24 +255,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     
     @Override
     public Mono<Boolean> sendProcessingMessage(DocumentProcessingMessage message, String routingKey) {
-        return Mono.fromCallable(() -> {
-            try {
-                rabbitTemplate.convertAndSend(
-                    DocumentProcessingConstants.Exchange.DOCUMENT_PROCESSING,
-                    routingKey,
-                    message
-                );
-                
-                log.debug("发送处理消息成功: routingKey={}, documentId={}, processingType={}", 
-                        routingKey, message.getDocumentId(), message.getProcessingType());
-                
-                return true;
-            } catch (Exception e) {
-                log.error("发送处理消息失败: routingKey={}, documentId={}, error={}", 
-                        routingKey, message.getDocumentId(), e.getMessage(), e);
-                return false;
-            }
-        }).subscribeOn(Schedulers.boundedElastic());
+        return publisher.publish(message, routingKey);
     }
     
     @Override
@@ -319,86 +285,6 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             .defaultIfEmpty(false);
     }
     
-    /**
-     * 从OSS解析文档
-     */
-    private Mono<String> parseDocumentFromOss(KnowledgeDocument document, String parseMode) {
-        return ossService.getFileInputStream(document.getOssPath())
-            .flatMap(inputStream -> {
-                if (DocumentProcessingConstants.ParseMode.AI_ENHANCED.equals(parseMode)) {
-                    return documentParserService.parseDocumentWithAI(
-                        inputStream, document.getFileName(), document.getFileType(), aiModelRegistry.getDefaultChatModel());
-                } else {
-                    return documentParserService.parseDocument(
-                        inputStream, document.getFileName(), document.getFileType());
-                }
-            })
-            .map(Document::text);
-    }
-    
-    /**
-     * 处理文档块向量化
-     */
-    private Mono<Boolean> processChunkBatch(List<DocumentChunkDto> chunks, DocumentProcessingMessage message,
-                                            EmbeddingProfile profile) {
-        // 提取文本段
-        List<TextSegment> textSegments = chunks.stream()
-            .map(chunk -> TextSegment.from(chunk.getContent()))
-            .toList();
-        
-        List<Long> chunkIds = chunks.stream()
-            .map(DocumentChunkDto::getId)
-            .toList();
-        
-        log.debug("处理文档向量化批次: documentId={}, batchChunkCount={}",
-                message.getDocumentId(), chunks.size());
-
-        return embeddingService.embedTexts(textSegments, profile.modelAlias())
-                .flatMap(embeddings -> embeddingService.storeEmbeddings(
-                        message.getKnowledgeBaseId(),
-                        message.getDocumentId(),
-                        chunkIds,
-                        embeddings,
-                        textSegments,
-                        profile.modelAlias(),
-                        profile.indexName()))
-                .flatMap(embeddingIds -> documentChunkService.batchUpdateChunkEmbeddingStatus(
-                        chunkIds, embeddingIds, DocumentProcessingConstants.Status.COMPLETED));
-    }
-    
-    /**
-     * 更新文档的已向量化标志
-     */
-    private Mono<Boolean> updateDocumentEmbeddedFlag(Long documentId) {
-        return documentRepository.findById(documentId)
-            .flatMap(document -> {
-                document.setIsEmbedded(true);
-                document.setUpdatedAt(LocalDateTime.now());
-                return documentRepository.save(document).map(saved -> true);
-            })
-            .defaultIfEmpty(false);
-    }
-    
-    /**
-     * 重置文档块的向量化状态
-     */
-    private Mono<Boolean> resetChunksEmbeddingStatus(Long documentId) {
-        return documentChunkService.getDocumentChunks(documentId)
-            .map(DocumentChunkDto::getId)
-            .buffer(effectiveEmbeddingBatchSize())
-            .concatMap(chunkIds -> documentChunkService.batchUpdateChunkEmbeddingStatus(
-                    chunkIds,
-                    chunkIds.stream().map(id -> (String) null).toList(),
-                    DocumentProcessingConstants.Status.PENDING))
-            .all(Boolean.TRUE::equals);
-    }
-
-    private Mono<EmbeddingProfile> resolveEmbeddingProfile(Long knowledgeBaseId) {
-        return knowledgeBaseRepository.findById(knowledgeBaseId)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + knowledgeBaseId)))
-            .map(embeddingStoreRegistry::resolveProfile);
-    }
-
     private int effectiveEmbeddingBatchSize() {
         return Math.max(1, embeddingBatchSize);
     }

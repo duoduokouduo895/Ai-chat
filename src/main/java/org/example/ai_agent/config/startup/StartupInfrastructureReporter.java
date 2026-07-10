@@ -14,6 +14,7 @@ import org.springframework.core.env.PropertySource;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -44,6 +45,9 @@ public class StartupInfrastructureReporter {
 
     @Value("${startup.infrastructure-report.timeout-seconds:5}")
     private int timeoutSeconds;
+
+    @Value("${startup.infrastructure-report.mysql-warmup-connections:${spring.r2dbc.pool.initial-size:2}}")
+    private int mysqlWarmupConnections;
 
     public StartupInfrastructureReporter(
             Environment environment,
@@ -91,7 +95,7 @@ public class StartupInfrastructureReporter {
         boolean configEnabled = environment.getProperty("spring.cloud.nacos.config.enabled", Boolean.class, false);
         boolean discoveryEnabled = environment.getProperty("spring.cloud.nacos.discovery.enabled", Boolean.class, false);
         if (!configEnabled && !discoveryEnabled) {
-            log.info("组件状态 | Nacos=SKIPPED | 未启用，需要时通过 nacos profile 显式开启");
+            log.warn("组件状态 | Nacos=DOWN | 未启用云端 Nacos 配置源，请使用 prod,nacos profile 启动");
             return;
         }
 
@@ -100,6 +104,8 @@ public class StartupInfrastructureReporter {
         List<String> missingKeys = missingImportantConfigKeys();
 
         String detail = "server=" + property("spring.cloud.nacos.config.server-addr", "未配置")
+                + ", group=" + property("spring.cloud.nacos.config.group", "DEFAULT_GROUP")
+                + ", namespace=" + property("spring.cloud.nacos.config.namespace", "")
                 + ", loadedSources=" + nacosSources.size()
                 + ", expectedDataIds=" + expectedDataIds.size()
                 + ", keyConfig=" + (missingKeys.isEmpty() ? "齐全" : "缺失" + missingKeys);
@@ -115,46 +121,53 @@ public class StartupInfrastructureReporter {
     }
 
     private CheckResult checkMysql() {
+        long startNanos = System.nanoTime();
         ConnectionFactory connectionFactory = connectionFactoryProvider.getIfAvailable();
         if (connectionFactory == null) {
-            return CheckResult.down("ConnectionFactory Bean 未创建");
+            return CheckResult.down("ConnectionFactory Bean 未创建", elapsedMs(startNanos));
         }
 
         try {
-            Boolean connected = Mono.from(connectionFactory.create())
-                    .flatMap(connection -> Mono.from(connection.close()).thenReturn(Boolean.TRUE))
+            int warmupConnections = Math.max(1, mysqlWarmupConnections);
+            Integer warmedConnections = Flux.range(1, warmupConnections)
+                    .flatMap(ignored -> Mono.from(connectionFactory.create())
+                            .flatMap(connection -> Mono.from(connection.close()).thenReturn(1)), warmupConnections)
+                    .reduce(0, Integer::sum)
                     .timeout(timeout())
                     .block();
 
-            if (Boolean.TRUE.equals(connected)) {
-                return CheckResult.up("endpoint=" + mysqlEndpoint());
+            if (warmedConnections != null && warmedConnections > 0) {
+                return CheckResult.up("endpoint=" + mysqlEndpoint()
+                        + ", warmupConnections=" + warmedConnections, elapsedMs(startNanos));
             }
-            return CheckResult.down("连接创建成功但关闭结果未知");
+            return CheckResult.down("连接创建成功但关闭结果未知", elapsedMs(startNanos));
         } catch (Exception e) {
-            return CheckResult.down(simpleError(e));
+            return CheckResult.down(simpleError(e), elapsedMs(startNanos));
         }
     }
 
     private CheckResult checkRedis() {
+        long startNanos = System.nanoTime();
         ReactiveStringRedisTemplate redisTemplate = redisTemplateProvider.getIfAvailable();
         if (redisTemplate == null) {
-            return CheckResult.down("ReactiveStringRedisTemplate Bean 未创建");
+            return CheckResult.down("ReactiveStringRedisTemplate Bean 未创建", elapsedMs(startNanos));
         }
 
         try {
             redisTemplate.hasKey(PROBE_KEY)
                     .timeout(timeout())
                     .block();
-            return CheckResult.up("endpoint=" + redisEndpoint());
+            return CheckResult.up("endpoint=" + redisEndpoint(), elapsedMs(startNanos));
         } catch (Exception e) {
-            return CheckResult.down(simpleError(e));
+            return CheckResult.down(simpleError(e), elapsedMs(startNanos));
         }
     }
 
     private CheckResult checkRabbitMq() {
+        long startNanos = System.nanoTime();
         RabbitTemplate rabbitTemplate = rabbitTemplateProvider.getIfAvailable();
         if (rabbitTemplate == null) {
-            return CheckResult.down("RabbitTemplate Bean 未创建");
+            return CheckResult.down("RabbitTemplate Bean 未创建", elapsedMs(startNanos));
         }
 
         try {
@@ -162,15 +175,16 @@ public class StartupInfrastructureReporter {
                     .supplyAsync(() -> rabbitTemplate.execute(channel -> channel.isOpen()))
                     .get(timeoutSeconds, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(connected)) {
-                return CheckResult.up("endpoint=" + rabbitMqEndpoint());
+                return CheckResult.up("endpoint=" + rabbitMqEndpoint(), elapsedMs(startNanos));
             }
-            return CheckResult.down("Channel 未打开");
+            return CheckResult.down("Channel 未打开", elapsedMs(startNanos));
         } catch (Exception e) {
-            return CheckResult.down(simpleError(e));
+            return CheckResult.down(simpleError(e), elapsedMs(startNanos));
         }
     }
 
     private CheckResult checkElasticsearch() {
+        long startNanos = System.nanoTime();
         String uri = elasticsearchConfig.getElasticsearchUri();
         try {
             HttpClient client = HttpClient.newBuilder()
@@ -184,19 +198,21 @@ public class StartupInfrastructureReporter {
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             int statusCode = response.statusCode();
             if (statusCode >= 200 && statusCode < 300) {
-                return CheckResult.up("endpoint=" + safeUri(uri) + ", status=" + statusCode);
+                return CheckResult.up("endpoint=" + safeUri(uri) + ", status=" + statusCode,
+                        elapsedMs(startNanos));
             }
-            return CheckResult.down("endpoint=" + safeUri(uri) + ", status=" + statusCode);
+            return CheckResult.down("endpoint=" + safeUri(uri) + ", status=" + statusCode,
+                    elapsedMs(startNanos));
         } catch (Exception e) {
-            return CheckResult.down(simpleError(e));
+            return CheckResult.down(simpleError(e), elapsedMs(startNanos));
         }
     }
 
     private void report(String component, CheckResult result) {
         if (result.up()) {
-            log.info("组件状态 | {}=UP | {}", component, result.detail());
+            log.info("组件状态 | {}=UP | durationMs={} | {}", component, result.durationMs(), result.detail());
         } else {
-            log.warn("组件状态 | {}=DOWN | {}", component, result.detail());
+            log.warn("组件状态 | {}=DOWN | durationMs={} | {}", component, result.durationMs(), result.detail());
         }
     }
 
@@ -295,6 +311,10 @@ public class StartupInfrastructureReporter {
         return Duration.ofSeconds(Math.max(1, timeoutSeconds));
     }
 
+    private long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000;
+    }
+
     private String simpleError(Throwable throwable) {
         Throwable root = throwable;
         while (root.getCause() != null) {
@@ -303,13 +323,17 @@ public class StartupInfrastructureReporter {
         return root.getClass().getSimpleName() + ": " + root.getMessage();
     }
 
-    private record CheckResult(boolean up, String detail) {
-        static CheckResult up(String detail) {
-            return new CheckResult(true, detail);
+    private record CheckResult(boolean up, String detail, long durationMs) {
+        static CheckResult up(String detail, long durationMs) {
+            return new CheckResult(true, detail, durationMs);
+        }
+
+        static CheckResult down(String detail, long durationMs) {
+            return new CheckResult(false, detail, durationMs);
         }
 
         static CheckResult down(String detail) {
-            return new CheckResult(false, detail);
+            return new CheckResult(false, detail, -1);
         }
     }
 }

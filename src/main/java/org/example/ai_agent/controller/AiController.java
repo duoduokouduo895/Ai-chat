@@ -6,6 +6,7 @@ import org.example.ai_agent.config.ai.ModelCatalogProperties;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
+import org.example.ai_agent.service.admission.ChatAdmissionService;
 import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -29,11 +30,14 @@ public class AiController {
     private final AiModelRegistry aiModelRegistry;
     private final AiChatService aiChatService;
     private final UserRepository userRepository;
+    private final ChatAdmissionService chatAdmissionService;
 
-    public AiController(AiModelRegistry aiModelRegistry, AiChatService aiChatService, UserRepository userRepository) {
+    public AiController(AiModelRegistry aiModelRegistry, AiChatService aiChatService, UserRepository userRepository,
+                        ChatAdmissionService chatAdmissionService) {
         this.aiModelRegistry = aiModelRegistry;
         this.aiChatService = aiChatService;
         this.userRepository = userRepository;
+        this.chatAdmissionService = chatAdmissionService;
     }
 
     @GetMapping("/models")
@@ -54,7 +58,13 @@ public class AiController {
                             chatRequest.getModel(),
                             chatRequest.getKnowledgeBaseIds() != null ? chatRequest.getKnowledgeBaseIds().size() : 0);
 
-                    return aiChatService.chat(chatRequest);
+                    return chatAdmissionService.admit(userId, isGuest(authentication), chatRequest)
+                            .flatMapMany(lease -> Flux.usingWhen(
+                                    Mono.just(lease),
+                                    ignored -> aiChatService.chat(chatRequest),
+                                    ignored -> lease.release(),
+                                    (ignored, error) -> lease.release(),
+                                    ignored -> lease.release()));
                 });
     }
 
@@ -90,6 +100,15 @@ public class AiController {
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch("ROLE_ADMIN"::equals);
+    }
+
+    private boolean isGuest(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_GUEST"::equals);
     }
 }
 

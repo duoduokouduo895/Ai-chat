@@ -6,6 +6,7 @@ import org.example.ai_agent.repository.document.DocumentProcessingRecordReposito
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.EmbeddingService;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.example.ai_agent.service.OssService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -37,6 +38,8 @@ class KnowledgeAssetCleanupServiceTest {
     @Mock
     private EmbeddingService embeddingService;
     @Mock
+    private KnowledgeChunkSearchService knowledgeChunkSearchService;
+    @Mock
     private OssService ossService;
 
     private KnowledgeAssetCleanupService cleanupService;
@@ -44,7 +47,8 @@ class KnowledgeAssetCleanupServiceTest {
     @BeforeEach
     void setUp() {
         cleanupService = new KnowledgeAssetCleanupService(
-                documentRepository, chunkRepository, recordRepository, embeddingService, ossService);
+                documentRepository, chunkRepository, recordRepository,
+                embeddingService, knowledgeChunkSearchService, ossService);
     }
 
     @Test
@@ -54,6 +58,7 @@ class KnowledgeAssetCleanupServiceTest {
         document.setOssPath("kb_1/doc.pdf");
 
         when(embeddingService.deleteDocumentEmbeddings(10L)).thenReturn(Mono.just(true));
+        when(knowledgeChunkSearchService.deleteDocumentChunks(10L)).thenReturn(Mono.empty());
         when(ossService.deleteFile("kb_1/doc.pdf")).thenReturn(Mono.just(true));
         when(chunkRepository.deleteByDocumentId(10L)).thenReturn(Mono.just(3L));
         when(recordRepository.deleteByDocumentId(10L)).thenReturn(Mono.just(2L));
@@ -84,11 +89,13 @@ class KnowledgeAssetCleanupServiceTest {
 
         when(documentRepository.findByKnowledgeBaseId(88L)).thenReturn(Flux.just(doc1, doc2));
         when(embeddingService.deleteDocumentEmbeddings(anyLong())).thenReturn(Mono.just(true));
+        when(knowledgeChunkSearchService.deleteDocumentChunks(anyLong())).thenReturn(Mono.empty());
         when(ossService.deleteFile("kb_88/doc1.pdf")).thenReturn(Mono.just(true));
         when(ossService.deleteFile("kb_88/doc2.pdf")).thenReturn(Mono.just(true));
         when(chunkRepository.deleteByDocumentId(anyLong())).thenReturn(Mono.just(1L));
         when(recordRepository.deleteByDocumentId(anyLong())).thenReturn(Mono.just(1L));
         when(documentRepository.deleteById(anyLong())).thenReturn(Mono.empty());
+        when(knowledgeChunkSearchService.deleteKnowledgeBaseChunks(88L)).thenReturn(Mono.empty());
         when(embeddingService.deleteKnowledgeBaseEmbeddings(88L)).thenReturn(Mono.just(true));
 
         StepVerifier.create(cleanupService.deleteKnowledgeBaseAssets(knowledgeBase))
@@ -96,6 +103,8 @@ class KnowledgeAssetCleanupServiceTest {
 
         verify(documentRepository, times(2)).deleteById(anyLong());
         verify(embeddingService, times(2)).deleteDocumentEmbeddings(anyLong());
+        verify(knowledgeChunkSearchService, times(2)).deleteDocumentChunks(anyLong());
+        verify(knowledgeChunkSearchService).deleteKnowledgeBaseChunks(88L);
         verify(embeddingService).deleteKnowledgeBaseEmbeddings(88L);
     }
 }

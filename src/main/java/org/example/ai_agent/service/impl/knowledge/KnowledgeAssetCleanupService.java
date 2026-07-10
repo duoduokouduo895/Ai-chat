@@ -7,6 +7,7 @@ import org.example.ai_agent.repository.document.DocumentProcessingRecordReposito
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.EmbeddingService;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.example.ai_agent.service.OssService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -24,17 +25,20 @@ public class KnowledgeAssetCleanupService {
     private final KnowledgeDocumentChunkRepository chunkRepository;
     private final DocumentProcessingRecordRepository recordRepository;
     private final EmbeddingService embeddingService;
+    private final KnowledgeChunkSearchService knowledgeChunkSearchService;
     private final OssService ossService;
 
     public KnowledgeAssetCleanupService(KnowledgeDocumentRepository documentRepository,
                                         KnowledgeDocumentChunkRepository chunkRepository,
                                         DocumentProcessingRecordRepository recordRepository,
                                         EmbeddingService embeddingService,
+                                        KnowledgeChunkSearchService knowledgeChunkSearchService,
                                         OssService ossService) {
         this.documentRepository = documentRepository;
         this.chunkRepository = chunkRepository;
         this.recordRepository = recordRepository;
         this.embeddingService = embeddingService;
+        this.knowledgeChunkSearchService = knowledgeChunkSearchService;
         this.ossService = ossService;
     }
 
@@ -46,6 +50,7 @@ public class KnowledgeAssetCleanupService {
         Long documentId = document.getId();
         return Mono.whenDelayError(
                         deleteDocumentEmbeddings(documentId),
+                        knowledgeChunkSearchService.deleteDocumentChunks(documentId),
                         deleteOssFile(document),
                         chunkRepository.deleteByDocumentId(documentId).then(),
                         recordRepository.deleteByDocumentId(documentId).then()
@@ -66,6 +71,7 @@ public class KnowledgeAssetCleanupService {
                 .collectList()
                 .flatMapMany(Flux::fromIterable)
                 .concatMap(this::deleteDocumentAggregate)
+                .then(knowledgeChunkSearchService.deleteKnowledgeBaseChunks(knowledgeBaseId))
                 .then(deleteKnowledgeBaseEmbeddings(knowledgeBaseId))
                 .doOnSuccess(unused -> log.info("知识库关联资源清理完成: knowledgeBaseId={}", knowledgeBaseId))
                 .doOnError(error -> log.error("知识库关联资源清理失败: knowledgeBaseId={}, error={}",

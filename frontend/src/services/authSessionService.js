@@ -1,22 +1,13 @@
-const TOKEN_KEY = 'token';
+import {
+  clearSessionState,
+  getToken,
+  setToken
+} from './sessionStore.mjs';
+
 const REFRESHED_TOKEN_HEADER = 'x-refreshed-token';
 
-const getToken = () => localStorage.getItem(TOKEN_KEY);
-
-const setToken = (token) => {
-  if (!token) {
-    return;
-  }
-
-  localStorage.setItem(TOKEN_KEY, token.trim());
-};
-
 const clearSession = () => {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem('user');
-  localStorage.removeItem('guestId');
-  localStorage.removeItem('isGuest');
-  localStorage.removeItem('guestMessageCount');
+  clearSessionState();
 };
 
 const clearGuestSession = async () => {

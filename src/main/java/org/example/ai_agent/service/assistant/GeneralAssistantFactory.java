@@ -31,13 +31,14 @@ public class GeneralAssistantFactory {
 
     public GeneralAssistant createAssistant(ChatRequest chatRequest) {
         String effectiveModelId = normalizeModelId(chatRequest.getEffectiveModelId());
-        KnowledgeAssistantTools knowledgeTools = new KnowledgeAssistantTools(
+        KnowledgeAssistantToolGateway toolGateway = new KnowledgeAssistantToolGateway(
                 chatRequest.getUserId(),
                 chatRequest.isAdminRequest(),
                 chatRequest.getKnowledgeBaseIds(),
                 knowledgeBaseService,
                 documentService
         );
+        KnowledgeAssistantTools knowledgeTools = new KnowledgeAssistantTools(toolGateway);
         return createAssistant(effectiveModelId, knowledgeTools);
     }
 

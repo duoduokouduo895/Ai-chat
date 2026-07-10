@@ -4,12 +4,15 @@ import jakarta.validation.Valid;
 import org.example.ai_agent.dto.auth.UserLoginDto;
 import org.example.ai_agent.dto.auth.UserRegistrationDto;
 import org.example.ai_agent.service.UserService;
+import org.example.ai_agent.service.admission.ChatAdmissionException;
+import org.example.ai_agent.service.admission.GuestCreationAdmissionService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,9 +22,11 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final GuestCreationAdmissionService guestCreationAdmissionService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, GuestCreationAdmissionService guestCreationAdmissionService) {
         this.userService = userService;
+        this.guestCreationAdmissionService = guestCreationAdmissionService;
     }
 
 
@@ -78,14 +83,21 @@ public class UserController {
      * @return 包含生成的 token 的响应
      */
     @PostMapping("/guest")
-    public Mono<ResponseEntity<Map<String, Object>>> createGuestAndLogin() {
-        return userService.createGuestAndLogin()
+    public Mono<ResponseEntity<Map<String, Object>>> createGuestAndLogin(ServerWebExchange exchange) {
+        return guestCreationAdmissionService.admit(exchange)
+                .then(Mono.defer(userService::createGuestAndLogin))
                 .map(token -> {
                     Map<String, Object> response = new HashMap<>();
                     response.put("success", true);
                     response.put("token", token);
                     response.put("message", "游客账号创建成功");
                     return ResponseEntity.ok().body(response);
+                })
+                .onErrorResume(ChatAdmissionException.class, e -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", false);
+                    response.put("message", e.getReason());
+                    return Mono.just(ResponseEntity.status(e.getStatusCode()).body(response));
                 })
                 .onErrorResume(e -> {
                     org.slf4j.LoggerFactory.getLogger(UserController.class).error("Unexpected error during guest login", e);

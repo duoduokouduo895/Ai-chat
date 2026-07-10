@@ -11,6 +11,7 @@ import org.example.ai_agent.entity.KnowledgeBase;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.KnowledgeBaseService;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,7 @@ import reactor.core.scheduler.Schedulers;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 知识库服务实现类
@@ -48,11 +50,17 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Autowired
     private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
 
+    @Autowired
+    private KnowledgeChunkSearchService knowledgeChunkSearchService;
+
     @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
     private String defaultEmbeddingModel;
 
     @Value("${knowledge-base.embedding.index-prefix:kb_}")
     private String embeddingIndexPrefix;
+
+    @Value("${knowledge-base.list.slow-threshold-ms:500}")
+    private long knowledgeBaseListSlowThresholdMs;
 
     @Override
     public Mono<KnowledgeBaseDto> createKnowledgeBase(KnowledgeBaseCreateDto createDto, Long creatorId) {
@@ -88,29 +96,50 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     @Override
     public Flux<KnowledgeBaseDto> getKnowledgeBases(Long creatorId, Boolean publicOnly, Integer page, Integer size) {
-        return Mono.fromCallable(() -> {
+        return Flux.defer(() -> {
+            long totalStartNanos = System.nanoTime();
+            AtomicLong queryStartNanos = new AtomicLong();
             log.info("查询知识库列表: creatorId={}, publicOnly={}, page={}, size={}", creatorId, publicOnly, page, size);
 
             final int finalPage = page != null && page >= 0 ? page : 0;
             final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
 
             Pageable pageable = PageRequest.of(finalPage, finalSize);
+            Flux<KnowledgeBase> query;
 
             if (publicOnly != null && publicOnly) {
-                return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
+                query = knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
             } else if (creatorId != null) {
                 // Return user's private bases + all public bases
-                return knowledgeBaseRepository.findByCreatorIdOrPublicAndStatus(creatorId, true, "ACTIVE", pageable);
+                query = knowledgeBaseRepository.findByCreatorIdOrPublicAndStatus(
+                        creatorId, true, "ACTIVE", finalSize, pageable.getOffset());
             } else {
                 // If no user is logged in, only return public bases
-                return knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
+                query = knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(true, "ACTIVE", pageable);
             }
-        })
-        .flatMapMany(flux -> flux)
-        .map(this::toDto)
-        .doOnComplete(() -> log.info("知识库列表查询完成"))
-        .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()))
-        .subscribeOn(Schedulers.boundedElastic());
+
+            return query
+                    .doOnSubscribe(subscription -> queryStartNanos.set(System.nanoTime()))
+                    .map(this::toDto)
+                    .collectList()
+                    .flatMapMany(items -> {
+                        long totalMs = elapsedMs(totalStartNanos);
+                        long queryMs = queryStartNanos.get() > 0 ? elapsedMs(queryStartNanos.get()) : -1;
+                        if (totalMs > knowledgeBaseListSlowThresholdMs) {
+                            log.warn("知识库列表慢查询: creatorId={}, publicOnly={}, page={}, size={}, resultCount={}, queryMs={}, totalMs={}",
+                                    creatorId, publicOnly, finalPage, finalSize, items.size(), queryMs, totalMs);
+                        } else {
+                            log.info("知识库列表查询完成: resultCount={}, queryMs={}ms, totalMs={}ms",
+                                    items.size(), queryMs, totalMs);
+                        }
+                        return Flux.fromIterable(items);
+                    });
+        }).doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000;
     }
 
     @Override
@@ -212,6 +241,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                 }
             })
             .flatMap(knowledgeBaseRepository::save)
+            .flatMap(saved -> knowledgeChunkSearchService.refreshKnowledgeBaseChunks(saved.getId()).thenReturn(saved))
             .map(this::toDto)
             .doOnSuccess(dto -> log.info("知识库更新成功: id={}, name={}", id, dto.getName()))
             .doOnError(error -> log.error("知识库更新失败: id={}, error={}", id, error.getMessage()))

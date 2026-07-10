@@ -197,10 +197,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, toRef, watch } from 'vue'
-import { ElMessage } from 'element-plus/es/components/message/index'
+import { ref, toRef } from 'vue'
+import { useKnowledgeBaseForm } from '@/composables/useKnowledgeBaseForm.js'
 import { useModalDialog } from '@/composables/useModalDialog.js'
-import { getApiErrorMessage } from '@/services/apiErrorService.js'
 
 // Props
 const props = defineProps({
@@ -221,67 +220,17 @@ const props = defineProps({
 // Emits
 const emit = defineEmits(['close', 'save'])
 
-// 响应式数据
-const isSubmitting = ref(false)
-const newTag = ref('')
 const dialogRef = ref(null)
 const closeButtonRef = ref(null)
-
-// 表单数据
-const formData = reactive({
-  name: '',
-  description: '',
-  isPublic: false,
-  tags: [],
-  status: 'ACTIVE',
-  autoUpdate: true,
-  enableRAG: true
-})
-
-// 计算属性
-const isFormValid = computed(() => {
-  return formData.name.trim().length > 0 && formData.name.trim().length <= 100
-})
-
-// 监听props变化，初始化表单数据
-watch(() => props.knowledgeBase, (newKB) => {
-  if (newKB && props.isEdit) {
-    Object.assign(formData, {
-      name: newKB.name || '',
-      description: newKB.description || '',
-      isPublic: newKB.isPublic || false,
-      tags: Array.isArray(newKB.tags) ? [...newKB.tags] : [],
-      status: newKB.status || 'ACTIVE',
-      autoUpdate: newKB.autoUpdate !== false,
-      enableRAG: newKB.enableRAG !== false
-    })
-  } else if (!props.isEdit) {
-    // 重置表单数据
-    Object.assign(formData, {
-      name: '',
-      description: '',
-      isPublic: false,
-      tags: [],
-      status: 'ACTIVE',
-      autoUpdate: true,
-      enableRAG: true
-    })
-  }
-}, { immediate: true })
-
-// 添加标签
-const addTag = () => {
-  const tag = newTag.value.trim()
-  if (tag && !formData.tags.includes(tag) && formData.tags.length < 10) {
-    formData.tags.push(tag)
-    newTag.value = ''
-  }
-}
-
-// 移除标签
-const removeTag = (index) => {
-  formData.tags.splice(index, 1)
-}
+const {
+  addTag,
+  formData,
+  handleSubmit,
+  isFormValid,
+  isSubmitting,
+  newTag,
+  removeTag
+} = useKnowledgeBaseForm(props, emit)
 
 const closeDialog = () => {
   emit('close')
@@ -293,34 +242,4 @@ useModalDialog({
   initialFocusRef: closeButtonRef,
   onClose: closeDialog
 })
-
-// 提交表单
-const handleSubmit = async () => {
-  if (!isFormValid.value || isSubmitting.value) {
-    return
-  }
-
-  try {
-    isSubmitting.value = true
-    
-    // 准备提交数据
-    const submitData = {
-      name: formData.name.trim(),
-      description: formData.description.trim() || null,
-      isPublic: formData.isPublic,
-      tags: formData.tags,
-      status: formData.status,
-      autoUpdate: formData.autoUpdate,
-      enableRAG: formData.enableRAG
-    }
-
-    // 触发保存事件
-    emit('save', submitData)
-    
-  } catch (error) {
-    ElMessage.error(getApiErrorMessage(error, '表单提交失败，请稍后重试'))
-  } finally {
-    isSubmitting.value = false
-  }
-}
 </script>

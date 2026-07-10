@@ -2,6 +2,8 @@ package org.example.ai_agent.controller;
 
 import org.example.ai_agent.exception.GlobalExceptionHandler;
 import org.example.ai_agent.service.UserService;
+import org.example.ai_agent.service.admission.ChatAdmissionException;
+import org.example.ai_agent.service.admission.GuestCreationAdmissionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -21,12 +23,14 @@ class UserControllerValidationTest {
 
     @Mock
     private UserService userService;
+    @Mock
+    private GuestCreationAdmissionService guestCreationAdmissionService;
 
     private WebTestClient webTestClient;
 
     @BeforeEach
     void setUp() {
-        webTestClient = WebTestClient.bindToController(new UserController(userService))
+        webTestClient = WebTestClient.bindToController(new UserController(userService, guestCreationAdmissionService))
                 .controllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -86,5 +90,19 @@ class UserControllerValidationTest {
                 .expectStatus().is5xxServerError()
                 .expectBody()
                 .jsonPath("$.message").isEqualTo("注册失败，请稍后重试");
+    }
+
+    @Test
+    void guestCreation_shouldReturnTooManyRequestsWhenAdmissionRejects() {
+        when(guestCreationAdmissionService.admit(any()))
+                .thenReturn(Mono.error(new ChatAdmissionException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                        "游客账号创建过于频繁，请稍后再试")));
+
+        webTestClient.post()
+                .uri("/api/users/guest")
+                .exchange()
+                .expectStatus().isEqualTo(429)
+                .expectBody()
+                .jsonPath("$.message").isEqualTo("游客账号创建过于频繁，请稍后再试");
     }
 }

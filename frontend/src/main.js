@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
 import userApiService from './services/userApi.js';
+import { getToken } from './services/sessionStore.mjs';
 import { ElOption, ElSelect } from 'element-plus/es/components/select/index';
 import 'element-plus/es/components/message/style/css';
 import 'element-plus/es/components/message-box/style/css';
@@ -14,7 +15,7 @@ import './assets/styles/auth.css';
 import { FontAwesomeIcon } from '../icon/icons.js';
 
 async function initializeApp() {
-  const token = localStorage.getItem('token');
+  const token = getToken();
 
   if (token) {
     try {

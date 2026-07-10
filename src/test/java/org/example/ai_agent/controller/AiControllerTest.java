@@ -4,6 +4,7 @@ import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
+import org.example.ai_agent.service.admission.ChatAdmissionService;
 import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -34,12 +35,14 @@ class AiControllerTest {
     private AiChatService aiChatService;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private ChatAdmissionService chatAdmissionService;
 
     private AiController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new AiController(aiModelRegistry, aiChatService, userRepository);
+        controller = new AiController(aiModelRegistry, aiChatService, userRepository, chatAdmissionService);
     }
 
     @Test
@@ -58,6 +61,9 @@ class AiControllerTest {
         authentication.setDetails("not-a-number");
 
         when(userRepository.findByUsername("alice")).thenReturn(Mono.just(user));
+        when(chatAdmissionService.admit(org.mockito.ArgumentMatchers.eq(42L),
+                org.mockito.ArgumentMatchers.eq(false), any()))
+                .thenReturn(Mono.just(ChatAdmissionService.AdmissionLease.noop()));
         when(aiChatService.chat(any())).thenReturn(Flux.just(ServerSentEvent.<String>builder()
                 .event("message")
                 .data("中文输出")

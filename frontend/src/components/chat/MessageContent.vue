@@ -1,5 +1,5 @@
 <template>
-  <div v-if="plain || !completed" class="message-content plain-message-content">{{ text }}</div>
+  <div v-if="plain" class="message-content plain-message-content">{{ text }}</div>
   <div v-else ref="contentRef" class="message-content" v-html="renderedHtml"></div>
 </template>
 

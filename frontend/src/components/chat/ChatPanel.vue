@@ -74,9 +74,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus/es/components/message/index';
-import { ElMessageBox } from 'element-plus/es/components/message-box/index';
+import { useGuestMessageGate } from '@/composables/useGuestMessageGate.js';
 import ChatInput from './ChatInput.vue';
 import ChatMessage from './ChatMessage.vue';
 import SystemMessage from './SystemMessage.vue';
@@ -93,7 +91,7 @@ const props = defineProps({
 
 const emit = defineEmits(['send-message', 'new-conversation', 'clear-context', 'stop-generation']);
 
-const router = useRouter();
+const { canSendMessage } = useGuestMessageGate();
 const messageContainer = ref(null);
 const inputMessage = ref('');
 const selectedModel = ref('chat-fast');
@@ -112,39 +110,8 @@ watch(() => props.availableModels, (models) => {
 }, { immediate: true });
 
 const handleSendMessage = (message, model, knowledgeBaseIds) => {
-  const isGuest = localStorage.getItem('isGuest') === 'true';
-
-  if (isGuest && knowledgeBaseIds?.length > 0) {
-    ElMessage.warning('游客模式下无法使用知识库系统，请登录以继续使用。');
+  if (!canSendMessage(knowledgeBaseIds)) {
     return;
-  }
-
-  if (isGuest) {
-    const guestMessageCount = Number.parseInt(localStorage.getItem('guestMessageCount') || '0', 10);
-    if (guestMessageCount >= 2) {
-      ElMessageBox.alert('体验次数已用尽，请创建账户或登录后继续使用。', '游客体验已结束', {
-        confirmButtonText: '前往登录',
-        type: 'warning',
-        showClose: false,
-        closeOnClickModal: false,
-        closeOnPressEscape: false,
-        callback: () => {
-          localStorage.removeItem('token');
-          localStorage.removeItem('isGuest');
-          localStorage.removeItem('guestMessageCount');
-          router.push('/login').catch(() => {
-            window.location.href = '/login';
-          });
-        }
-      });
-      return;
-    }
-
-    const nextCount = guestMessageCount + 1;
-    localStorage.setItem('guestMessageCount', String(nextCount));
-    if (nextCount < 2) {
-      ElMessage.info(`游客模式还可以发送 ${2 - nextCount} 条消息。`);
-    }
   }
 
   emit('send-message', {

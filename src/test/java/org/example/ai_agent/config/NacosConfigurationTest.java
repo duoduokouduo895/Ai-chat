@@ -15,14 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NacosConfigurationTest {
 
     @Test
-    void defaultConfiguration_shouldPreferCloudNacosAndKeepOfflineFallback() throws IOException {
+    void defaultConfiguration_shouldUseCloudNacosProfileWithoutLocalFallback() throws IOException {
         Properties defaults = load("application.properties");
 
         assertEquals("prod,nacos", defaults.getProperty("spring.profiles.active"));
-        assertEquals("false", defaults.getProperty("spring.cloud.nacos.config.enabled"));
-        assertEquals("false", defaults.getProperty("spring.cloud.nacos.discovery.enabled"));
-        assertTrue(defaults.getProperty("spring.config.import").contains("optional:file:./DEFAULT_GROUP/"));
-        assertFalse(defaults.getProperty("spring.config.import").contains("nacos:"));
+        assertNull(defaults.getProperty("spring.cloud.nacos.config.enabled"));
+        assertNull(defaults.getProperty("spring.cloud.nacos.discovery.enabled"));
+        assertNull(defaults.getProperty("spring.config.import"));
         assertNull(resource("bootstrap.properties"));
     }
 
@@ -32,11 +31,18 @@ class NacosConfigurationTest {
 
         assertEquals("true", nacos.getProperty("spring.cloud.nacos.config.enabled"));
         assertEquals("true", nacos.getProperty("spring.cloud.nacos.discovery.enabled"));
-        assertEquals("${NACOS_SERVER_ADDR:34.150.46.227:8848}",
+        assertEquals("${NACOS_SERVER_ADDR:34.150.80.173:8848}",
                 nacos.getProperty("spring.cloud.nacos.config.server-addr"));
-        assertEquals("${NACOS_SERVER_ADDR:34.150.46.227:8848}",
+        assertEquals("${NACOS_SERVER_ADDR:34.150.80.173:8848}",
                 nacos.getProperty("spring.cloud.nacos.discovery.server-addr"));
-        assertTrue(nacos.getProperty("spring.config.import").contains("optional:nacos:"));
+        assertEquals("${NACOS_CONFIG_TIMEOUT_MS:3000}",
+                nacos.getProperty("spring.cloud.nacos.config.timeout"));
+        assertEquals("${NACOS_CONFIG_MAX_RETRY:3}",
+                nacos.getProperty("spring.cloud.nacos.config.max-retry"));
+        String configImport = nacos.getProperty("spring.config.import");
+        assertTrue(configImport.contains("nacos:databaseR2DBC-config.properties"));
+        assertFalse(configImport.contains("optional:nacos:"));
+        assertFalse(configImport.contains("optional:file:./DEFAULT_GROUP/"));
     }
 
     private Properties load(String name) throws IOException {

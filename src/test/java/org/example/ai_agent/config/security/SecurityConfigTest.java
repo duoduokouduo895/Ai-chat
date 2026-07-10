@@ -85,4 +85,34 @@ class SecurityConfigTest {
                 .expectError(org.springframework.security.authentication.BadCredentialsException.class)
                 .verify();
     }
+
+    @Test
+    void guestJwtAuthenticationAddsGuestAuthorityWithoutChangingUserRole() {
+        SecurityConfig securityConfig = new SecurityConfig(
+                jwtUtil,
+                tokenRefreshFilter,
+                userRepository,
+                adminUserRepository,
+                ticketService,
+                redisTemplate,
+                "http://localhost:3000"
+        );
+        when(jwtUtil.getUsernameFromToken("guest-token")).thenReturn("guest");
+        when(jwtUtil.getIdFromToken("guest-token")).thenReturn("guest-jti");
+        when(jwtUtil.getPrincipalTypeFromToken("guest-token")).thenReturn("USER");
+        when(jwtUtil.getUserIdFromToken("guest-token")).thenReturn(99L);
+        when(jwtUtil.getIsGuestFromToken("guest-token")).thenReturn(true);
+        when(redisTemplate.hasKey("token:jti:guest-jti")).thenReturn(Mono.just(true));
+        when(redisTemplate.hasKey("token:user-revoked:99")).thenReturn(Mono.just(false));
+
+        StepVerifier.create(securityConfig.combinedAuthenticationManager()
+                        .authenticate(new UsernamePasswordAuthenticationToken("jwt", "guest-token")))
+                .assertNext(authentication -> {
+                    org.junit.jupiter.api.Assertions.assertTrue(authentication.getAuthorities().stream()
+                            .anyMatch(authority -> "ROLE_USER".equals(authority.getAuthority())));
+                    org.junit.jupiter.api.Assertions.assertTrue(authentication.getAuthorities().stream()
+                            .anyMatch(authority -> "ROLE_GUEST".equals(authority.getAuthority())));
+                })
+                .verifyComplete();
+    }
 }

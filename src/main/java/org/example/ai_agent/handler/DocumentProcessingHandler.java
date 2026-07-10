@@ -9,12 +9,9 @@ import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.impl.document.DocumentProcessingAlreadyHandledException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
-
-import java.io.IOException;
 
 /**
  * 文档处理异步消息处理器
@@ -26,12 +23,21 @@ import java.io.IOException;
 @Slf4j
 @Component
 public class DocumentProcessingHandler {
-    
-    @Autowired
-    private DocumentProcessingService documentProcessingService;
-    
-    @Autowired
-    private DocumentProcessingRecordService recordService;
+
+    private final DocumentProcessingService documentProcessingService;
+    private final DocumentProcessingRecordService recordService;
+    private final DocumentProcessingRetryPolicy retryPolicy;
+    private final DocumentProcessingAckHandler ackHandler;
+
+    public DocumentProcessingHandler(DocumentProcessingService documentProcessingService,
+                                     DocumentProcessingRecordService recordService,
+                                     DocumentProcessingRetryPolicy retryPolicy,
+                                     DocumentProcessingAckHandler ackHandler) {
+        this.documentProcessingService = documentProcessingService;
+        this.recordService = recordService;
+        this.retryPolicy = retryPolicy;
+        this.ackHandler = ackHandler;
+    }
     
     /**
      * 处理文档解析消息
@@ -147,36 +153,6 @@ public class DocumentProcessingHandler {
             .then();
     }
     
-    /**
-     * 检查是否是文档不存在的错误
-     */
-    private boolean isDocumentNotFoundError(Throwable error) {
-        if (error == null) return false;
-        
-        String message = error.getMessage();
-        if (message == null) message = "";
-        
-        // 检查各种可能的文档不存在错误
-        boolean isNotFound =
-            message.contains("does not exist") ||
-            message.contains("不存在") ||
-            message.contains("cannot start processing") ||
-            message.contains("Document with id") ||
-            message.contains("文档不存在") ||
-            message.contains("找不到文档") ||
-            message.contains("无法找到") ||
-            message.contains("文档已删除") ||
-            message.contains("no document found") ||
-            message.contains("document not found");
-        
-        if (isNotFound) {
-            log.info("检测到文档不存在错误: documentId={}, errorType={}, errorMessage={}", 
-                    "", error.getClass().getSimpleName(), message);
-        }
-        
-        return isNotFound;
-    }
-
     private void processMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
                                 reactor.core.publisher.Mono<Boolean> processingMono, String failureMessage) {
         processingMono
@@ -195,7 +171,7 @@ public class DocumentProcessingHandler {
                 log.error("文档处理异常: documentId={}, processingType={}, error={}",
                         message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
 
-                if (isDocumentNotFoundError(error)) {
+                if (retryPolicy.isDocumentNotFoundError(error)) {
                     log.warn("文档不存在，丢弃消息: documentId={}, processingType={}",
                             message.getDocumentId(), message.getProcessingType());
                     return recordDocumentNotFoundFailure(message, error.getMessage())
@@ -223,15 +199,14 @@ public class DocumentProcessingHandler {
 
     private Mono<Void> scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,
                                      Channel channel, long deliveryTag) {
-        message.incrementRetryCount();
-        message.setErrorMessage(errorMessage);
+        retryPolicy.prepareRetry(message, errorMessage);
 
-        if (message.getRetryCount() >= DocumentProcessingConstants.Retry.MAX_ATTEMPTS) {
+        if (retryPolicy.isRetryExhausted(message)) {
             return handleProcessingFailure(message, errorMessage)
                     .then(ackMessage(channel, deliveryTag, message, "最终失败"));
         }
 
-        String retryRoutingKey = getRetryRoutingKeyByProcessingType(message.getProcessingType());
+        String retryRoutingKey = retryPolicy.retryRoutingKeyByProcessingType(message.getProcessingType());
         return recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
             .then(documentProcessingService.sendProcessingMessage(message, retryRoutingKey))
                 .flatMap(result -> {
@@ -253,7 +228,7 @@ public class DocumentProcessingHandler {
     }
 
     private Mono<Void> deferInFlightMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag) {
-        String retryRoutingKey = getRetryRoutingKeyByProcessingType(message.getProcessingType());
+        String retryRoutingKey = retryPolicy.retryRoutingKeyByProcessingType(message.getProcessingType());
         return documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
                 .flatMap(sent -> sent
                         ? ackMessage(channel, deliveryTag, message, "处理中消息延迟重投")
@@ -261,39 +236,12 @@ public class DocumentProcessingHandler {
     }
 
     private Mono<Void> ackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message, String scene) {
-        try {
-            channel.basicAck(deliveryTag, false);
-            log.debug("消息确认成功: documentId={}, processingType={}, scene={}",
-                    message.getDocumentId(), message.getProcessingType(), scene);
-            return Mono.empty();
-        } catch (IOException e) {
-            log.error("消息确认失败: documentId={}, processingType={}, scene={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
-            return Mono.error(e);
-        }
+        return ackHandler.ack(channel, deliveryTag, message, scene);
     }
 
     private Mono<Void> nackMessage(Channel channel, long deliveryTag, DocumentProcessingMessage message,
                                 boolean requeue, String scene) {
-        try {
-            channel.basicNack(deliveryTag, false, requeue);
-            log.debug("消息拒绝成功: documentId={}, processingType={}, scene={}, requeue={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, requeue);
-            return Mono.empty();
-        } catch (IOException e) {
-            log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
-            return Mono.error(e);
-        }
-    }
-
-    private String getRetryRoutingKeyByProcessingType(String processingType) {
-        return switch (processingType) {
-            case "PARSE" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY;
-            case "CHUNK" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK_RETRY;
-            case "EMBED" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY;
-            default -> throw new IllegalArgumentException("未知的处理类型: " + processingType);
-        };
+        return ackHandler.nack(channel, deliveryTag, message, requeue, scene);
     }
     
     /**

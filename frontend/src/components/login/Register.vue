@@ -95,6 +95,11 @@ import { useRouter } from 'vue-router';
 import AuthShell from '../auth/AuthShell.vue';
 import { getApiErrorMessage } from '../../services/apiErrorService.js';
 import { userApiService } from '../../services/userApi.js';
+import {
+  clearGuestId,
+  clearToken,
+  getGuestId
+} from '../../services/sessionStore.mjs';
 
 const router = useRouter();
 const formData = ref({ username: '', email: '', password: '', confirmPassword: '' });
@@ -157,7 +162,7 @@ const handleRegister = async () => {
   generalError.value = '';
   successMessage.value = '';
   try {
-    const guestId = localStorage.getItem('guestId');
+    const guestId = getGuestId();
     const result = await userApiService.register({
       username: formData.value.username.trim(),
       email: formData.value.email.trim(),
@@ -172,8 +177,8 @@ const handleRegister = async () => {
 
     successMessage.value = '注册成功，正在跳转到登录页面...';
     if (guestId) {
-      localStorage.removeItem('guestId');
-      localStorage.removeItem('token');
+      clearGuestId();
+      clearToken();
     }
     window.setTimeout(() => router.push('/login'), 2000);
   } catch (error) {

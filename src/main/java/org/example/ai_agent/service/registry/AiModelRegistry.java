@@ -10,6 +10,7 @@ import org.example.ai_agent.config.ai.ModelCatalogProperties;
 import org.example.ai_agent.config.ai.ModelCatalogProperties.Metadata;
 import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelConfig;
 import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelType;
+import org.example.ai_agent.config.ai.RetryingStreamingChatModel;
 import org.example.ai_agent.config.ai.http.Utf8SpringRestClientBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
@@ -156,7 +157,7 @@ public class AiModelRegistry {
 
             validateCommonConfig(alias, config);
             if (config.getType() == ModelType.CHAT) {
-                chatModels.put(alias, createChatModel(config));
+                chatModels.put(alias, createChatModel(alias, config));
                 chatConfigs.put(alias, config);
                 chatMetadata.add(buildMetadata(alias, config));
             } else if (config.getType() == ModelType.EMBEDDING) {
@@ -215,7 +216,7 @@ public class AiModelRegistry {
         return prepared;
     }
 
-    private StreamingChatModel createChatModel(ModelConfig config) {
+    private StreamingChatModel createChatModel(String alias, ModelConfig config) {
         if (config.getTemperature() == null) {
             throw new IllegalStateException("聊天模型缺少 temperature: " + config.getProviderModelName());
         }
@@ -223,7 +224,7 @@ public class AiModelRegistry {
             throw new IllegalStateException("聊天模型 max-tokens 必须大于 0: " + config.getProviderModelName());
         }
 
-        return OpenAiStreamingChatModel.builder()
+        StreamingChatModel model = OpenAiStreamingChatModel.builder()
                 .httpClientBuilder(new Utf8SpringRestClientBuilder(aiStreamingExecutor))
                 .baseUrl(properties.getBaseUrl())
                 .apiKey(properties.getApiKey())
@@ -232,6 +233,17 @@ public class AiModelRegistry {
                 .maxTokens(config.getMaxTokens())
                 .timeout(Duration.ofMillis(config.getTimeout()))
                 .build();
+
+        ModelCatalogProperties.Reliability reliability = properties.getReliability();
+        if (reliability != null && reliability.isRetryEnabled() && reliability.getRetryMaxAttempts() > 1) {
+            return new RetryingStreamingChatModel(
+                    model,
+                    alias,
+                    reliability.getRetryMaxAttempts(),
+                    reliability.getRetryBackoffMs(),
+                    aiStreamingExecutor);
+        }
+        return model;
     }
 
     private EmbeddingModel createEmbeddingModel(ModelConfig config) {

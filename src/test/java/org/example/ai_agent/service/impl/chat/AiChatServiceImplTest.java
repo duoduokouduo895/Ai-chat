@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -44,7 +45,13 @@ class AiChatServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new AiChatServiceImpl(generalAssistantFactory, conversationService, ragService, new ObjectMapper());
+        ObjectMapper objectMapper = new ObjectMapper();
+        service = new AiChatServiceImpl(
+                generalAssistantFactory,
+                new AssistantConversationTurn(conversationService),
+                new AssistantInputBuilder(ragService),
+                new ChatStreamEventFactory(objectMapper),
+                1000L);
     }
 
     @Test
@@ -76,11 +83,13 @@ class AiChatServiceImplTest {
 
         StepVerifier.create(service.chat(request).collectList())
                 .assertNext(events -> {
-                    org.junit.jupiter.api.Assertions.assertEquals(3, events.size());
+                    org.junit.jupiter.api.Assertions.assertEquals(5, events.size());
                     org.junit.jupiter.api.Assertions.assertEquals("metadata", events.get(0).event());
-                    org.junit.jupiter.api.Assertions.assertEquals("message", events.get(1).event());
-                    org.junit.jupiter.api.Assertions.assertEquals("早上", events.get(1).data());
-                    org.junit.jupiter.api.Assertions.assertEquals("好", events.get(2).data());
+                    org.junit.jupiter.api.Assertions.assertEquals("status", events.get(1).event());
+                    org.junit.jupiter.api.Assertions.assertEquals("status", events.get(2).event());
+                    org.junit.jupiter.api.Assertions.assertEquals("message", events.get(3).event());
+                    org.junit.jupiter.api.Assertions.assertEquals("早上", events.get(3).data());
+                    org.junit.jupiter.api.Assertions.assertEquals("好", events.get(4).data());
                 })
                 .verifyComplete();
 
@@ -94,5 +103,44 @@ class AiChatServiceImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(savedMessages.stream().anyMatch(message ->
                 "user".equals(message.getSender())
                         && "user:42:99:request-1".equals(message.getDeduplicationKey())));
+    }
+
+    @Test
+    void chat_shouldEmitErrorWhenModelStreamTimesOut() {
+        AiChatServiceImpl timeoutService = new AiChatServiceImpl(
+                generalAssistantFactory,
+                new AssistantConversationTurn(conversationService),
+                new AssistantInputBuilder(ragService),
+                new ChatStreamEventFactory(new ObjectMapper()),
+                10L);
+        ChatRequest request = ChatRequest.builder()
+                .userId(42L)
+                .conversationId(100L)
+                .prompt("早上好")
+                .model("test-model")
+                .clientMessageId("request-timeout")
+                .build();
+        Conversation conversation = new Conversation();
+        conversation.setId(100L);
+        Message savedUserMessage = new Message();
+        savedUserMessage.setId(2L);
+        savedUserMessage.setSender("user");
+
+        when(conversationService.getConversationById(100L, 42L)).thenReturn(Mono.just(conversation));
+        when(conversationService.addMessageToConversation(argThat(message ->
+                message != null && "user".equals(message.getSender()))))
+                .thenReturn(Mono.just(savedUserMessage));
+        when(generalAssistantFactory.createAssistant(any(ChatRequest.class))).thenReturn(generalAssistant);
+        when(generalAssistant.chat("100:test-model", "早上好")).thenReturn(Flux.never());
+
+        StepVerifier.create(timeoutService.chat(request).collectList())
+                .assertNext(events -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(
+                            List.of("metadata", "status", "status", "error"),
+                            events.stream().map(ServerSentEvent::event).toList());
+                    org.junit.jupiter.api.Assertions.assertTrue(
+                            events.get(3).data().contains("模型响应超时，请稍后重试或切换模型。"));
+                })
+                .verifyComplete();
     }
 }

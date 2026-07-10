@@ -1,104 +1,85 @@
 package org.example.ai_agent.service.impl.knowledge;
 
-import org.example.ai_agent.entity.KnowledgeBase;
-import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
+import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
+import org.example.ai_agent.service.HybridRetrievalService;
+import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Pageable;
-import org.springframework.test.util.ReflectionTestUtils;
-import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class RagServiceImplTest {
 
     @Mock
-    private KnowledgeBaseRepository knowledgeBaseRepository;
+    private AiModelRegistry aiModelRegistry;
+    @Mock
+    private HybridRetrievalService hybridRetrievalService;
 
     @Test
-    void missingSelectionUsesOnlyPublicActiveKnowledgeBases() {
-        KnowledgeBase knowledgeBase = new KnowledgeBase();
-        knowledgeBase.setId(9L);
-        knowledgeBase.setStatus("ACTIVE");
+    void searchKnowledge_shouldAssembleFrontendSearchResult() {
+        RagServiceImpl service = new RagServiceImpl(
+                aiModelRegistry,
+                hybridRetrievalService,
+                new RetrievalContextAssembler());
+        KnowledgeSearchDto request = new KnowledgeSearchDto();
+        request.setQuery("退款规则");
+        request.setKnowledgeBaseIds(List.of(7L));
+        request.setMaxResults(5);
+        request.setMinScore(0.3D);
 
-        when(knowledgeBaseRepository.findByIsPublicAndStatusOrderByCreatedAtDesc(
-                eq(true), eq("ACTIVE"), org.mockito.ArgumentMatchers.<Pageable>any()))
-                .thenReturn(Flux.just(knowledgeBase));
+        when(hybridRetrievalService.retrieve("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .thenReturn(Mono.just(List.of(candidate())));
 
-        RagServiceImpl service = new RagServiceImpl();
-        ReflectionTestUtils.setField(service, "knowledgeBaseRepository", knowledgeBaseRepository);
-
-        Flux<KnowledgeBase> resolved = ReflectionTestUtils.invokeMethod(
-                service, "resolveKnowledgeBases", List.of(), 100L, false);
-
-        StepVerifier.create(resolved)
-                .expectNext(knowledgeBase)
+        StepVerifier.create(service.searchKnowledge(request, 42L, false))
+                .assertNext(result -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(1, result.getTotalCount());
+                    org.junit.jupiter.api.Assertions.assertTrue(result.getSearchTime() >= 0);
+                    var match = result.getMatches().get(0);
+                    org.junit.jupiter.api.Assertions.assertEquals(100L, match.getChunkId());
+                    org.junit.jupiter.api.Assertions.assertEquals("测试文档", match.getDocumentTitle());
+                    org.junit.jupiter.api.Assertions.assertEquals("测试知识库", match.getKnowledgeBaseName());
+                    org.junit.jupiter.api.Assertions.assertEquals("BM25 命中的内容", match.getContent());
+                })
                 .verifyComplete();
-
-        verify(knowledgeBaseRepository)
-                .findByIsPublicAndStatusOrderByCreatedAtDesc(
-                        eq(true), eq("ACTIVE"), org.mockito.ArgumentMatchers.<Pageable>any());
-        verify(knowledgeBaseRepository, never()).findByStatus(any(String.class));
     }
 
     @Test
-    void explicitSelectionRejectsPrivateKnowledgeBaseOwnedByAnotherUser() {
-        KnowledgeBase knowledgeBase = knowledgeBase(11L, 100L, false, "ACTIVE");
-        when(knowledgeBaseRepository.findAllById(any(Iterable.class))).thenReturn(Flux.just(knowledgeBase));
+    void retrieveContext_shouldAssemblePromptContext() {
+        RagServiceImpl service = new RagServiceImpl(
+                aiModelRegistry,
+                hybridRetrievalService,
+                new RetrievalContextAssembler());
 
-        RagServiceImpl service = service();
-        Flux<KnowledgeBase> resolved = ReflectionTestUtils.invokeMethod(
-                service, "resolveKnowledgeBases", List.of(11L), 200L, false);
+        when(hybridRetrievalService.retrieve("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .thenReturn(Mono.just(List.of(candidate())));
 
-        StepVerifier.create(resolved)
-                .expectErrorMatches(error -> error instanceof SecurityException
-                        && error.getMessage().contains("无权访问"))
-                .verify();
-    }
-
-    @Test
-    void explicitSelectionBatchLoadsDistinctKnowledgeBases() {
-        KnowledgeBase knowledgeBase = knowledgeBase(12L, 100L, true, "ACTIVE");
-        when(knowledgeBaseRepository.findAllById(any(Iterable.class))).thenReturn(Flux.just(knowledgeBase));
-
-        RagServiceImpl service = service();
-        Flux<KnowledgeBase> resolved = ReflectionTestUtils.invokeMethod(
-                service, "resolveKnowledgeBases", List.of(12L, 12L), 200L, false);
-
-        StepVerifier.create(resolved)
-                .expectNext(knowledgeBase)
+        StepVerifier.create(service.retrieveContext("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .assertNext(context -> {
+                    org.junit.jupiter.api.Assertions.assertEquals("退款规则", context.question());
+                    org.junit.jupiter.api.Assertions.assertEquals(1, context.documentCount());
+                    org.junit.jupiter.api.Assertions.assertTrue(context.contextText().contains("文档：测试文档"));
+                    org.junit.jupiter.api.Assertions.assertTrue(context.contextText().contains("内容：BM25 命中的内容"));
+                })
                 .verifyComplete();
-
-        ArgumentCaptor<Iterable<Long>> idsCaptor = ArgumentCaptor.forClass(Iterable.class);
-        verify(knowledgeBaseRepository).findAllById(idsCaptor.capture());
-        org.junit.jupiter.api.Assertions.assertEquals(List.of(12L),
-                java.util.stream.StreamSupport.stream(idsCaptor.getValue().spliterator(), false).toList());
-        verify(knowledgeBaseRepository, never()).findById(any(Long.class));
     }
 
-    private RagServiceImpl service() {
-        RagServiceImpl service = new RagServiceImpl();
-        ReflectionTestUtils.setField(service, "knowledgeBaseRepository", knowledgeBaseRepository);
-        return service;
-    }
-
-    private KnowledgeBase knowledgeBase(Long id, Long creatorId, boolean isPublic, String status) {
-        KnowledgeBase knowledgeBase = new KnowledgeBase();
-        knowledgeBase.setId(id);
-        knowledgeBase.setCreatorId(creatorId);
-        knowledgeBase.setIsPublic(isPublic);
-        knowledgeBase.setStatus(status);
-        return knowledgeBase;
+    private HybridRetrievalService.RetrievalCandidate candidate() {
+        return new HybridRetrievalService.RetrievalCandidate(
+                null,
+                7L,
+                20L,
+                100L,
+                "BM25 命中的内容",
+                "测试文档",
+                "测试知识库",
+                1,
+                8.5D);
     }
 }
