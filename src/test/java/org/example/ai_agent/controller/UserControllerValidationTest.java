@@ -11,10 +11,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -104,5 +106,27 @@ class UserControllerValidationTest {
                 .expectStatus().isEqualTo(429)
                 .expectBody()
                 .jsonPath("$.message").isEqualTo("游客账号创建过于频繁，请稍后再试");
+    }
+
+    @Test
+    void guestUpgrade_shouldUseTheAuthenticatedUserIdAndReturnTheReplacementToken() {
+        var registration = new org.example.ai_agent.dto.auth.UserRegistrationDto();
+        registration.setUsername("alice");
+        registration.setEmail("alice@example.com");
+        registration.setPassword("Password123");
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken("Duog_old", "Bearer old-token");
+        authentication.setDetails(42L);
+        when(userService.upgradeGuestUser(eq(registration), eq(42L), eq("Bearer old-token")))
+                .thenReturn(Mono.just("new-token"));
+
+        reactor.test.StepVerifier.create(new UserController(userService, guestCreationAdmissionService)
+                        .upgradeGuestUser(registration, "Bearer old-token", authentication))
+                .assertNext(response -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(200, response.getStatusCode().value());
+                    org.junit.jupiter.api.Assertions.assertEquals("new-token", response.getBody().get("token"));
+                    org.junit.jupiter.api.Assertions.assertEquals(true, response.getBody().get("success"));
+                })
+                .verifyComplete();
     }
 }

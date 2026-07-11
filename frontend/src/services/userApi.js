@@ -104,6 +104,32 @@ export const userApiService = {
     return isLoggedIn();
   },
 
+  // 将当前已认证游客升级为正式用户。服务端保留同一 userId，因此历史会话无需迁移。
+  upgradeGuest: async (userData) => {
+    try {
+      const response = await apiClient.post('/users/guest/upgrade', userData);
+      const token = response.data?.token;
+      if (!token) {
+        throw new Error('账户升级响应缺少令牌');
+      }
+
+      markRegisteredSession(token.trim());
+      guestSessionService.clearGuestSession();
+      heartbeatService.start();
+
+      return {
+        success: true,
+        token,
+        data: response.data
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: getApiErrorMessage(error, '账户升级失败，请稍后重试')
+      };
+    }
+  },
+
   // 获取当前用户token
   getToken: () => {
     return authSessionService.getToken();

@@ -70,6 +70,12 @@ router.beforeEach((to, from, next) => {
       return;
     }
 
+    if (hasGuestSession && to.name === 'Register') {
+      // 注册页会使用当前游客 Token 升级同一账户，不能在路由阶段清理它。
+      next();
+      return;
+    }
+
     if (hasGuestSession) {
       clearToken();
       clearGuestState();

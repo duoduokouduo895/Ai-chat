@@ -16,6 +16,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,6 +157,67 @@ public class UserServiceImpl implements UserService {
                     log.error("创建游客账号失败: {}", e.getMessage(), e);
                     return Mono.error(new RuntimeException("无法创建游客账户，请稍后重试"));
                 });
+    }
+
+    @Override
+    public Mono<String> upgradeGuestUser(UserRegistrationDto registrationDto, Long guestUserId,
+                                         String authorizationHeader) {
+        if (guestUserId == null || guestUserId <= 0) {
+            return Mono.error(new SecurityException("当前游客会话无效"));
+        }
+
+        return userRepository.findById(guestUserId)
+                .switchIfEmpty(Mono.error(new SecurityException("当前游客账户不存在")))
+                .flatMap(user -> {
+                    if (!Boolean.TRUE.equals(user.getIsGuest())) {
+                        return Mono.error(new IllegalArgumentException("当前账户已完成升级，请直接登录"));
+                    }
+                    return ensureRegistrationIdentityAvailable(registrationDto, guestUserId)
+                            .then(Mono.defer(() -> {
+                                user.setUsername(registrationDto.getUsername());
+                                user.setEmail(registrationDto.getEmail());
+                                user.setPassword(passwordEncoder.encode(registrationDto.getPassword()));
+                                user.setIsGuest(false);
+                                user.setLastActiveAt(LocalDateTime.now());
+                                return userRepository.save(user);
+                            }))
+                            .flatMap(upgraded -> issueUpgradedToken(upgraded, authorizationHeader));
+                });
+    }
+
+    private Mono<Void> ensureRegistrationIdentityAvailable(UserRegistrationDto dto, Long userId) {
+        return userRepository.existsByUsernameAndUserIdNot(dto.getUsername(), userId)
+                .flatMap(usernameExists -> {
+                    if (Boolean.TRUE.equals(usernameExists)) {
+                        return Mono.error(new IllegalArgumentException("用户名已被占用"));
+                    }
+                    return userRepository.existsByEmailAndUserIdNot(dto.getEmail(), userId);
+                })
+                .flatMap(emailExists -> Boolean.TRUE.equals(emailExists)
+                        ? Mono.error(new IllegalArgumentException("邮箱已被占用"))
+                        : Mono.empty());
+    }
+
+    private Mono<String> issueUpgradedToken(User user, String authorizationHeader) {
+        return issueToken(user)
+                .flatMap(newToken -> revokePriorSession(authorizationHeader, user.getUserId())
+                        .thenReturn(newToken)
+                        .onErrorResume(error -> logoutUser("Bearer " + newToken)
+                                .onErrorResume(ignored -> Mono.empty())
+                                .then(Mono.error(new GuestUpgradeSessionException(
+                                        "游客资料已升级，但会话轮换失败，请使用新账号登录", error)))));
+    }
+
+    private Mono<Void> revokePriorSession(String authorizationHeader, Long expectedUserId) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            return Mono.error(new IllegalArgumentException("无效的认证请求头"));
+        }
+        String token = authorizationHeader.substring(7).trim();
+        Long tokenUserId = jwtUtil.getUserIdFromToken(token);
+        if (!Objects.equals(expectedUserId, tokenUserId)) {
+            return Mono.error(new SecurityException("游客会话与当前账户不匹配"));
+        }
+        return logoutUser(authorizationHeader);
     }
 
     private Mono<String> issueToken(User user) {

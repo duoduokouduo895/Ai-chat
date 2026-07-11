@@ -6,6 +6,7 @@ import org.example.ai_agent.dto.auth.UserRegistrationDto;
 import org.example.ai_agent.service.UserService;
 import org.example.ai_agent.service.admission.ChatAdmissionException;
 import org.example.ai_agent.service.admission.GuestCreationAdmissionService;
+import org.example.ai_agent.service.impl.auth.GuestUpgradeSessionException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -50,6 +51,37 @@ public class UserController {
                     response.put("success", false);
                     response.put("message", "注册失败，请稍后重试");
                     return Mono.just(ResponseEntity.status(500).body(response));
+                });
+    }
+
+    /**
+     * 用当前游客 Token 升级同一条用户记录，避免会话和消息归属丢失。
+     */
+    @PostMapping("/guest/upgrade")
+    public Mono<ResponseEntity<Map<String, Object>>> upgradeGuestUser(
+            @Valid @RequestBody UserRegistrationDto registrationDto,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
+            Authentication authentication) {
+        return resolveAuthenticatedUserId(authentication)
+                .flatMap(guestUserId -> userService.upgradeGuestUser(registrationDto, guestUserId, authorizationHeader))
+                .map(token -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", true);
+                    response.put("token", token);
+                    response.put("message", "账户升级成功，已保留原会话");
+                    return ResponseEntity.ok(response);
+                })
+                .onErrorResume(IllegalArgumentException.class, error -> Mono.just(ResponseEntity.badRequest()
+                        .body(errorResponse(error.getMessage()))))
+                .onErrorResume(SecurityException.class, error -> Mono.just(ResponseEntity.status(403)
+                        .body(errorResponse(error.getMessage()))))
+                .onErrorResume(GuestUpgradeSessionException.class, error -> Mono.just(ResponseEntity.status(503)
+                        .body(errorResponse("账户已升级，但会话更新失败，请使用新账号登录"))))
+                .onErrorResume(error -> {
+                    org.slf4j.LoggerFactory.getLogger(UserController.class)
+                            .error("Unexpected error during guest upgrade", error);
+                    return Mono.just(ResponseEntity.status(500)
+                            .body(errorResponse("账户升级失败，请稍后重试")));
                 });
     }
 
@@ -146,6 +178,21 @@ public class UserController {
                     return ResponseEntity.ok(response);
                 })
                 .defaultIfEmpty(ResponseEntity.status(401).build());
+    }
+
+    private Mono<Long> resolveAuthenticatedUserId(Authentication authentication) {
+        if (authentication == null || !(authentication.getDetails() instanceof Number userId)
+                || userId.longValue() <= 0) {
+            return Mono.error(new SecurityException("当前游客会话无效"));
+        }
+        return Mono.just(userId.longValue());
+    }
+
+    private Map<String, Object> errorResponse(String message) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", false);
+        response.put("message", message);
+        return response;
     }
 }
 

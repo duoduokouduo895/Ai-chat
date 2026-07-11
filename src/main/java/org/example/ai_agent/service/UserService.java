@@ -13,6 +13,12 @@ public interface UserService {
     Mono<String> createGuestAndLogin();
 
     /**
+     * 将当前已认证游客升级为正式用户；用户主键不变，因此已有会话与消息会被保留。
+     */
+    Mono<String> upgradeGuestUser(UserRegistrationDto registrationDto, Long guestUserId,
+                                  String authorizationHeader);
+
+    /**
      * 用户登出。
      * @param authorizationHeader 完整的 "Authorization" 请求头 (例如, "Bearer ...")。
      * @return 操作完成的 Mono<Void>。

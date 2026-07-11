@@ -96,9 +96,7 @@ import AuthShell from '../auth/AuthShell.vue';
 import { getApiErrorMessage } from '../../services/apiErrorService.js';
 import { userApiService } from '../../services/userApi.js';
 import {
-  clearGuestId,
-  clearToken,
-  getGuestId
+  isGuest
 } from '../../services/sessionStore.mjs';
 
 const router = useRouter();
@@ -162,25 +160,25 @@ const handleRegister = async () => {
   generalError.value = '';
   successMessage.value = '';
   try {
-    const guestId = getGuestId();
-    const result = await userApiService.register({
+    const upgradingGuest = isGuest();
+    const registrationData = {
       username: formData.value.username.trim(),
       email: formData.value.email.trim(),
-      password: formData.value.password,
-      ...(guestId ? { guestId } : {})
-    });
+      password: formData.value.password
+    };
+    const result = upgradingGuest
+      ? await userApiService.upgradeGuest(registrationData)
+      : await userApiService.register(registrationData);
 
     if (!result.success) {
       generalError.value = result.message;
       return;
     }
 
-    successMessage.value = '注册成功，正在跳转到登录页面...';
-    if (guestId) {
-      clearGuestId();
-      clearToken();
-    }
-    window.setTimeout(() => router.push('/login'), 2000);
+    successMessage.value = upgradingGuest
+      ? '账户升级成功，正在返回原会话...'
+      : '注册成功，正在跳转到登录页面...';
+    window.setTimeout(() => router.push(upgradingGuest ? '/' : '/login'), 1200);
   } catch (error) {
     generalError.value = getApiErrorMessage(error, '注册失败，请稍后重试');
   } finally {
