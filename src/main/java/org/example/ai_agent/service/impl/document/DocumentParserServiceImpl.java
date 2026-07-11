@@ -7,18 +7,20 @@ import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.service.DocumentParserService;
 import org.example.ai_agent.service.registry.AiModelRegistry;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import reactor.core.scheduler.Scheduler;
 
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 文档解析服务实现类
@@ -34,17 +36,26 @@ import java.util.concurrent.CompletableFuture;
 @Service
 public class DocumentParserServiceImpl implements DocumentParserService {
     
-    @Autowired
-    private DocumentParser documentParser;
-    
-    @Autowired
-    private DocumentSplitter documentSplitter;
-    
-    @Autowired
-    private AiModelRegistry aiModelRegistry;
+    private final DocumentParser documentParser;
+    private final DocumentSplitter documentSplitter;
+    private final AiModelRegistry aiModelRegistry;
+    private final DocumentProcessingProperties processingProperties;
+    private final Scheduler documentParsingScheduler;
     
     @Value("${knowledge-base.document.supported-types}")
     private String[] supportedTypes;
+
+    public DocumentParserServiceImpl(DocumentParser documentParser,
+                                     DocumentSplitter documentSplitter,
+                                     AiModelRegistry aiModelRegistry,
+                                     DocumentProcessingProperties processingProperties,
+                                     @Qualifier("documentParsingScheduler") Scheduler documentParsingScheduler) {
+        this.documentParser = documentParser;
+        this.documentSplitter = documentSplitter;
+        this.aiModelRegistry = aiModelRegistry;
+        this.processingProperties = processingProperties;
+        this.documentParsingScheduler = documentParsingScheduler;
+    }
     
     @Override
     public Mono<Document> parseDocument(InputStream inputStream, String fileName, String fileType) {
@@ -62,16 +73,19 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 metadata.put("parse_method", "apache_tika");
                 metadata.put("parse_time", System.currentTimeMillis());
                 
+                String text = enforceExtractedTextLimit(document.text());
                 log.info("文档解析成功: fileName={}, contentLength={}", 
-                        fileName, document.text().length());
+                        fileName, text.length());
                 
-                return Document.from(document.text(), metadata);
+                return Document.from(text, metadata);
                 
+            } catch (DocumentParsingLimitExceededException error) {
+                throw error;
             } catch (Exception e) {
                 log.error("文档解析失败: fileName={}, error={}", fileName, e.getMessage(), e);
                 throw new RuntimeException("文档解析失败: " + e.getMessage(), e);
             }
-        }).subscribeOn(Schedulers.boundedElastic());
+        }).subscribeOn(documentParsingScheduler);
     }
     
     @Override
@@ -87,11 +101,13 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 
                 return segments;
                 
+            } catch (DocumentParsingLimitExceededException error) {
+                throw error;
             } catch (Exception e) {
                 log.error("文档分割失败: error={}", e.getMessage(), e);
                 throw new RuntimeException("文档分割失败: " + e.getMessage(), e);
             }
-        }).subscribeOn(Schedulers.boundedElastic());
+        }).subscribeOn(documentParsingScheduler);
     }
     
     @Override
@@ -106,8 +122,10 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 Document basicDocument = documentParser.parse(inputStream);
                 
                 // 如果基础解析内容太少或质量不高，使用AI增强解析
-                String basicText = basicDocument.text();
-                if (needAIEnhancement(basicText, fileType)) {
+                String basicText = enforceExtractedTextLimit(basicDocument.text());
+                boolean shouldEnhance = needAIEnhancement(basicText, fileType);
+                if (shouldEnhance
+                        && basicText.length() <= processingProperties.effectiveMaxAiEnhancementCharacters()) {
                     String enhancedText = enhanceWithAI(basicText, fileName, fileType, modelId);
                     
                     Metadata metadata = basicDocument.metadata();
@@ -120,8 +138,12 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                     log.info("AI增强解析完成: fileName={}, originalLength={}, enhancedLength={}", 
                             fileName, basicText.length(), enhancedText.length());
                     
-                    return Document.from(enhancedText, metadata);
+                    return Document.from(enforceExtractedTextLimit(enhancedText), metadata);
                 } else {
+                    if (shouldEnhance) {
+                        log.info("跳过超长文档的 AI 增强解析: fileName={}, contentLength={}, limit={}",
+                                fileName, basicText.length(), processingProperties.effectiveMaxAiEnhancementCharacters());
+                    }
                     // 使用基础解析结果
                     Metadata metadata = basicDocument.metadata();
                     metadata.put(Document.FILE_NAME, fileName);
@@ -129,14 +151,16 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                     metadata.put("parse_method", "apache_tika");
                     metadata.put("parse_time", System.currentTimeMillis());
                     
-                    return Document.from(basicDocument.text(), metadata);
+                    return Document.from(basicText, metadata);
                 }
                 
+            } catch (DocumentParsingLimitExceededException error) {
+                throw error;
             } catch (Exception e) {
                 log.error("AI文档解析失败: fileName={}, error={}", fileName, e.getMessage(), e);
                 throw new RuntimeException("AI文档解析失败: " + e.getMessage(), e);
             }
-        }).subscribeOn(Schedulers.boundedElastic());
+        }).subscribeOn(documentParsingScheduler);
     }
     
     @Override
@@ -208,7 +232,8 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                     }
                 });
             
-            String enhancedText = future.get(2, java.util.concurrent.TimeUnit.MINUTES);
+            String enhancedText = future.get(
+                    processingProperties.effectiveAiEnhancementTimeout().toMillis(), TimeUnit.MILLISECONDS);
             return enhancedText.length() > originalText.length() ? enhancedText : originalText;
             
         } catch (Exception e) {
@@ -237,5 +262,13 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 
                 请直接输出整理后的文本内容：
                 """, fileType, fileName, originalText);
+    }
+
+    private String enforceExtractedTextLimit(String text) {
+        String safeText = text == null ? "" : text;
+        if (safeText.length() > processingProperties.effectiveMaxExtractedCharacters()) {
+            throw new DocumentParsingLimitExceededException(processingProperties.effectiveMaxExtractedCharacters());
+        }
+        return safeText;
     }
 }

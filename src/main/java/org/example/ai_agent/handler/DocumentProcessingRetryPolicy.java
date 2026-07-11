@@ -3,6 +3,7 @@ package org.example.ai_agent.handler;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
+import org.example.ai_agent.service.impl.document.DocumentParsingLimitExceededException;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -37,6 +38,20 @@ public class DocumentProcessingRetryPolicy {
         }
 
         return notFound;
+    }
+
+    /**
+     * 文件解析产物已超过系统预算时，重试不会改变结果；直接失败可以避免反复消耗解析资源。
+     */
+    public boolean isNonRetryableError(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof DocumentParsingLimitExceededException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     public void prepareRetry(DocumentProcessingMessage message, String errorMessage) {

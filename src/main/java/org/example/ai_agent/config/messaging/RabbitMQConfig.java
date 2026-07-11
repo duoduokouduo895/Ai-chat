@@ -84,8 +84,8 @@ public class RabbitMQConfig {
         return rabbitTemplate -> {
             // 设置JSON消息转换器，用于对象序列化
             rabbitTemplate.setMessageConverter(rabbitMessageConverter());
-            // 可以在这里添加其他RabbitTemplate自定义配置
-            // 例如：rabbitTemplate.setMandatory(true); // 强制路由
+            // 强制不可路由的消息返回给发布者，配合 CorrelationData 判断投递是否成功。
+            rabbitTemplate.setMandatory(true);
         };
     }
 

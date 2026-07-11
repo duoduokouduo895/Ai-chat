@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 
 /**
  * 文档 ingestion 门面实现。
- * 负责把外部动作收敛成统一的入库流水线入口，底层仍复用现有异步处理机制。
+ * 负责把外部动作收敛成统一的入库流水线入口，底层将第一阶段消息写入 transactional outbox。
  */
 @Slf4j
 @Service

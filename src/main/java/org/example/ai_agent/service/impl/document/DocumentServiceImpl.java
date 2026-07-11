@@ -19,6 +19,7 @@ import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
@@ -66,6 +67,9 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Autowired
     private DocumentUploadValidator documentUploadValidator;
+
+    @Autowired
+    private TransactionalOperator transactionalOperator;
     
     @Value("${knowledge-base.document.supported-types:pdf,docx,doc,txt,md,pptx,xlsx}")
     private String[] supportedTypes;
@@ -93,21 +97,9 @@ public class DocumentServiceImpl implements DocumentService {
             return knowledgeBaseService.getAuthorizedKnowledgeBase(knowledgeBaseId, requesterUserId, isAdmin, true)
                 .then(uploadToOss(validatedFile, knowledgeBaseId));
         })
-        .flatMap(ossFileInfo -> {
-            // 创建文档记录
-            return saveDocumentRecord(file, knowledgeBaseId, parseMode, enableVectorization, 
-                    ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId);
-        })
-        .flatMap(document -> {
-            // 启动统一 ingestion 流水线
-            return documentIngestionService.startIngestion(
-                    document.getId(), knowledgeBaseId, parseMode, enableVectorization)
-                .map(task -> {
-                    log.info("文档 ingestion 流水线已受理: documentId={}, firstStage={}, action={}",
-                            task.documentId(), task.firstStage(), task.action());
-                    return document;
-                });
-        })
+        .flatMap(ossFileInfo -> saveDocumentRecordAndQueueIngestion(
+                file, knowledgeBaseId, parseMode, enableVectorization,
+                ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId))
         .map(this::toDto)
         .doOnSuccess(dto -> log.info("文档上传成功: id={}, fileName={}", dto.getId(), dto.getFileName()))
         .doOnError(error -> log.error("文档上传失败: fileName={}, error={}", file.getOriginalFilename(), error.getMessage()))
@@ -447,6 +439,28 @@ public class DocumentServiceImpl implements DocumentService {
         .flatMap(documentRepository::save)
         .flatMap(savedDoc -> knowledgeBaseService.adjustDocumentCount(knowledgeBaseId, 1).thenReturn(savedDoc))
         .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 文档记录、知识库计数和首个 outbox 事件必须一起提交。
+     * 这样不会出现“文档显示待解析，但启动消息因进程崩溃永久丢失”的状态。
+     */
+    private Mono<KnowledgeDocument> saveDocumentRecordAndQueueIngestion(MultipartFile file,
+                                                                          Long knowledgeBaseId,
+                                                                          String parseMode,
+                                                                          Boolean enableVectorization,
+                                                                          String ossPath,
+                                                                          String ossUrl,
+                                                                          Long uploaderId) {
+        return saveDocumentRecord(file, knowledgeBaseId, parseMode, enableVectorization, ossPath, ossUrl, uploaderId)
+                .flatMap(document -> documentIngestionService.startIngestion(
+                                document.getId(), knowledgeBaseId, parseMode, enableVectorization)
+                        .map(task -> {
+                            log.info("文档 ingestion 流水线已耐久化: documentId={}, firstStage={}, action={}",
+                                    task.documentId(), task.firstStage(), task.action());
+                            return document;
+                        }))
+                .as(transactionalOperator::transactional);
     }
     
     /**

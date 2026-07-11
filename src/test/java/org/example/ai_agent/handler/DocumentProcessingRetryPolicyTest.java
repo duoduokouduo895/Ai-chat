@@ -2,6 +2,7 @@ package org.example.ai_agent.handler;
 
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
+import org.example.ai_agent.service.impl.document.DocumentParsingLimitExceededException;
 import org.junit.jupiter.api.Test;
 
 class DocumentProcessingRetryPolicyTest {
@@ -49,5 +50,11 @@ class DocumentProcessingRetryPolicyTest {
         org.junit.jupiter.api.Assertions.assertEquals(
                 DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY,
                 retryPolicy.retryRoutingKeyByProcessingType("EMBED"));
+    }
+
+    @Test
+    void isNonRetryableError_shouldRejectTextLimitExceeded() {
+        org.junit.jupiter.api.Assertions.assertTrue(
+                retryPolicy.isNonRetryableError(new DocumentParsingLimitExceededException(1_000_000)));
     }
 }

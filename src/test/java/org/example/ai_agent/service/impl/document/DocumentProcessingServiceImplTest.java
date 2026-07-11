@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,7 +65,9 @@ class DocumentProcessingServiceImplTest {
     @Mock
     private KnowledgeChunkSearchService knowledgeChunkSearchService;
     @Mock
-    private DocumentProcessingPublisher publisher;
+    private DocumentProcessingOutboxService outboxService;
+    @Mock
+    private TransactionalOperator transactionalOperator;
     @Mock
     private DocumentProcessingStages stages;
 
@@ -84,10 +88,13 @@ class DocumentProcessingServiceImplTest {
                 embeddingService,
                 recordService,
                 knowledgeChunkSearchService,
-                publisher,
                 stages,
                 embeddingBatchProcessor,
+                outboxService,
+                transactionalOperator,
                 2);
+        lenient().when(transactionalOperator.transactional(org.mockito.ArgumentMatchers.<Mono<Boolean>>any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -142,6 +149,40 @@ class DocumentProcessingServiceImplTest {
         org.junit.jupiter.api.Assertions.assertTrue(document.getIsEmbedded());
         org.junit.jupiter.api.Assertions.assertEquals("COMPLETED", document.getEmbeddingStatus());
         verify(knowledgeChunkSearchService).indexDocumentChunks(9L);
+    }
+
+    @Test
+    void processDocumentParsing_shouldPersistTheNextStageOutboxEventWithTheParsedContent() {
+        KnowledgeDocument document = new KnowledgeDocument();
+        document.setId(9L);
+        document.setKnowledgeBaseId(77L);
+        document.setFileName("readme.md");
+        document.setFileType("md");
+
+        DocumentProcessingMessage message = DocumentProcessingMessage.createParseMessage(9L, 77L, "auto", true);
+        when(recordService.startProcessing(9L, "PARSE"))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+        when(documentRepository.findById(9L)).thenReturn(Mono.just(document), Mono.just(document));
+        when(documentRepository.save(document)).thenReturn(Mono.just(document));
+        when(stages.parseDocumentFromOss(document, "auto")).thenReturn(Mono.just("parsed content"));
+        when(outboxService.enqueue(any(DocumentProcessingMessage.class),
+                eq(org.example.ai_agent.constants.DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK)))
+                .thenReturn(Mono.just(true));
+        when(recordService.completeProcessing(9L, "PARSE", "Content length: 14"))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+
+        StepVerifier.create(service.processDocumentParsing(message))
+                .expectNext(true)
+                .verifyComplete();
+
+        org.junit.jupiter.api.Assertions.assertEquals("parsed content", document.getContent());
+        org.junit.jupiter.api.Assertions.assertEquals(14, document.getCharacterCount());
+        org.junit.jupiter.api.Assertions.assertEquals("COMPLETED", document.getParseStatus());
+        ArgumentCaptor<DocumentProcessingMessage> messageCaptor = ArgumentCaptor.forClass(DocumentProcessingMessage.class);
+        verify(outboxService).enqueue(messageCaptor.capture(),
+                eq(org.example.ai_agent.constants.DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK));
+        org.junit.jupiter.api.Assertions.assertEquals("CHUNK", messageCaptor.getValue().getProcessingType());
+        org.junit.jupiter.api.Assertions.assertEquals(9L, messageCaptor.getValue().getDocumentId());
     }
 
     private DocumentChunkDto chunk(Long id) {

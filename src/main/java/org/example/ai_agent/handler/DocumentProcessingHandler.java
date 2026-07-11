@@ -171,6 +171,13 @@ public class DocumentProcessingHandler {
                 log.error("文档处理异常: documentId={}, processingType={}, error={}",
                         message.getDocumentId(), message.getProcessingType(), error.getMessage(), error);
 
+                if (retryPolicy.isNonRetryableError(error)) {
+                    log.warn("文档处理遇到不可重试错误，直接标记失败: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
+                    return handleProcessingFailure(message, error.getMessage())
+                            .then(ackMessage(channel, deliveryTag, message, "不可重试错误"));
+                }
+
                 if (retryPolicy.isDocumentNotFoundError(error)) {
                     log.warn("文档不存在，丢弃消息: documentId={}, processingType={}",
                             message.getDocumentId(), message.getProcessingType());
