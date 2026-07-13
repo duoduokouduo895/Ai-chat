@@ -23,6 +23,9 @@ docker network inspect middleware-net >/dev/null
 docker network inspect nacos-net >/dev/null
 docker network inspect aidiag-telemetry >/dev/null
 
+candidate_port="$(sed -n 's/^AICHAT_CANDIDATE_PORT=//p' "${runtime_env}" | tail -n 1 | tr -d '\r')"
+[[ "${candidate_port}" =~ ^[0-9]+$ ]] || { echo "AICHAT_CANDIDATE_PORT must be numeric" >&2; exit 69; }
+
 compose_for() {
   local target_release="$1"
   docker compose --project-name ai-chat-candidate --project-directory "${target_release}" \
@@ -50,9 +53,6 @@ if ! compose_for "${candidate_link}" up -d --remove-orphans ai-chat-backend; the
   echo "Candidate activation failed; previous candidate was restored when available." >&2
   exit 1
 fi
-
-candidate_port="$(sed -n 's/^AICHAT_CANDIDATE_PORT=//p' "${runtime_env}" | tail -n 1)"
-[[ "${candidate_port}" =~ ^[0-9]+$ ]] || { echo "AICHAT_CANDIDATE_PORT must be numeric" >&2; exit 69; }
 
 healthy=false
 for _ in $(seq 1 36); do
