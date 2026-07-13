@@ -84,9 +84,12 @@ else
   expected_service="ai-chat-production"
   expected_environment="cloud-production"
   expected_ops_log="/var/log/ai-chat/production-operations.jsonl"
-  expected_nacos_server="nacos:8848"
+  expected_nacos_server="nacos-v3:8848"
   expected_elasticsearch_server="elasticsearch-v9:9200"
   require_value AICHAT_PRODUCTION_CONFIRMED true
+  cutover_id="$(env_value AICHAT_CUTOVER_ID)"
+  [[ "${cutover_id}" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$ ]] \
+    || { echo "AICHAT_CUTOVER_ID must identify the approved maintenance window" >&2; exit 69; }
   require_value AICHAT_REQUIRE_NACOS_AUTH true
   require_value AICHAT_NACOS_DISCOVERY_ENABLED true
   require_value AICHAT_RABBITMQ_DYNAMIC true
@@ -108,6 +111,12 @@ require_value AICHAT_OPS_LOG_FILE "${expected_ops_log}"
 require_value AICHAT_HEALTH_CHECK_ENABLED false
 require_value NACOS_SERVER_ADDR "${expected_nacos_server}"
 require_value ELASTICSEARCH_SERVER_ADDR "${expected_elasticsearch_server}"
+
+if [[ "${mode}" == production ]]; then
+  [[ -x "${release}/deploy/cloud-preflight-production.sh" ]] \
+    || { echo "Production preflight gate is missing or not executable" >&2; exit 69; }
+  "${release}/deploy/cloud-preflight-production.sh" --ready "${release}"
+fi
 
 app_port="$(env_value AICHAT_APP_PORT)"
 if [[ -z "${app_port}" && "${mode}" == candidate ]]; then
@@ -272,7 +281,11 @@ switch_active_link "${release}"
 if ! compose_for "${release}" up -d --remove-orphans ai-chat-backend; then
   capture_startup_failure "${release}"
   restore_previous "${previous_release}" "${release}"
-  echo "${mode} activation failed; the previous ${mode} release was restored when available." >&2
+  if [[ -n "${previous_release}" ]]; then
+    echo "${mode} activation failed; the previous local ${mode} release was restored." >&2
+  else
+    echo "${mode} activation failed; no previous local release exists. Follow the cutover runbook to restart the external old instance." >&2
+  fi
   exit 1
 fi
 
@@ -290,7 +303,7 @@ if [[ "${healthy}" != true ]]; then
   capture_startup_failure "${release}"
   compose_for "${release}" ps
   restore_previous "${previous_release}" "${release}"
-  echo "${mode} health gate failed; Nginx and DNS were not changed." >&2
+  echo "${mode} health gate failed; Nginx and DNS were not changed. If this was the first production cutover, restart the external old instance per the runbook." >&2
   exit 1
 fi
 
