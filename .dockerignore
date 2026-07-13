@@ -2,3 +2,5 @@
 !pom.xml
 !src/
 !src/**
+!deploy/
+!deploy/docker-entrypoint.sh
