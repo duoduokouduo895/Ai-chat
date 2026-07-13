@@ -41,6 +41,8 @@ class NacosConfigurationTest {
                 nacos.getProperty("spring.cloud.nacos.config.max-retry"));
         String configImport = nacos.getProperty("spring.config.import");
         assertTrue(configImport.contains("nacos:databaseR2DBC-config.properties"));
+        assertEquals(9, configImport.split("\\?group=\\$\\{NACOS_GROUP:DEFAULT_GROUP}", -1).length - 1);
+        assertEquals(9, configImport.split("&refreshEnabled=true", -1).length - 1);
         assertFalse(configImport.contains("optional:nacos:"));
         assertFalse(configImport.contains("optional:file:./DEFAULT_GROUP/"));
     }
