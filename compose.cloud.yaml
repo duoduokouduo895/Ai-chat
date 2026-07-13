@@ -65,6 +65,7 @@ services:
     tmpfs:
       - /tmp:size=512m,mode=1777
       - /opt/aichat/nacos:size=32m,mode=0700,uid=10001,gid=10001
+      - /opt/aichat/logs/nacos:size=32m,mode=0700,uid=10001,gid=10001
     volumes:
       - ${AICHAT_LOG_DIR:-/opt/ai-chat/logs}:/var/log/ai-chat
     secrets:

@@ -38,6 +38,7 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 
 - AIDiag 和 Nacos 密钥只通过 Compose file secrets 挂载，不写入镜像、runtime env 或 `docker inspect`。
 - `docker-entrypoint.sh` 只在容器内部读取 Nacos 文件密钥并导出给 Java 进程。
+- 根文件系统保持只读；Nacos 客户端快照与内部日志只写入有大小上限、容器销毁即清空的 tmpfs。
 - 生产模式强制要求 Nacos 鉴权；候选模式可以在鉴权切换前暂时使用匿名 Nacos，切换后应改为 `true`。
 - 启动失败只收集 `ai-chat-backend` 最后 500 行日志，先脱敏再写入有大小上限的独立文件。
 - 健康门禁失败会恢复同模式的上一个 immutable release，不会触碰另一个模式或 DNS。
