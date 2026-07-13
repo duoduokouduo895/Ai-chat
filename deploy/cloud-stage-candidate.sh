@@ -19,7 +19,8 @@ runtime_env="${runtime_dir}/candidate.env"
 [[ -f "${runtime_env}" ]] || { echo "Candidate runtime config is missing" >&2; exit 67; }
 [[ "$(stat -c '%a' "${runtime_env}")" =~ ^(600|640)$ ]] \
   || { echo "Candidate runtime config must use mode 600 or 640" >&2; exit 68; }
-docker network inspect docker-stack_default >/dev/null
+docker network inspect middleware-net >/dev/null
+docker network inspect nacos-net >/dev/null
 docker network inspect aidiag-telemetry >/dev/null
 
 compose_for() {

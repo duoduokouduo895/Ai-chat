@@ -25,6 +25,7 @@ services:
       - "127.0.0.1:${AICHAT_CANDIDATE_PORT:-18082}:8080"
     networks:
       - middleware
+      - nacos
       - telemetry
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
@@ -45,7 +46,10 @@ services:
 networks:
   middleware:
     external: true
-    name: docker-stack_default
+    name: middleware-net
+  nacos:
+    external: true
+    name: nacos-net
   telemetry:
     external: true
     name: aidiag-telemetry

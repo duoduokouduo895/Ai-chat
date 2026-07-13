@@ -6,6 +6,11 @@ application health polling task, and model warm-up. It can validate startup,
 configuration, dependency connectivity, health, and telemetry without taking
 traffic or competing with the old production instance.
 
+The candidate joins the existing `middleware-net` for MySQL, Redis, RabbitMQ,
+and Elasticsearch, `nacos-net` for Nacos, and `aidiag-telemetry` for Alloy.
+These names are the verified cloud networks; the deployment does not recreate
+or publish the middleware services.
+
 The release contains source code, not a locally built Jar. Docker runs the
 tests and builds the Jar in a pinned Java 17/Maven image, then copies only the
 application Jar and OpenTelemetry agent into a non-root Java 17 runtime image.
