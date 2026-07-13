@@ -15,13 +15,14 @@
 | LangChain4j | 1.15.1 / Spring `1.15.1-beta25` | 使用 Boot 4 专用 starter；beta 仅指 Spring 集成层 |
 | OTel Java Agent | 2.29.0 | 只导出 Trace，Metrics 和日志仍走既有通道 |
 
-这些值同时记录在 `versions.env`；依赖版本以 Maven BOM 的实际解析结果为准。当前云端 Nacos
-Server 仍是 2.1.1，不能仅凭客户端编译通过就认定兼容。发布新版 AI-chat 前必须先在隔离的
-Nacos 3 候选上完成配置读取、服务注册、鉴权、重连和回滚验收，再决定是否升级现有服务。
-Nacos 2.1.1 到 3.x 涉及数据库结构变化，禁止直接替换生产容器。
+这些值同时记录在 `versions.env`；依赖版本以 Maven BOM 的实际解析结果为准。隔离 Nacos 3.2.2
+已经完成配置读取、鉴权、`ai-chat-candidate` 服务注册和受控停止/恢复重连验收；现有 Nacos 2.1.1
+仍作为旧实例回滚链，未被替换。Nacos 2.1.1 到 3.x 涉及数据库结构变化，禁止直接替换生产容器。
 
 Spring Data Elasticsearch 6 使用 Elasticsearch 9 client，不能连接现有共享 Elasticsearch 8.13.4。
 V1 先连接独立、带认证与 IK 9.3.2 的候选；现有 8.13.4 容器和数据卷不参与原地升级。
+候选已通过真实业务索引、IK Mapping、中文检索、dense_vector KNN 与 Guest SSE 验收；生产切换后
+仍需补真实知识库上传与 RAG 检索回归。
 
 Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangChain4j 链路仍通过
 `spring-boot-jackson2` 使用 Jackson 2 兼容桥。该桥已被标记为后续迁移债务，但 V1 不应在
@@ -35,6 +36,8 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 | `production` | 正式业务实例 | Flyway、RabbitMQ listener、定时任务和索引同步开启 | `18083` / `19092` | `/opt/ai-chat/current` |
 
 两个端口都只绑定 `127.0.0.1`。脚本不会修改 Nginx 或 DNS，也不会自动停止旧服务器。
+`AICHAT_SERVICE_NAME` 同时驱动 `SPRING_APPLICATION_NAME`、AIDiag service name 与 OTel service name，
+避免 Nacos 注册、指标、日志和 Trace 使用不同服务标识。
 
 候选与生产必须使用不同的 `AICHAT_SECRETS_DIR`：候选固定为 `/opt/ai-chat/runtime/.secrets/candidate`，生产固定为 `/opt/ai-chat/runtime/.secrets/production`。Nacos 与 Elasticsearch 各自使用独立的 username/password file Secret；不得复制或覆盖同一组凭据来切换模式，否则轮换会同时破坏另一条回滚链。
 生产模式只有在 `AICHAT_PRODUCTION_CONFIRMED=true` 时才会启动；这个值表示维护窗口已经开始，
@@ -42,8 +45,8 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 
 ## 安全边界
 
-- AIDiag 和 Nacos 密钥只通过 Compose file secrets 挂载，不写入镜像、runtime env 或 `docker inspect`。
-- `docker-entrypoint.sh` 只在容器内部读取 Nacos 文件密钥并导出给 Java 进程。
+- AIDiag、Nacos 和 Elasticsearch 密钥只通过 Compose file secrets 挂载，不写入镜像、runtime env 或 `docker inspect`。
+- `docker-entrypoint.sh` 只在容器内部读取 Nacos/Elasticsearch 文件密钥并导出给 Java 进程。
 - 根文件系统保持只读；Nacos 客户端快照与内部日志只写入有大小上限、容器销毁即清空的 tmpfs。
 - 生产模式强制要求 Nacos 鉴权；候选模式可以在鉴权切换前暂时使用匿名 Nacos，切换后应改为 `true`。
 - 启动失败只收集 `ai-chat-backend` 最后 500 行日志，先脱敏再写入有大小上限的独立文件。
