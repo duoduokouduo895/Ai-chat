@@ -22,6 +22,10 @@ production_secrets_dir="${runtime_dir}/.secrets/production"
 
 [[ -n "${release}" && "${release}" == "${base_dir}/releases/"* ]] \
   || { echo "Release must exist below ${base_dir}/releases" >&2; exit 65; }
+release_name="$(basename "${release}")"
+[[ "${release_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$ ]] \
+  || { echo "Release name has an unsafe format" >&2; exit 65; }
+export AICHAT_RELEASE="${release_name}"
 [[ -f "${release}/compose.cloud.yaml" && -f "${release}/versions.env" ]] \
   || { echo "Release is incomplete" >&2; exit 66; }
 [[ "$(stat -c '%u' "${release}")" == 0 ]] \
@@ -108,8 +112,9 @@ for spec in \
   production_path="${production_secrets_dir}/${name}"
   candidate_path="${candidate_secrets_dir}/${name}"
   [[ -f "${production_path}" && ! -L "${production_path}" && -s "${production_path}" \
-    && "$(stat -c '%a:%u:%g' "${production_path}")" == "${mode}:${uid}:${gid}" ]] \
-    || { echo "Production Secret is missing or unsafe: ${name}" >&2; exit 68; }
+    && "$(stat -c '%a:%u:%g' "${production_path}")" == "${mode}:${uid}:${gid}" \
+    && "$(wc -l <"${production_path}")" == 0 ]] \
+    || { echo "Production Secret is missing, unsafe, or multiline: ${name}" >&2; exit 68; }
   [[ -f "${candidate_path}" && ! -L "${candidate_path}" && -s "${candidate_path}" ]] \
     || { echo "Candidate rollback Secret is missing: ${name}" >&2; exit 68; }
   ! cmp --silent "${production_path}" "${candidate_path}" \
@@ -185,7 +190,7 @@ fi
 
 echo "production_preflight=${phase#--}"
 echo "cutover_id=${cutover_id}"
-echo "release=$(basename "${release}")"
+echo "release=${release_name}"
 echo "release_manifest_sha256=${release_manifest_sha256}"
 echo "nacos=3.2.2-authenticated-stable-alias"
 echo "elasticsearch=9.3.2-ik-authenticated-stable-alias"

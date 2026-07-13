@@ -41,5 +41,7 @@ class DeploymentComposeContractTest {
         assertTrue(preflight.contains("ai_agent_db.sql.gz"));
         assertTrue(preflight.contains("Production and candidate must not share the same Secret"));
         assertTrue(preflight.contains("AI-chat candidate must be stopped before production activation"));
+        assertTrue(preflight.contains("export AICHAT_RELEASE=\"${release_name}\""));
+        assertTrue(preflight.contains("Production Secret is missing, unsafe, or multiline"));
     }
 }
