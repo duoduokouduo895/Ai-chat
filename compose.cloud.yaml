@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     init: true
     environment:
+      SPRING_APPLICATION_NAME: ${AICHAT_SERVICE_NAME:?Set a mode-specific service name}
       SPRING_PROFILES_ACTIVE: prod,nacos
       NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:?Set the mode-specific Nacos server address}
       NACOS_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
