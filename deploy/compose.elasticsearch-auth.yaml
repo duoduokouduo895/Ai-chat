@@ -1,0 +1,15 @@
+services:
+  ai-chat-backend:
+    environment:
+      AICHAT_REQUIRE_ELASTICSEARCH_AUTH: "true"
+    secrets:
+      - source: elasticsearch_username
+        target: elasticsearch.username
+      - source: elasticsearch_password
+        target: elasticsearch.password
+
+secrets:
+  elasticsearch_username:
+    file: ${AICHAT_SECRETS_DIR:-/opt/ai-chat/runtime/.secrets}/elasticsearch_username
+  elasticsearch_password:
+    file: ${AICHAT_SECRETS_DIR:-/opt/ai-chat/runtime/.secrets}/elasticsearch_password

@@ -33,4 +33,17 @@ case "${AICHAT_REQUIRE_NACOS_AUTH:-false}" in
     ;;
 esac
 
+case "${AICHAT_REQUIRE_ELASTICSEARCH_AUTH:-false}" in
+  true)
+    load_secret SPRING_ELASTICSEARCH_USERNAME /run/secrets/elasticsearch.username
+    load_secret SPRING_ELASTICSEARCH_PASSWORD /run/secrets/elasticsearch.password
+    ;;
+  false)
+    ;;
+  *)
+    echo "AICHAT_REQUIRE_ELASTICSEARCH_AUTH must be true or false" >&2
+    exit 78
+    ;;
+esac
+
 exec java -jar /opt/aichat/application.jar

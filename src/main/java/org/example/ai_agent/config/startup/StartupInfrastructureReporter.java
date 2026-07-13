@@ -22,8 +22,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -190,11 +192,18 @@ public class StartupInfrastructureReporter {
             HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(timeout())
                     .build();
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(uri))
                     .timeout(timeout())
-                    .GET()
-                    .build();
+                    .GET();
+            if (elasticsearchConfig.hasCredentials()) {
+                String encoded = Base64.getEncoder().encodeToString(
+                        (elasticsearchConfig.getUsername() + ":" + elasticsearchConfig.getPassword())
+                                .getBytes(StandardCharsets.UTF_8)
+                );
+                requestBuilder.header("Authorization", "Basic " + encoded);
+            }
+            HttpRequest request = requestBuilder.build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             int statusCode = response.statusCode();
             if (statusCode >= 200 && statusCode < 300) {

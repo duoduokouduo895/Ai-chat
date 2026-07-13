@@ -11,6 +11,7 @@
 | Spring Boot / Cloud | 4.0.7 / 2025.1.2 | 使用受支持的 Oakwood release train，不再使用已 EOL 的 2023.x/2025.0.x |
 | Spring Cloud Alibaba | 2025.1.0.0 | 与 Boot 4、Cloud 2025.1 对齐 |
 | Nacos Client | 3.1.1 | 由 Alibaba BOM 管理，不手工覆盖 |
+| Elasticsearch | server / IK 9.3.2；Java client 9.2.8；legacy REST client 9.3.1 | server 与 IK 精确一致；客户端保持 BOM 解析结果 |
 | LangChain4j | 1.15.1 / Spring `1.15.1-beta25` | 使用 Boot 4 专用 starter；beta 仅指 Spring 集成层 |
 | OTel Java Agent | 2.29.0 | 只导出 Trace，Metrics 和日志仍走既有通道 |
 
@@ -18,6 +19,9 @@
 Server 仍是 2.1.1，不能仅凭客户端编译通过就认定兼容。发布新版 AI-chat 前必须先在隔离的
 Nacos 3 候选上完成配置读取、服务注册、鉴权、重连和回滚验收，再决定是否升级现有服务。
 Nacos 2.1.1 到 3.x 涉及数据库结构变化，禁止直接替换生产容器。
+
+Spring Data Elasticsearch 6 使用 Elasticsearch 9 client，不能连接现有共享 Elasticsearch 8.13.4。
+V1 先连接独立、带认证与 IK 9.3.2 的候选；现有 8.13.4 容器和数据卷不参与原地升级。
 
 Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangChain4j 链路仍通过
 `spring-boot-jackson2` 使用 Jackson 2 兼容桥。该桥已被标记为后续迁移债务，但 V1 不应在
@@ -32,7 +36,7 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 
 两个端口都只绑定 `127.0.0.1`。脚本不会修改 Nginx 或 DNS，也不会自动停止旧服务器。
 
-候选与生产必须使用不同的 `AICHAT_SECRETS_DIR`：候选固定为 `/opt/ai-chat/runtime/.secrets/candidate`，生产固定为 `/opt/ai-chat/runtime/.secrets/production`。不得通过复制或覆盖同一组 `nacos_username`、`nacos_password` 来切换模式，否则凭据轮换会同时破坏另一条回滚链。
+候选与生产必须使用不同的 `AICHAT_SECRETS_DIR`：候选固定为 `/opt/ai-chat/runtime/.secrets/candidate`，生产固定为 `/opt/ai-chat/runtime/.secrets/production`。Nacos 与 Elasticsearch 各自使用独立的 username/password file Secret；不得复制或覆盖同一组凭据来切换模式，否则轮换会同时破坏另一条回滚链。
 生产模式只有在 `AICHAT_PRODUCTION_CONFIRMED=true` 时才会启动；这个值表示维护窗口已经开始，
 旧实例中的 listener、scheduler 和其他写任务已经停止，避免双写。
 

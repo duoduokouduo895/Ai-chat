@@ -6,9 +6,12 @@ import dev.langchain4j.store.embedding.elasticsearch.ElasticsearchEmbeddingStore
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.ResponseException;
 import org.elasticsearch.client.RestClient;
+import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelConfig;
 import org.example.ai_agent.config.database.ElasticsearchConfig;
 import org.example.ai_agent.entity.KnowledgeBase;
@@ -176,6 +179,20 @@ public class EmbeddingStoreRegistry {
                         .setRequestConfigCallback(builder -> builder
                                 .setConnectTimeout(elasticsearchConfig.getConnectionTimeout())
                                 .setSocketTimeout(elasticsearchConfig.getSocketTimeout()))
+                        .setHttpClientConfigCallback(builder -> {
+                            if (!elasticsearchConfig.hasCredentials()) {
+                                return builder;
+                            }
+                            BasicCredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+                            credentialsProvider.setCredentials(
+                                    AuthScope.ANY,
+                                    new UsernamePasswordCredentials(
+                                            elasticsearchConfig.getUsername(),
+                                            elasticsearchConfig.getPassword()
+                                    )
+                            );
+                            return builder.setDefaultCredentialsProvider(credentialsProvider);
+                        })
                         .build();
             }
             return restClient;

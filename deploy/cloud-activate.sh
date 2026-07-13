@@ -67,6 +67,7 @@ if [[ "${mode}" == candidate ]]; then
   expected_environment="cloud-candidate"
   expected_ops_log="/var/log/ai-chat/operations.jsonl"
   expected_nacos_server="nacos-v3-candidate:8848"
+  expected_elasticsearch_server="elasticsearch-v9-candidate:9200"
   require_value AICHAT_REQUIRE_NACOS_AUTH true
   require_value AICHAT_NACOS_DISCOVERY_ENABLED true
   require_value AICHAT_RABBITMQ_DYNAMIC false
@@ -75,12 +76,16 @@ if [[ "${mode}" == candidate ]]; then
   require_value AICHAT_FLYWAY_ENABLED false
   require_value AICHAT_ELASTICSEARCH_SYNC_ENABLED false
   require_value AICHAT_MODEL_WARMUP_ENABLED false
+  require_value AICHAT_REQUIRE_ELASTICSEARCH_AUTH true
+  require_value AICHAT_ELASTICSEARCH_REQUIRED_VERSION 9.3.2
+  require_value AICHAT_ELASTICSEARCH_REQUIRE_IK true
 else
   expected_image="ai-chat-backend:production"
   expected_service="ai-chat-production"
   expected_environment="cloud-production"
   expected_ops_log="/var/log/ai-chat/production-operations.jsonl"
   expected_nacos_server="nacos:8848"
+  expected_elasticsearch_server="elasticsearch-v9:9200"
   require_value AICHAT_PRODUCTION_CONFIRMED true
   require_value AICHAT_REQUIRE_NACOS_AUTH true
   require_value AICHAT_NACOS_DISCOVERY_ENABLED true
@@ -90,6 +95,9 @@ else
   require_value AICHAT_FLYWAY_ENABLED true
   require_value AICHAT_ELASTICSEARCH_SYNC_ENABLED true
   require_value AICHAT_MODEL_WARMUP_ENABLED true
+  require_value AICHAT_REQUIRE_ELASTICSEARCH_AUTH true
+  require_value AICHAT_ELASTICSEARCH_REQUIRED_VERSION 9.3.2
+  require_value AICHAT_ELASTICSEARCH_REQUIRE_IK true
 fi
 
 require_value AICHAT_IMAGE "${expected_image}"
@@ -99,6 +107,7 @@ require_value DEPLOYMENT_ENVIRONMENT "${expected_environment}"
 require_value AICHAT_OPS_LOG_FILE "${expected_ops_log}"
 require_value AICHAT_HEALTH_CHECK_ENABLED false
 require_value NACOS_SERVER_ADDR "${expected_nacos_server}"
+require_value ELASTICSEARCH_SERVER_ADDR "${expected_elasticsearch_server}"
 
 app_port="$(env_value AICHAT_APP_PORT)"
 if [[ -z "${app_port}" && "${mode}" == candidate ]]; then
@@ -138,6 +147,32 @@ if [[ "${require_nacos_auth}" == true ]]; then
     "${aichat_secrets_dir}" nacos_username nacos_password
 fi
 
+require_elasticsearch_auth="$(env_value AICHAT_REQUIRE_ELASTICSEARCH_AUTH)"
+require_elasticsearch_auth="${require_elasticsearch_auth:-false}"
+[[ "${require_elasticsearch_auth}" == true || "${require_elasticsearch_auth}" == false ]] \
+  || { echo "AICHAT_REQUIRE_ELASTICSEARCH_AUTH must be true or false" >&2; exit 69; }
+
+if [[ "${require_elasticsearch_auth}" == true ]]; then
+  [[ -f "${release}/deploy/compose.elasticsearch-auth.yaml" \
+    && -x "${release}/deploy/verify-runtime-secret-permissions.sh" ]] \
+    || { echo "Elasticsearch auth overlay or Secret permission gate is missing" >&2; exit 69; }
+  aichat_secrets_dir="$(env_value AICHAT_SECRETS_DIR)"
+  aichat_secrets_dir="${aichat_secrets_dir:-${runtime_dir}/.secrets}"
+  "${release}/deploy/verify-runtime-secret-permissions.sh" \
+    "${aichat_secrets_dir}" elasticsearch_username elasticsearch_password
+fi
+
+if [[ "${mode}" == candidate ]]; then
+  [[ "$(docker inspect --format '{{.State.Health.Status}}' elasticsearch-v9-candidate 2>/dev/null || true)" == healthy \
+    && "$(docker inspect --format '{{.RestartCount}}' elasticsearch-v9-candidate)" == 0 ]] \
+    || { echo "Elasticsearch 9 candidate must be healthy with zero restarts" >&2; exit 69; }
+  [[ "$(docker image inspect --format '{{index .Config.Labels "aidiag.elasticsearch.version"}}' \
+      aidiag/elasticsearch-ik:9.3.2-candidate 2>/dev/null || true)" == 9.3.2 \
+    && "$(docker image inspect --format '{{index .Config.Labels "aidiag.analysis-ik.version"}}' \
+      aidiag/elasticsearch-ik:9.3.2-candidate 2>/dev/null || true)" == 9.3.2 ]] \
+    || { echo "Elasticsearch 9.3.2 + IK candidate image gate failed" >&2; exit 69; }
+fi
+
 install -d -o 10001 -g 10001 -m 0750 "${log_dir}"
 
 compose_for() {
@@ -148,6 +183,9 @@ compose_for() {
     target_files=(-f "${target_release}/compose.cloud.yaml")
     if [[ "${require_nacos_auth}" == true ]]; then
       target_files+=(-f "${target_release}/deploy/compose.nacos-auth.yaml")
+    fi
+    if [[ "${require_elasticsearch_auth}" == true ]]; then
+      target_files+=(-f "${target_release}/deploy/compose.elasticsearch-auth.yaml")
     fi
   elif [[ "${mode}" == candidate && -f "${target_release}/compose.candidate.yaml" ]]; then
     # One-release compatibility seam: the first authenticated Nacos 3 candidate can
