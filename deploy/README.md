@@ -25,6 +25,8 @@ Cloud layout:
 /opt/ai-chat/candidate                symlink to the active candidate release
 ~~~
 
+`candidate` 只用于标记当前候选。Compose 使用解析后的不可变 release 路径建立 bind mount；失败回滚会从旧 release 重新构建共享标签镜像，避免仅恢复软链接却继续运行失败版本镜像。
+
 Prepare runtime configuration once:
 
 ~~~bash

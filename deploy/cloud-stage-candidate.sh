@@ -50,11 +50,15 @@ fi
 ln -s "${release}" "${next_link}"
 mv -Tf "${next_link}" "${candidate_link}"
 
-if ! compose_for "${candidate_link}" up -d --remove-orphans ai-chat-backend; then
+# Compose must receive the immutable release path. Using the stable symlink would leave Docker
+# bind-mounting the previous release and could hide configuration-only changes.
+if ! compose_for "${release}" up -d --remove-orphans ai-chat-backend; then
   if [[ -n "${previous_release}" ]]; then
     ln -s "${previous_release}" "${next_link}"
     mv -Tf "${next_link}" "${candidate_link}"
-    compose_for "${candidate_link}" up -d --remove-orphans ai-chat-backend || true
+    compose_for "${previous_release}" build ai-chat-backend \
+      && compose_for "${previous_release}" up -d --remove-orphans ai-chat-backend \
+      || true
   fi
   echo "Candidate activation failed; previous candidate was restored when available." >&2
   exit 1
@@ -70,18 +74,20 @@ for _ in $(seq 1 36); do
 done
 
 if [[ "${healthy}" != true ]]; then
-  compose_for "${candidate_link}" ps
+  compose_for "${release}" ps
   if [[ -n "${previous_release}" ]]; then
     ln -s "${previous_release}" "${next_link}"
     mv -Tf "${next_link}" "${candidate_link}"
-    compose_for "${candidate_link}" up -d --remove-orphans ai-chat-backend || true
+    compose_for "${previous_release}" build ai-chat-backend \
+      && compose_for "${previous_release}" up -d --remove-orphans ai-chat-backend \
+      || true
   else
-    compose_for "${candidate_link}" down --remove-orphans || true
+    compose_for "${release}" down --remove-orphans || true
     rm -f "${candidate_link}"
   fi
   echo "Candidate health gate failed; DNS and Nginx were not changed." >&2
   exit 1
 fi
 
-compose_for "${candidate_link}" ps
+compose_for "${release}" ps
 echo "Candidate is healthy on loopback app port ${candidate_port} and management port ${management_port}; DNS and Nginx remain unchanged."
