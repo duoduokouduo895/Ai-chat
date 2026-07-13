@@ -51,7 +51,8 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 /opt/ai-chat/releases/<release-name>       immutable source release
 /opt/ai-chat/runtime/candidate.env         候选非密钥配置，mode 600/640
 /opt/ai-chat/runtime/production.env        生产非密钥配置，mode 600/640
-/opt/ai-chat/runtime/.secrets/nacos_*      Nacos 文件密钥，mode 400/440/600/640
+/opt/ai-chat/runtime/.secrets/candidate/   候选 Nacos 文件密钥，uid/gid 10001:10001、mode 400
+/opt/ai-chat/runtime/.secrets/production/  生产 Nacos 文件密钥，uid/gid 10001:10001、mode 400
 /opt/ai-chat/candidate                     当前候选 release 软链接
 /opt/ai-chat/current                       当前生产 release 软链接
 ~~~

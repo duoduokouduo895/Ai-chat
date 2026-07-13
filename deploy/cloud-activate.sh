@@ -129,16 +129,13 @@ require_nacos_auth="${require_nacos_auth:-false}"
   || { echo "AICHAT_REQUIRE_NACOS_AUTH must be true or false" >&2; exit 69; }
 
 if [[ "${require_nacos_auth}" == true ]]; then
-  [[ -f "${release}/deploy/compose.nacos-auth.yaml" ]] \
-    || { echo "Nacos auth overlay is missing" >&2; exit 69; }
+  [[ -f "${release}/deploy/compose.nacos-auth.yaml" \
+    && -x "${release}/deploy/verify-runtime-secret-permissions.sh" ]] \
+    || { echo "Nacos auth overlay or Secret permission gate is missing" >&2; exit 69; }
   aichat_secrets_dir="$(env_value AICHAT_SECRETS_DIR)"
   aichat_secrets_dir="${aichat_secrets_dir:-${runtime_dir}/.secrets}"
-  for secret_name in nacos_username nacos_password; do
-    secret_file="${aichat_secrets_dir}/${secret_name}"
-    [[ -s "${secret_file}" ]] || { echo "Nacos secret is missing or empty: ${secret_file}" >&2; exit 69; }
-    [[ "$(stat -c '%a' "${secret_file}")" =~ ^(400|440|600|640)$ ]] \
-      || { echo "Nacos secret must use mode 400, 440, 600 or 640: ${secret_file}" >&2; exit 69; }
-  done
+  "${release}/deploy/verify-runtime-secret-permissions.sh" \
+    "${aichat_secrets_dir}" nacos_username nacos_password
 fi
 
 install -d -o 10001 -g 10001 -m 0750 "${log_dir}"
