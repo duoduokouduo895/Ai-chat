@@ -89,7 +89,7 @@ public class SecurityConfig {
                         .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/test/**").permitAll()
                         .pathMatchers("/api/admin/auth/login").permitAll()
                         .pathMatchers("/api/admin/**", "/api/knowledge/admin/**", "/api/conversations/admin/**").hasRole("ADMIN")
-                        .pathMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .pathMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
                         .pathMatchers("/api/diagnostic/**", "/actuator/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )

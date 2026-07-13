@@ -154,6 +154,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Jackson JSR310 时间模块依赖，支持Java 8时间类型序列化 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>

@@ -1,6 +1,7 @@
 package org.example.ai_agent.service.impl.document;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.entity.DocumentProcessingOutboxEvent;
@@ -36,12 +37,14 @@ class DocumentProcessingOutboxServiceTest {
     private ObjectMapper objectMapper;
     private DocumentProcessingProperties properties;
     private DocumentProcessingOutboxService service;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper().findAndRegisterModules();
         properties = new DocumentProcessingProperties();
-        service = new DocumentProcessingOutboxService(outboxRepository, publisher, objectMapper, properties);
+        meterRegistry = new SimpleMeterRegistry();
+        service = new DocumentProcessingOutboxService(outboxRepository, publisher, objectMapper, properties, meterRegistry);
     }
 
     @Test
@@ -63,6 +66,8 @@ class DocumentProcessingOutboxServiceTest {
         org.junit.jupiter.api.Assertions.assertNotNull(event.getEventKey());
         org.junit.jupiter.api.Assertions.assertEquals(1L,
                 objectMapper.readValue(event.getPayload(), DocumentProcessingMessage.class).getDocumentId());
+        org.junit.jupiter.api.Assertions.assertEquals(1.0,
+                meterRegistry.get("aichat.document.outbox.events").tag("outcome", "enqueued").counter().count());
     }
 
     @Test

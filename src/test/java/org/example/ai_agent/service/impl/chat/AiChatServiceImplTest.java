@@ -1,9 +1,11 @@
 package org.example.ai_agent.service.impl.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
+import org.example.ai_agent.observability.ChatStreamTelemetry;
 import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.assistant.GeneralAssistant;
@@ -46,11 +48,13 @@ class AiChatServiceImplTest {
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
+        ChatStreamTelemetry telemetry = new ChatStreamTelemetry(new SimpleMeterRegistry(), objectMapper);
         service = new AiChatServiceImpl(
                 generalAssistantFactory,
                 new AssistantConversationTurn(conversationService),
                 new AssistantInputBuilder(ragService),
                 new ChatStreamEventFactory(objectMapper),
+                telemetry,
                 1000L);
     }
 
@@ -112,6 +116,7 @@ class AiChatServiceImplTest {
                 new AssistantConversationTurn(conversationService),
                 new AssistantInputBuilder(ragService),
                 new ChatStreamEventFactory(new ObjectMapper()),
+                new ChatStreamTelemetry(new SimpleMeterRegistry(), new ObjectMapper()),
                 10L);
         ChatRequest request = ChatRequest.builder()
                 .userId(42L)

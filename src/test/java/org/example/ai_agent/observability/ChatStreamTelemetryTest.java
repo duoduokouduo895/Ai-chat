@@ -1,0 +1,78 @@
+package org.example.ai_agent.observability;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.codec.ServerSentEvent;
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
+import org.example.ai_agent.service.impl.chat.ChatStreamClientException;
+
+import java.time.Duration;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+class ChatStreamTelemetryTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final ChatStreamTelemetry telemetry = new ChatStreamTelemetry(registry, objectMapper);
+
+    @Test
+    void recordsSuccessTtftAndBoundedTagsForEverySubscription() {
+        Flux<ServerSentEvent<String>> observed = telemetry.observe(Flux.just(
+                ServerSentEvent.<String>builder().event("status").data("connecting").build(),
+                ServerSentEvent.<String>builder().event("message").data("private answer").build()), true);
+
+        StepVerifier.create(observed).expectNextCount(2).verifyComplete();
+        StepVerifier.create(observed).expectNextCount(2).verifyComplete();
+
+        assertEquals(2.0, registry.get("aichat.chat.requests")
+                .tags("outcome", "success", "rag", "true").counter().count());
+        assertEquals(2, registry.get("aichat.chat.ttft").tag("rag", "true").timer().count());
+        assertEquals(0.0, registry.get("aichat.chat.streams.active").gauge().value());
+        registry.getMeters().forEach(meter -> meter.getId().getTags().forEach(tag -> {
+            assertFalse(tag.getValue().contains("private answer"));
+            assertFalse(tag.getKey().matches("(?i).*user|.*conversation|.*prompt"));
+        }));
+    }
+
+    @Test
+    void recordsCancellationAndReleasesActiveGauge() {
+        StepVerifier.create(telemetry.observe(Flux.never(), false))
+                .thenAwait(Duration.ofMillis(5))
+                .thenCancel()
+                .verify();
+
+        assertEquals(1.0, registry.get("aichat.chat.requests")
+                .tags("outcome", "cancelled", "rag", "false").counter().count());
+        assertEquals(0.0, registry.get("aichat.chat.streams.active").gauge().value());
+    }
+
+    @Test
+    void classifiesTimeoutWithoutUsingExceptionMessagesAsTags() {
+        StepVerifier.create(telemetry.observe(Flux.error(ChatStreamClientException.modelTimeout()), false))
+                .expectError(ChatStreamClientException.class)
+                .verify();
+
+        assertEquals(1.0, registry.get("aichat.chat.requests")
+                .tags("outcome", "timeout", "rag", "false").counter().count());
+        assertEquals(0.0, registry.get("aichat.chat.streams.active").gauge().value());
+    }
+
+    @Test
+    void operationalJsonContainsOnlyControlledFields() throws Exception {
+        String json = telemetry.operationalEventJson("error", 17, "INTERNAL_ERROR");
+        JsonNode root = objectMapper.readTree(json);
+
+        assertEquals(6, root.size());
+        assertEquals("ai_chat_stream_finished", root.get("event").asText());
+        assertEquals("error", root.get("result").asText());
+        assertNotNull(root.get("traceId"));
+        assertNotNull(root.get("spanId"));
+        assertFalse(json.matches("(?is).*(prompt|answer|userId|conversationId|token|authorization).*"));
+    }
+}

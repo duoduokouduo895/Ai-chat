@@ -25,16 +25,28 @@ services:
       LANGCHAIN4J_OPEN_AI_RELIABILITY_WARMUP_ENABLED: "false"
       SERVER_SHUTDOWN: graceful
       SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 20s
+      MANAGEMENT_SERVER_PORT: 9091
       OTEL_SERVICE_NAME: ai-chat-candidate
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${DEPLOYMENT_ENVIRONMENT:-cloud-candidate},service.version=${AICHAT_RELEASE:-unknown}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: "true"
     ports:
       - "127.0.0.1:${AICHAT_CANDIDATE_PORT:-18082}:8080"
+      - "127.0.0.1:${AICHAT_MANAGEMENT_PORT:-19091}:9091"
+    expose:
+      - "9091"
     networks:
-      - middleware
-      - nacos
-      - telemetry
+      middleware:
+      nacos:
+      telemetry:
+        aliases:
+          - ai-chat-candidate
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9091/actuator/health"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -47,6 +59,8 @@ services:
     tmpfs:
       - /tmp:size=512m,mode=1777
       - /opt/aichat/nacos:size=32m,mode=0700,uid=10001,gid=10001
+    volumes:
+      - ${AICHAT_LOG_DIR:-/opt/ai-chat/logs}:/var/log/ai-chat
     security_opt:
       - no-new-privileges:true
 

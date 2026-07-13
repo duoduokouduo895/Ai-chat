@@ -12,6 +12,7 @@ runtime_dir="${base_dir}/runtime"
 candidate_link="${base_dir}/candidate"
 next_link="${base_dir}/.candidate.next"
 runtime_env="${runtime_dir}/candidate.env"
+log_dir="${base_dir}/logs"
 
 [[ "${release}" == "${base_dir}/releases/"* ]] || { echo "Release must be below ${base_dir}/releases" >&2; exit 65; }
 [[ -f "${release}/compose.candidate.yaml" && -f "${release}/versions.env" ]] \
@@ -25,6 +26,11 @@ docker network inspect aidiag-telemetry >/dev/null
 
 candidate_port="$(sed -n 's/^AICHAT_CANDIDATE_PORT=//p' "${runtime_env}" | tail -n 1 | tr -d '\r')"
 [[ "${candidate_port}" =~ ^[0-9]+$ ]] || { echo "AICHAT_CANDIDATE_PORT must be numeric" >&2; exit 69; }
+management_port="$(sed -n 's/^AICHAT_MANAGEMENT_PORT=//p' "${runtime_env}" | tail -n 1 | tr -d '\r')"
+management_port="${management_port:-19091}"
+[[ "${management_port}" =~ ^[0-9]+$ ]] || { echo "AICHAT_MANAGEMENT_PORT must be numeric" >&2; exit 69; }
+[[ "${management_port}" != "${candidate_port}" ]] || { echo "Candidate and management ports must differ" >&2; exit 69; }
+install -d -o 10001 -g 10001 -m 0750 "${log_dir}"
 
 compose_for() {
   local target_release="$1"
@@ -56,7 +62,7 @@ fi
 
 healthy=false
 for _ in $(seq 1 36); do
-  if curl --fail --silent "http://127.0.0.1:${candidate_port}/actuator/health" >/dev/null; then
+  if curl --fail --silent "http://127.0.0.1:${management_port}/actuator/health" >/dev/null; then
     healthy=true
     break
   fi
@@ -78,4 +84,4 @@ if [[ "${healthy}" != true ]]; then
 fi
 
 compose_for "${candidate_link}" ps
-echo "Candidate is healthy on loopback port ${candidate_port}; DNS and Nginx remain unchanged."
+echo "Candidate is healthy on loopback app port ${candidate_port} and management port ${management_port}; DNS and Nginx remain unchanged."

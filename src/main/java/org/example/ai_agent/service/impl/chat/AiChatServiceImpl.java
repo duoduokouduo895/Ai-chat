@@ -2,6 +2,7 @@ package org.example.ai_agent.service.impl.chat;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.ChatRequest;
+import org.example.ai_agent.observability.ChatStreamTelemetry;
 import org.example.ai_agent.service.AiChatService;
 import org.example.ai_agent.service.assistant.GeneralAssistant;
 import org.example.ai_agent.service.assistant.GeneralAssistantFactory;
@@ -24,17 +25,20 @@ public class AiChatServiceImpl implements AiChatService {
     private final AssistantConversationTurn conversationTurn;
     private final AssistantInputBuilder inputBuilder;
     private final ChatStreamEventFactory eventFactory;
+    private final ChatStreamTelemetry telemetry;
     private final long streamTimeoutMs;
 
     public AiChatServiceImpl(GeneralAssistantFactory generalAssistantFactory,
                              AssistantConversationTurn conversationTurn,
                              AssistantInputBuilder inputBuilder,
                              ChatStreamEventFactory eventFactory,
+                             ChatStreamTelemetry telemetry,
                              @Value("${assistant.stream.timeout-ms:60000}") long streamTimeoutMs) {
         this.generalAssistantFactory = generalAssistantFactory;
         this.conversationTurn = conversationTurn;
         this.inputBuilder = inputBuilder;
         this.eventFactory = eventFactory;
+        this.telemetry = telemetry;
         this.streamTimeoutMs = streamTimeoutMs;
     }
 
@@ -43,9 +47,10 @@ public class AiChatServiceImpl implements AiChatService {
         log.info("收到统一 Assistant 对话请求: userId={}, model={}, ragMode={}",
                 chatRequest.getUserId(), chatRequest.getModel(), chatRequest.isRagMode());
 
-        return Mono.just(chatRequest)
+        Flux<ServerSentEvent<String>> stream = Mono.just(chatRequest)
                 .flatMap(conversationTurn::ensureConversationExists)
-                .flatMapMany(this::handleAssistantChat)
+                .flatMapMany(this::handleAssistantChat);
+        return telemetry.observe(stream, chatRequest.isRagMode())
                 .onErrorResume(this::handleChatError);
     }
 

@@ -2,6 +2,8 @@ package org.example.ai_agent.service.impl.document;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
@@ -30,15 +32,24 @@ public class DocumentProcessingOutboxService {
     private final DocumentProcessingPublisher publisher;
     private final ObjectMapper objectMapper;
     private final DocumentProcessingProperties properties;
+    private final Counter enqueuedCounter;
+    private final Counter publishedCounter;
+    private final Counter retryCounter;
+    private final Counter recoveredCounter;
 
     public DocumentProcessingOutboxService(DocumentProcessingOutboxRepository outboxRepository,
                                            DocumentProcessingPublisher publisher,
                                            ObjectMapper objectMapper,
-                                           DocumentProcessingProperties properties) {
+                                           DocumentProcessingProperties properties,
+                                           MeterRegistry meterRegistry) {
         this.outboxRepository = outboxRepository;
         this.publisher = publisher;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.enqueuedCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "enqueued");
+        this.publishedCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "published");
+        this.retryCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "retry");
+        this.recoveredCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "recovered");
     }
 
     public Mono<Boolean> enqueue(DocumentProcessingMessage message, String routingKey) {
@@ -46,6 +57,7 @@ public class DocumentProcessingOutboxService {
                 .flatMap(outboxRepository::save)
                 .doOnSuccess(event -> log.debug("文档消息已写入 outbox: eventId={}, documentId={}, routingKey={}",
                         event.getId(), event.getDocumentId(), event.getRoutingKey()))
+                .doOnSuccess(event -> enqueuedCounter.increment())
                 .map(ignored -> true);
     }
 
@@ -54,6 +66,7 @@ public class DocumentProcessingOutboxService {
         return outboxRepository.recoverStaleClaims(staleBefore)
                 .doOnNext(recovered -> {
                     if (recovered > 0) {
+                        recoveredCounter.increment(recovered);
                         log.warn("已恢复超时的 outbox 投递声明: count={}", recovered);
                     }
                 })
@@ -74,6 +87,11 @@ public class DocumentProcessingOutboxService {
                 .flatMap(message -> publisher.publish(message, event.getRoutingKey())
                         .flatMap(published -> Boolean.TRUE.equals(published)
                                 ? outboxRepository.markPublished(event.getId())
+                                    .doOnNext(updated -> {
+                                        if (updated != null && updated > 0) {
+                                            publishedCounter.increment();
+                                        }
+                                    })
                                 : retry(event, "RabbitMQ did not confirm the message"))
                         .then())
                 .onErrorResume(error -> retry(event, error.getMessage()).then());
@@ -88,7 +106,12 @@ public class DocumentProcessingOutboxService {
         String sanitizedError = sanitizeError(error);
         log.warn("outbox 投递失败，将重试: eventId={}, documentId={}, attempt={}, nextAttemptAt={}, error={}",
                 event.getId(), event.getDocumentId(), event.getAttemptCount(), nextAttemptAt, sanitizedError);
-        return outboxRepository.markRetry(event.getId(), nextAttemptAt, sanitizedError);
+        return outboxRepository.markRetry(event.getId(), nextAttemptAt, sanitizedError)
+                .doOnNext(updated -> {
+                    if (updated != null && updated > 0) {
+                        retryCounter.increment();
+                    }
+                });
     }
 
     private DocumentProcessingOutboxEvent toOutboxEvent(DocumentProcessingMessage message, String routingKey)
