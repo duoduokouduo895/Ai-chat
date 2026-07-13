@@ -7,6 +7,7 @@ import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -37,12 +38,12 @@ public class DiagnosticController {
                               DocumentIngestionService ingestionService,
                               KnowledgeDocumentRepository documentRepository,
                               RabbitTemplate rabbitTemplate,
-                              AmqpAdmin amqpAdmin) {
+                              ObjectProvider<AmqpAdmin> amqpAdminProvider) {
         this.recordService = recordService;
         this.ingestionService = ingestionService;
         this.documentRepository = documentRepository;
         this.rabbitTemplate = rabbitTemplate;
-        this.amqpAdmin = amqpAdmin;
+        this.amqpAdmin = amqpAdminProvider.getIfAvailable();
     }
 
     /**
@@ -217,6 +218,13 @@ public class DiagnosticController {
         return Mono.fromCallable(() -> {
             Map<String, Object> result = new HashMap<>();
             Map<String, Object> queueStatus = new HashMap<>();
+
+            if (amqpAdmin == null) {
+                result.put("success", false);
+                result.put("error", "RabbitMQ administration is disabled");
+                result.put("timestamp", System.currentTimeMillis());
+                return result;
+            }
 
             try {
                 String[] queues = {
