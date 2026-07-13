@@ -41,4 +41,11 @@ export const adminMenus = [
     icon: 'deployed_code',
     path: '/models',
   },
+  {
+    key: 'operations',
+    label: '智能运维',
+    labelEn: 'Operations',
+    icon: 'monitoring',
+    path: '/operations',
+  },
 ]

@@ -88,6 +88,15 @@ const routes = [
         },
       },
       {
+        path: 'operations',
+        name: 'operations',
+        component: () => import('@/views/operations/OperationsView.vue'),
+        meta: {
+          title: '智能运维',
+          menuKey: 'operations',
+        },
+      },
+      {
         path: 'profile',
         name: 'profile',
         component: () => import('@/views/profile/ProfileView.vue'),

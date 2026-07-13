@@ -22,6 +22,10 @@ services:
       APP_FLYWAY_ENABLED: "false"
       ELASTICSEARCH_SYNC_ENABLED: "false"
       HEALTH_CHECK_ENABLED: "false"
+      AIDIAG_INTEGRATION_ENABLED: "true"
+      AIDIAG_BASE_URL: http://aidiag-backend:8080
+      AIDIAG_READ_API_USERNAME: ${AIDIAG_READ_API_USERNAME:-aidiag-reader}
+      AIDIAG_SERVICE_NAME: ai-chat-candidate
       LANGCHAIN4J_OPEN_AI_RELIABILITY_WARMUP_ENABLED: "false"
       SERVER_SHUTDOWN: graceful
       SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 20s
@@ -61,6 +65,9 @@ services:
       - /opt/aichat/nacos:size=32m,mode=0700,uid=10001,gid=10001
     volumes:
       - ${AICHAT_LOG_DIR:-/opt/ai-chat/logs}:/var/log/ai-chat
+    secrets:
+      - source: aidiag_read_api_secret
+        target: aidiag.read-api.secret
     security_opt:
       - no-new-privileges:true
 
@@ -74,3 +81,7 @@ networks:
   telemetry:
     external: true
     name: aidiag-telemetry
+
+secrets:
+  aidiag_read_api_secret:
+    file: ${AIDIAG_SECRETS_DIR:-/opt/aidiag/runtime/.secrets}/aidiag_read_api_secret
