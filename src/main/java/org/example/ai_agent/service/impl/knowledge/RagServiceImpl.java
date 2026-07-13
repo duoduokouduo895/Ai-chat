@@ -19,7 +19,6 @@ import reactor.core.scheduler.Schedulers;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 /**
  * RAG检索增强生成服务实现类
@@ -70,8 +69,8 @@ public class RagServiceImpl implements RagService {
             KnowledgeSearchResultDto result =
                     retrievalContextAssembler.toSearchResult(searchResults, startTime);
 
-            log.info("知识库搜索完成: query={}, resultCount={}, searchTime={}ms",
-                    searchRequest.getQuery(), result.getTotalCount(), result.getSearchTime());
+            log.info("知识库搜索完成: queryLength={}, resultCount={}, searchTime={}ms",
+                    searchRequest.getQuery().length(), result.getTotalCount(), result.getSearchTime());
 
             return result;
         })
@@ -110,8 +109,8 @@ public class RagServiceImpl implements RagService {
                     response.setResponseTime(LocalDateTime.now());
                     response.setProcessingTime(System.currentTimeMillis() - startTime);
                     
-                    log.info("RAG对话完成: question={}, sourceCount={}, processingTime={}ms", 
-                            ragRequest.getQuestion(), context.relevantDocuments().size(), response.getProcessingTime());
+                    log.info("RAG对话完成: questionLength={}, sourceCount={}, processingTime={}ms",
+                            ragRequest.getQuestion().length(), context.relevantDocuments().size(), response.getProcessingTime());
                     
                     return response;
                 });
@@ -121,8 +120,8 @@ public class RagServiceImpl implements RagService {
     
     @Override
     public Flux<String> ragChatStream(RagChatDto ragRequest, Long requesterUserId, boolean isAdmin) {
-        log.info("🤖 [RAG模式] 开始流式对话: question={}, modelId={}, knowledgeBaseIds={}",
-                ragRequest.getQuestion(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
+        log.info("🤖 [RAG模式] 开始流式对话: questionLength={}, modelId={}, knowledgeBaseIds={}",
+                ragRequest.getQuestion().length(), ragRequest.getModelId(), ragRequest.getKnowledgeBaseIds());
         
         return retrieveContext(
                 ragRequest.getQuestion(), 
@@ -146,7 +145,7 @@ public class RagServiceImpl implements RagService {
             return Flux.<String>create(sink -> {
                 java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
                 sink.onDispose(() -> {
-                    log.info("RAG 流式会话已被下游取消订阅: question={}", ragRequest.getQuestion());
+                    log.info("RAG 流式会话已被下游取消订阅");
                     cancelled.set(true);
                 });
 
@@ -184,6 +183,7 @@ public class RagServiceImpl implements RagService {
                                                   Integer maxResults, Double minSimilarity,
                                                   Long requesterUserId, boolean isAdmin) {
         long startTime = System.currentTimeMillis();
+        int questionLength = question == null ? 0 : question.length();
         
         return hybridRetrievalService.retrieve(
                 question,
@@ -196,12 +196,8 @@ public class RagServiceImpl implements RagService {
                 RetrievalContext context =
                         retrievalContextAssembler.toRetrievalContext(question, searchResults, startTime);
 
-                log.info("🔍 [上下文检索] 上下文检索完成: question={}, documentCount={}, retrievalTime={}ms",
-                        question, context.documentCount(), context.retrievalTime());
-                log.info("📝 [检索结果] 获得相关文档: {}",
-                        context.relevantDocuments().stream()
-                                .map(doc -> String.format("[%s:%.2f]", doc.getDocumentTitle(), doc.getScore()))
-                                .collect(Collectors.joining(", ")));
+                log.info("🔍 [上下文检索] 上下文检索完成: questionLength={}, documentCount={}, retrievalTime={}ms",
+                        questionLength, context.documentCount(), context.retrievalTime());
 
                 return context;
             })

@@ -40,8 +40,8 @@ public class DocumentProcessingPublisher {
                 CorrelationData.Confirm confirm = correlationData.getFuture().get(
                         processingProperties.effectivePublishConfirmTimeout().toMillis(), TimeUnit.MILLISECONDS);
                 if (!confirm.isAck()) {
-                    log.error("RabbitMQ 拒绝处理消息: routingKey={}, documentId={}, reason={}",
-                            routingKey, message.getDocumentId(), confirm.getReason());
+                    log.error("RabbitMQ 拒绝处理消息: routingKey={}, documentId={}",
+                            routingKey, message.getDocumentId());
                     return false;
                 }
                 if (correlationData.getReturned() != null) {
@@ -60,8 +60,8 @@ public class DocumentProcessingPublisher {
                         routingKey, message.getDocumentId());
                 return false;
             } catch (Exception e) {
-                log.error("发送处理消息或等待确认失败: routingKey={}, documentId={}, error={}",
-                        routingKey, message.getDocumentId(), e.getMessage(), e);
+                log.error("发送处理消息或等待确认失败: routingKey={}, documentId={}, errorType={}",
+                        routingKey, message.getDocumentId(), e.getClass().getSimpleName());
                 return false;
             }
         }).subscribeOn(Schedulers.boundedElastic());

@@ -63,7 +63,8 @@ public class GuestCleanupTask {
         LocalDateTime thresholdTime = LocalDateTime.now().minus(guestSessionTtl);
         cleanupExpiredGuestBatches(thresholdTime)
                 .doOnSuccess(deletedUsers -> log.info("清理过期游客数据 - 任务完成，共清理 {} 个过期游客账号", deletedUsers))
-                .doOnError(e -> log.error("清理过期游客数据任务执行失败: {}", e.getMessage(), e))
+                .doOnError(e -> log.error("清理过期游客数据任务执行失败: errorType={}",
+                        e.getClass().getSimpleName()))
                 .doFinally(signal -> taskGuard.finish())
                 .subscribe();
     }
@@ -157,14 +158,14 @@ public class GuestCleanupTask {
         return Flux.fromIterable(conversationIds)
                 .concatMap(conversationId -> searchService.deleteConversationIndex(conversationId)
                         .onErrorResume(error -> {
-                            log.warn("清理游客会话索引失败: conversationId={}, error={}",
-                                    conversationId, error.getMessage());
+                log.warn("清理游客会话索引失败: conversationId={}, errorType={}",
+                        conversationId, error.getClass().getSimpleName());
                             return Mono.empty();
                         })
                         .then(Mono.fromRunnable(() -> chatMemoryStore.deleteConversationMessages(conversationId)))
                         .onErrorResume(error -> {
-                            log.warn("清理游客 Redis ChatMemory 失败: conversationId={}, error={}",
-                                    conversationId, error.getMessage());
+                log.warn("清理游客 Redis ChatMemory 失败: conversationId={}, errorType={}",
+                        conversationId, error.getClass().getSimpleName());
                             return Mono.empty();
                         }))
                 .then();

@@ -96,13 +96,15 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                                                               Mono<List<RetrievalCandidate>> retrieval,
                                                               int timeoutMs) {
         long startNanos = System.nanoTime();
+        int queryLength = query == null ? 0 : query.length();
         return retrieval
                 .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
-                .doOnSuccess(results -> log.info("{} 召回完成: query={}, resultCount={}, durationMs={}",
-                        channel, query, results != null ? results.size() : 0, elapsedMs(startNanos)))
+                .doOnSuccess(results -> log.info("{} 召回完成: queryLength={}, resultCount={}, durationMs={}",
+                        channel, queryLength, results != null ? results.size() : 0, elapsedMs(startNanos)))
                 .onErrorResume(error -> {
-                    log.warn("{} 召回失败或超时，降级为空结果: query={}, durationMs={}, error={}",
-                            channel, query, elapsedMs(startNanos), error.getMessage());
+                    log.warn("{} 召回失败或超时，降级为空结果: queryLength={}, durationMs={}, errorType={}",
+                            channel, queryLength, elapsedMs(startNanos),
+                            error.getClass().getSimpleName());
                     return Mono.just(List.of());
                 });
     }

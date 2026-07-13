@@ -33,8 +33,7 @@ public class DocumentProcessingRetryPolicy {
                         message.contains("document not found");
 
         if (notFound) {
-            log.info("检测到文档不存在错误: errorType={}, errorMessage={}",
-                    error.getClass().getSimpleName(), message);
+            log.info("检测到文档不存在错误: errorType={}", error.getClass().getSimpleName());
         }
 
         return notFound;

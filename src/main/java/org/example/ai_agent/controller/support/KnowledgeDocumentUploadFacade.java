@@ -50,8 +50,8 @@ public class KnowledgeDocumentUploadFacade {
                             String parseMode = tuple.getT3();
                             Boolean enableVectorization = Boolean.parseBoolean(tuple.getT4().trim());
 
-                            log.info("文档上传请求: fileName={}, knowledgeBaseId={}, parseMode={}, enableVectorization={}",
-                                    filePart.filename(), knowledgeBaseId, parseMode, enableVectorization);
+                            log.info("文档上传请求: fileNameLength={}, knowledgeBaseId={}, parseMode={}, enableVectorization={}",
+                                    filePart.filename().length(), knowledgeBaseId, parseMode, enableVectorization);
 
                             return uploadFilePart(filePart, knowledgeBaseId, parseMode,
                                     enableVectorization, authentication);
@@ -77,8 +77,8 @@ public class KnowledgeDocumentUploadFacade {
                             Boolean enableVectorization = Boolean.parseBoolean(tuple.getT4().trim());
                             Long uploaderId = accessContextResolver.parseOptionalLong(tuple.getT5());
 
-                            log.info("管理员文档上传请求: fileName={}, knowledgeBaseId={}, uploaderId={}, parseMode={}",
-                                    filePart.filename(), knowledgeBaseId, uploaderId, parseMode);
+                            log.info("管理员文档上传请求: fileNameLength={}, knowledgeBaseId={}, parseMode={}",
+                                    filePart.filename().length(), knowledgeBaseId, parseMode);
 
                             return accessContextResolver.requireAdmin(authentication)
                                     .then(accessContextResolver.resolveAdminUploaderId(knowledgeBaseId, uploaderId))

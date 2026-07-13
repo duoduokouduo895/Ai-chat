@@ -8,8 +8,8 @@ import dev.langchain4j.http.client.SuccessfulHttpResponse;
 import dev.langchain4j.http.client.sse.ServerSentEventListener;
 import dev.langchain4j.http.client.sse.ServerSentEventParser;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.web.client.ClientHttpRequestFactories;
-import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
@@ -19,6 +19,9 @@ import java.io.InputStream;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 
 import static dev.langchain4j.http.client.sse.ServerSentEventListenerUtils.ignoringExceptions;
@@ -32,7 +35,7 @@ public class Utf8SpringRestClient implements HttpClient {
     private final Executor streamingRequestExecutor;
 
     public Utf8SpringRestClient(Duration connectTimeout, Duration readTimeout, Executor streamingRequestExecutor) {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS;
+        HttpClientSettings settings = HttpClientSettings.defaults();
         if (connectTimeout != null) {
             settings = settings.withConnectTimeout(connectTimeout);
         }
@@ -40,7 +43,7 @@ public class Utf8SpringRestClient implements HttpClient {
             settings = settings.withReadTimeout(readTimeout);
         }
 
-        ClientHttpRequestFactory clientHttpRequestFactory = ClientHttpRequestFactories.get(settings);
+        ClientHttpRequestFactory clientHttpRequestFactory = ClientHttpRequestFactoryBuilder.detect().build(settings);
         this.delegate = RestClient.builder()
                 .requestFactory(clientHttpRequestFactory)
                 .build();
@@ -56,7 +59,7 @@ public class Utf8SpringRestClient implements HttpClient {
 
             return SuccessfulHttpResponse.builder()
                     .statusCode(responseEntity.getStatusCode().value())
-                    .headers(responseEntity.getHeaders())
+                    .headers(toHeaderMap(responseEntity.getHeaders()))
                     .body(responseEntity.getBody())
                     .build();
         } catch (RestClientResponseException e) {
@@ -93,7 +96,7 @@ public class Utf8SpringRestClient implements HttpClient {
 
                             SuccessfulHttpResponse response = SuccessfulHttpResponse.builder()
                                     .statusCode(statusCode)
-                                    .headers(springResponse.getHeaders())
+                                    .headers(toHeaderMap(springResponse.getHeaders()))
                                     .build();
                             ignoringExceptions(() -> listener.onOpen(response));
 
@@ -109,8 +112,8 @@ public class Utf8SpringRestClient implements HttpClient {
                     log.debug("流式大模型调用已被下游取消，成功断开底层网络连接并静默退出。");
                     return;
                 }
-                log.warn("AI provider streaming request error: target={}, error={}",
-                        safeTarget(request.url()), e.toString());
+                log.warn("AI provider streaming request error: target={}, errorType={}",
+                        safeTarget(request.url()), e.getClass().getSimpleName());
                 if (e.getCause() instanceof SocketTimeoutException) {
                     ignoringExceptions(() -> listener.onError(new TimeoutException(e)));
                 } else {
@@ -151,5 +154,11 @@ public class Utf8SpringRestClient implements HttpClient {
         } catch (Exception ignored) {
             return "<invalid-url>";
         }
+    }
+
+    private Map<String, List<String>> toHeaderMap(org.springframework.http.HttpHeaders headers) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        headers.forEach((name, values) -> result.put(name, List.copyOf(values)));
+        return result;
     }
 }

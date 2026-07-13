@@ -65,7 +65,8 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     public Mono<KnowledgeBaseDto> createKnowledgeBase(KnowledgeBaseCreateDto createDto, Long creatorId) {
         return Mono.fromCallable(() -> {
-            log.info("开始创建知识库: name={}, creatorId={}", createDto.getName(), creatorId);
+            int nameLength = createDto.getName() == null ? 0 : createDto.getName().length();
+            log.info("开始创建知识库: nameLength={}", nameLength);
 
             if (createDto.getName() == null || createDto.getName().trim().isEmpty()) {
                 throw new IllegalArgumentException("知识库名称不能为空");
@@ -89,8 +90,8 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                 });
         })
         .map(this::toDto)
-        .doOnSuccess(dto -> log.info("知识库创建成功: id={}, name={}", dto.getId(), dto.getName()))
-        .doOnError(error -> log.error("知识库创建失败: name={}, error={}", createDto.getName(), error.getMessage()))
+        .doOnSuccess(dto -> log.info("知识库创建成功: id={}", dto.getId()))
+        .doOnError(error -> log.error("知识库创建失败: errorType={}", error.getClass().getSimpleName()))
         .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -99,7 +100,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return Flux.defer(() -> {
             long totalStartNanos = System.nanoTime();
             AtomicLong queryStartNanos = new AtomicLong();
-            log.info("查询知识库列表: creatorId={}, publicOnly={}, page={}, size={}", creatorId, publicOnly, page, size);
+            log.info("查询知识库列表: publicOnly={}, page={}, size={}", publicOnly, page, size);
 
             final int finalPage = page != null && page >= 0 ? page : 0;
             final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
@@ -126,15 +127,15 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                         long totalMs = elapsedMs(totalStartNanos);
                         long queryMs = queryStartNanos.get() > 0 ? elapsedMs(queryStartNanos.get()) : -1;
                         if (totalMs > knowledgeBaseListSlowThresholdMs) {
-                            log.warn("知识库列表慢查询: creatorId={}, publicOnly={}, page={}, size={}, resultCount={}, queryMs={}, totalMs={}",
-                                    creatorId, publicOnly, finalPage, finalSize, items.size(), queryMs, totalMs);
+                            log.warn("知识库列表慢查询: publicOnly={}, page={}, size={}, resultCount={}, queryMs={}, totalMs={}",
+                                    publicOnly, finalPage, finalSize, items.size(), queryMs, totalMs);
                         } else {
                             log.info("知识库列表查询完成: resultCount={}, queryMs={}ms, totalMs={}ms",
                                     items.size(), queryMs, totalMs);
                         }
                         return Flux.fromIterable(items);
                     });
-        }).doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()))
+        }).doOnError(error -> log.error("知识库列表查询失败: errorType={}", error.getClass().getSimpleName()))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -156,7 +157,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         .flatMapMany(flux -> flux)
         .map(this::toDto)
         .doOnComplete(() -> log.info("管理员全站知识库列表查询完成"))
-        .doOnError(error -> log.error("管理员全站知识库列表查询失败: error={}", error.getMessage()))
+        .doOnError(error -> log.error("管理员全站知识库列表查询失败: errorType={}", error.getClass().getSimpleName()))
         .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -185,7 +186,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     public Flux<KnowledgeBaseDto> getKnowledgeBasesByCreatorId(Long creatorId, Integer page, Integer size) {
         return Mono.fromCallable(() -> {
-            log.info("管理员查询用户知识库列表: creatorId={}, page={}, size={}", creatorId, page, size);
+            log.info("管理员查询用户知识库列表: page={}, size={}", page, size);
 
             final int finalPage = page != null && page >= 0 ? page : 0;
             final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
@@ -195,8 +196,9 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         })
         .flatMapMany(flux -> flux)
         .map(this::toDto)
-        .doOnComplete(() -> log.info("管理员用户知识库列表查询完成: creatorId={}", creatorId))
-        .doOnError(error -> log.error("管理员用户知识库列表查询失败: creatorId={}, error={}", creatorId, error.getMessage()))
+        .doOnComplete(() -> log.info("管理员用户知识库列表查询完成"))
+        .doOnError(error -> log.error("管理员用户知识库列表查询失败: errorType={}",
+                error.getClass().getSimpleName()))
         .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -205,8 +207,8 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return knowledgeBaseRepository.findById(id)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
             .map(this::toDto)
-            .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}, name={}", id, dto.getName()))
-            .doOnError(error -> log.error("知识库详情查询失败: id={}, error={}", id, error.getMessage()))
+            .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}", id))
+            .doOnError(error -> log.error("知识库详情查询失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -214,10 +216,9 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     public Mono<KnowledgeBaseDto> getKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin) {
         return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, false)
             .map(this::toDto)
-            .doOnSuccess(dto -> log.info("知识库访问鉴权通过: id={}, requesterUserId={}, isAdmin={}",
-                    id, requesterUserId, isAdmin))
-            .doOnError(error -> log.warn("知识库访问鉴权失败: id={}, requesterUserId={}, error={}",
-                    id, requesterUserId, error.getMessage()))
+            .doOnSuccess(dto -> log.info("知识库访问鉴权通过: id={}, isAdmin={}", id, isAdmin))
+            .doOnError(error -> log.warn("知识库访问鉴权失败: id={}, isAdmin={}, errorType={}",
+                    id, isAdmin, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -243,8 +244,8 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             .flatMap(knowledgeBaseRepository::save)
             .flatMap(saved -> knowledgeChunkSearchService.refreshKnowledgeBaseChunks(saved.getId()).thenReturn(saved))
             .map(this::toDto)
-            .doOnSuccess(dto -> log.info("知识库更新成功: id={}, name={}", id, dto.getName()))
-            .doOnError(error -> log.error("知识库更新失败: id={}, error={}", id, error.getMessage()))
+            .doOnSuccess(dto -> log.info("知识库更新成功: id={}", id))
+            .doOnError(error -> log.error("知识库更新失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -257,7 +258,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             })
             .then()
             .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))
-            .doOnError(error -> log.error("知识库删除失败: id={}, error={}", id, error.getMessage()))
+            .doOnError(error -> log.error("知识库删除失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -306,7 +307,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                 return knowledgeBaseRepository.save(kb);
             })
             .doOnSuccess(kb -> log.info("知识库文档数量更新成功: id={}, documentCount={}", id, documentCount))
-            .doOnError(error -> log.error("知识库文档数量更新失败: id={}, error={}", id, error.getMessage()))
+            .doOnError(error -> log.error("知识库文档数量更新失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -318,7 +319,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                     .map(stats -> toStatsDto(knowledgeBase, stats)))
             .doOnSuccess(stats -> log.info("知识库统计查询成功: id={}, documentCount={}",
                     id, stats.getDocumentCount()))
-            .doOnError(error -> log.warn("知识库统计查询失败: id={}, error={}", id, error.getMessage()))
+            .doOnError(error -> log.warn("知识库统计查询失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -333,8 +334,8 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
                     ? Mono.<Void>empty()
                     : Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
             .doOnSuccess(unused -> log.info("知识库文档数量原子调整成功: id={}, delta={}", id, delta))
-            .doOnError(error -> log.error("知识库文档数量原子调整失败: id={}, delta={}, error={}",
-                    id, delta, error.getMessage()))
+            .doOnError(error -> log.error("知识库文档数量原子调整失败: id={}, delta={}, errorType={}",
+                    id, delta, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
 

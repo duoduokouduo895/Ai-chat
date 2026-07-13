@@ -57,7 +57,7 @@ public class TokenRefreshFilter implements WebFilter {
                 return touchGuestActivity(authToken)
                         .then(refreshTokenIfNeeded(exchange, requestPath, authToken));
             } catch (Exception e) {
-                logTokenRefreshException(authToken, requestPath, e);
+                logTokenRefreshException(requestPath, e);
             }
         } else if (!isPublicPath(requestPath)) {
             log.debug("Token 检查跳过: 请求缺少 Authorization Header, path={}", requestPath);
@@ -66,21 +66,8 @@ public class TokenRefreshFilter implements WebFilter {
         return Mono.empty();
     }
 
-    private void logTokenRefreshException(String authToken, String requestPath, Exception e) {
-        String username = "unknown";
-        try {
-            username = jwtUtil.getUsernameFromToken(authToken);
-        } catch (Exception ignored) {
-            // Ignore invalid token while logging the refresh failure.
-        }
-
-        String tokenPreview = "unavailable";
-        if (authToken != null && authToken.length() > 20) {
-            tokenPreview = authToken.substring(0, 10) + "..." + authToken.substring(authToken.length() - 10);
-        }
-
-        log.warn("Token 刷新异常: user={}, path={}, errorType={}, message={}, tokenPreview={}",
-                username, requestPath, e.getClass().getSimpleName(), e.getMessage(), tokenPreview);
+    private void logTokenRefreshException(String requestPath, Exception e) {
+        log.warn("Token 刷新异常: path={}, errorType={}", requestPath, e.getClass().getSimpleName());
     }
 
     private Mono<Void> touchGuestActivity(String authToken) {
@@ -102,7 +89,7 @@ public class TokenRefreshFilter implements WebFilter {
         java.time.LocalDateTime writeThreshold = now.minus(GUEST_ACTIVITY_WRITE_INTERVAL);
         return userRepository.touchGuestLastActiveAt(userId, now, writeThreshold)
                 .onErrorResume(error -> {
-                    log.warn("游客活跃时间更新失败: {}", error.getMessage());
+                    log.warn("游客活跃时间更新失败: errorType={}", error.getClass().getSimpleName());
                     return Mono.empty();
                 })
                 .then();
@@ -136,19 +123,19 @@ public class TokenRefreshFilter implements WebFilter {
 
         String refreshedToken = jwtUtil.refreshToken(authToken);
         if (refreshedToken == null) {
-            log.warn("Token 刷新返回空: user={}, path={}", username, requestPath);
+            log.warn("Token 刷新返回空: path={}", requestPath);
             return Mono.empty();
         }
 
         String newJti = jwtUtil.getIdFromToken(refreshedToken);
         if (newJti == null) {
-            log.warn("Token 刷新失败: 无法从新 Token 提取 JTI, user={}, path={}", username, requestPath);
+            log.warn("Token 刷新失败: 无法从新 Token 提取 JTI, path={}", requestPath);
             return Mono.empty();
         }
 
         Date expiration = jwtUtil.getExpirationDateFromToken(refreshedToken);
         if (expiration == null) {
-            log.warn("Token 刷新失败: 无法读取新 Token 过期时间, user={}, path={}", username, requestPath);
+            log.warn("Token 刷新失败: 无法读取新 Token 过期时间, path={}", requestPath);
             return Mono.empty();
         }
 
@@ -158,8 +145,8 @@ public class TokenRefreshFilter implements WebFilter {
         return redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
                 .timeout(Duration.ofSeconds(2))
                 .flatMap(saved -> handleRefreshedTokenSaved(exchange, requestPath, authToken, refreshedToken, newJti, username, userId, saved))
-                .doOnError(error -> log.warn("Token 刷新失败: 新 JTI 写入 Redis 异常, user={}, path={}, error={}",
-                        username, requestPath, error.getMessage()))
+                .doOnError(error -> log.warn("Token 刷新失败: 新 JTI 写入 Redis 异常, path={}, errorType={}",
+                        requestPath, error.getClass().getSimpleName()))
                 .then();
     }
 
@@ -172,14 +159,14 @@ public class TokenRefreshFilter implements WebFilter {
                                            Long userId,
                                            Boolean saved) {
         if (!Boolean.TRUE.equals(saved)) {
-            log.warn("Token 刷新失败: 新 JTI 写入 Redis 失败或已存在, user={}, newJti={}", username, newJti);
+            log.warn("Token 刷新失败: 新 JTI 写入 Redis 失败或已存在");
             return Mono.empty();
         }
 
         String oldJti = jwtUtil.getIdFromToken(authToken);
         ServerHttpResponse response = exchange.getResponse();
         response.getHeaders().add("X-Refreshed-Token", refreshedToken);
-        log.debug("Token 刷新成功: user={}, userId={}, path={}, newJti={}", username, userId, requestPath, newJti);
+        log.debug("Token 刷新成功: path={}", requestPath);
 
         Mono<Void> registerNewJti = userId == null
                 ? Mono.empty()
@@ -195,9 +182,9 @@ public class TokenRefreshFilter implements WebFilter {
                             ? Mono.empty()
                             : redisTemplate.opsForSet().remove(TokenRedisKeys.userJtis(userId), oldJti).then())
                     .doOnSuccess(deleted -> {
-                        log.debug("旧 JTI 已从 Redis 移除: oldJti={}", oldJti);
+                        log.debug("旧 JTI 已从 Redis 移除");
                     })
-                    .doOnError(error -> log.warn("旧 JTI 清理失败: oldJti={}, error={}", oldJti, error.getMessage()))
+                    .doOnError(error -> log.warn("旧 JTI 清理失败: errorType={}", error.getClass().getSimpleName()))
                     .onErrorResume(error -> Mono.empty())
                     .then();
         }

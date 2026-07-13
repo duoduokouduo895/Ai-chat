@@ -56,7 +56,8 @@ public class EmptyConversationCleanupTask {
 
         cleanupEmptyConversationBatches(thresholdTime)
                 .doOnSuccess(deletedCount -> log.info("清理空会话任务完成，共删除 {} 条空会话记录", deletedCount))
-                .doOnError(error -> log.error("清理空会话任务执行失败: {}", error.getMessage(), error))
+                .doOnError(error -> log.error("清理空会话任务执行失败: errorType={}",
+                        error.getClass().getSimpleName()))
                 .doFinally(signal -> cleanupGuard.finish())
                 .subscribe();
     }
@@ -78,7 +79,7 @@ public class EmptyConversationCleanupTask {
                                 return Mono.just(new CleanupBatch(List.of(), 0L));
                             }
 
-                            log.warn("清理空会话任务 - 命中空会话 conversationIds={}", conversationIds);
+                            log.warn("清理空会话任务 - 命中空会话: count={}", conversationIds.size());
 
                             return deleteConversationsByIds(conversationIds)
                                     .map(deletedCount -> new CleanupBatch(conversationIds, deletedCount));
@@ -98,7 +99,8 @@ public class EmptyConversationCleanupTask {
                     }
                     log.info("空会话监控 - 当前没有空会话");
                 })
-                .doOnError(error -> log.error("空会话监控执行失败: {}", error.getMessage(), error))
+                .doOnError(error -> log.error("空会话监控执行失败: errorType={}",
+                        error.getClass().getSimpleName()))
                 .subscribe();
     }
 
@@ -160,11 +162,13 @@ public class EmptyConversationCleanupTask {
 
         return Flux.fromIterable(conversationIds)
                 .concatMap(conversationId -> searchService.deleteConversationIndex(conversationId)
-                        .doOnError(error -> log.error("删除空会话索引失败: conversationId={}", conversationId, error))
+                .doOnError(error -> log.error("删除空会话索引失败: conversationId={}, errorType={}",
+                        conversationId, error.getClass().getSimpleName()))
                         .onErrorResume(error -> Mono.empty())
                         .then(Mono.fromRunnable(() -> chatMemoryStore.deleteConversationMessages(conversationId)))
                         .onErrorResume(error -> {
-                            log.error("删除空会话 Redis ChatMemory 失败: conversationId={}", conversationId, error);
+                            log.error("删除空会话 Redis ChatMemory 失败: conversationId={}, errorType={}",
+                                    conversationId, error.getClass().getSimpleName());
                             return Mono.empty();
                         }))
                 .then();

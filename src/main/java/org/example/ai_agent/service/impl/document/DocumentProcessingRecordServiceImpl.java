@@ -49,7 +49,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 if (!documentExists) {
                     String errorMsg = String.format("Document with id %d does not exist, cannot create processing record", 
                             message.getDocumentId());
-                    log.error(errorMsg);
+                    log.error("创建处理记录时文档不存在: documentId={}, processingType={}",
+                            message.getDocumentId(), message.getProcessingType());
                     return Mono.error(new IllegalArgumentException(errorMsg));
                 }
                 
@@ -70,7 +71,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                         String params = objectMapper.writeValueAsString(message);
                         record.setProcessingParams(params);
                     } catch (Exception e) {
-                        log.warn("处理参数序列化失败: {}", e.getMessage());
+                        log.warn("处理参数序列化失败: errorType={}", e.getClass().getSimpleName());
                     }
                     
                     return record;
@@ -89,8 +90,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 if (throwable instanceof IllegalArgumentException) {
                     return throwable;
                 }
-                log.error("创建处理记录发生异常: documentId={}, processingType={}, error={}", 
-                        message.getDocumentId(), message.getProcessingType(), throwable.getMessage(), throwable);
+                log.error("创建处理记录发生异常: documentId={}, processingType={}, errorType={}",
+                        message.getDocumentId(), message.getProcessingType(), throwable.getClass().getSimpleName());
                 return new RuntimeException("Failed to create processing record", throwable);
             })
             .subscribeOn(Schedulers.boundedElastic());
@@ -103,7 +104,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
             .flatMap(documentExists -> {
                 if (!documentExists) {
                     String errorMsg = String.format("Document with id %d does not exist, cannot start processing", documentId);
-                    log.error(errorMsg);
+                    log.error("开始处理时文档不存在: documentId={}, processingType={}", documentId, processingType);
                     return Mono.error(new IllegalArgumentException(errorMsg));
                 }
                 
@@ -141,8 +142,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 if (throwable instanceof IllegalArgumentException) {
                     return throwable;
                 }
-                log.error("开始处理发生异常: documentId={}, processingType={}, error={}", 
-                        documentId, processingType, throwable.getMessage(), throwable);
+                log.error("开始处理发生异常: documentId={}, processingType={}, errorType={}",
+                        documentId, processingType, throwable.getClass().getSimpleName());
                 return throwable;
             })
             .subscribeOn(Schedulers.boundedElastic());
@@ -182,8 +183,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 }
             })
             .onErrorMap(throwable -> {
-                log.error("完成处理发生异常: documentId={}, processingType={}, error={}", 
-                        documentId, processingType, throwable.getMessage(), throwable);
+                log.error("完成处理发生异常: documentId={}, processingType={}, errorType={}",
+                        documentId, processingType, throwable.getClass().getSimpleName());
                 return throwable;
             })
             .subscribeOn(Schedulers.boundedElastic());
@@ -211,11 +212,11 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
             })
             .doOnSuccess(record -> {
                 if (record != null) {
-                    log.error("处理失败: documentId={}, processingType={}, recordId={}, error={}", 
-                            documentId, processingType, record.getId(), errorMessage);
+                    log.error("处理失败: documentId={}, processingType={}, recordId={}",
+                            documentId, processingType, record.getId());
                 } else {
-                    log.error("处理失败但record为null: documentId={}, processingType={}, error={}", 
-                            documentId, processingType, errorMessage);
+                    log.error("处理失败但record为null: documentId={}, processingType={}",
+                            documentId, processingType);
                 }
             })
             .subscribeOn(Schedulers.boundedElastic());
@@ -315,8 +316,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
         })
         .flatMap(recordRepository::save)
         .onErrorMap(throwable -> {
-            log.error("创建默认处理记录失败: documentId={}, processingType={}, error={}", 
-                    documentId, processingType, throwable.getMessage(), throwable);
+            log.error("创建默认处理记录失败: documentId={}, processingType={}, errorType={}",
+                    documentId, processingType, throwable.getClass().getSimpleName());
             return new RuntimeException("Failed to create default processing record", throwable);
         });
     }

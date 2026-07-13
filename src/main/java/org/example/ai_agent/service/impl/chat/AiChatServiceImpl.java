@@ -44,8 +44,8 @@ public class AiChatServiceImpl implements AiChatService {
 
     @Override
     public Flux<ServerSentEvent<String>> chat(ChatRequest chatRequest) {
-        log.info("收到统一 Assistant 对话请求: userId={}, model={}, ragMode={}",
-                chatRequest.getUserId(), chatRequest.getModel(), chatRequest.isRagMode());
+        log.info("收到统一 Assistant 对话请求: model={}, ragMode={}",
+                chatRequest.getModel(), chatRequest.isRagMode());
 
         Flux<ServerSentEvent<String>> stream = Mono.just(chatRequest)
                 .flatMap(conversationTurn::ensureConversationExists)
@@ -71,7 +71,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 统一的错误处理
      */
     private Flux<ServerSentEvent<String>> handleChatError(Throwable ex) {
-        log.error("聊天处理失败", ex);
+        log.error("聊天处理失败: errorType={}", ex.getClass().getSimpleName());
         return Flux.just(eventFactory.error(ex));
     }
 

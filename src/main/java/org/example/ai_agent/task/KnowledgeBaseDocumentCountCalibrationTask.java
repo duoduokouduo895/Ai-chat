@@ -50,7 +50,8 @@ public class KnowledgeBaseDocumentCountCalibrationTask {
 
         calibrateBatches(0L)
                 .doOnSuccess(rows -> log.info("知识库文档数量校准任务完成，成功更新/校准了 {} 个活跃知识库的数据", rows))
-                .doOnError(error -> log.error("知识库文档数量校准任务失败: {}", error.getMessage(), error))
+                .doOnError(error -> log.error("知识库文档数量校准任务失败: errorType={}",
+                        error.getClass().getSimpleName()))
                 .doFinally(signal -> taskGuard.finish())
                 .subscribe();
     }

@@ -53,7 +53,8 @@ public class SearchServiceImpl implements SearchService {
         return conversationRepository.findById(conversationId)
                 .flatMap(this::indexConversation)
                 .doOnSuccess(v -> log.info("成功为对话建立索引: {}", conversationId))
-                .doOnError(e -> log.error("为对话建立索引失败: " + conversationId, e))
+                .doOnError(e -> log.error("为对话建立索引失败: conversationId={}, errorType={}",
+                        conversationId, e.getClass().getSimpleName()))
                 .then();
     }
 
@@ -68,7 +69,8 @@ public class SearchServiceImpl implements SearchService {
                     return conversationDocumentRepository.save(doc);
                 })
                 .doOnSuccess(doc -> log.info("成功为对话建立索引 (使用已有实体): {}", doc.getConversationId()))
-                .doOnError(e -> log.error("为对话建立索引失败 (使用已有实体): " + conversation.getId(), e))
+                .doOnError(e -> log.error("为对话建立索引失败 (使用已有实体): conversationId={}, errorType={}",
+                        conversation.getId(), e.getClass().getSimpleName()))
                 .then();
     }
 
@@ -107,22 +109,24 @@ public class SearchServiceImpl implements SearchService {
     public Mono<Void> deleteConversationIndex(Long conversationId) {
         return conversationDocumentRepository.deleteById(conversationId.toString())
                 .doOnSuccess(v -> log.info("成功删除对话索引: {}", conversationId))
-                .doOnError(e -> log.error("删除对话索引失败: " + conversationId, e));
+                .doOnError(e -> log.error("删除对话索引失败: conversationId={}, errorType={}",
+                        conversationId, e.getClass().getSimpleName()));
     }
 
     @Override
     public Mono<Void> indexConversationsForUser(Long userId) {
         return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId)
             .flatMap(conversation -> indexConversation(conversation.getId()))
-            .doOnComplete(() -> log.info("成功为用户 {} 的所有对话建立索引", userId))
-            .doOnError(e -> log.error("为用户 {} 的对话建立索引失败", userId, e))
+            .doOnComplete(() -> log.info("用户对话索引建立完成"))
+            .doOnError(e -> log.error("用户对话索引建立失败: errorType={}", e.getClass().getSimpleName()))
             .then();
     }
 
         @Override
     public Flux<ConversationDocument> searchConversations(Long userId, String query, LocalDateTime startDate, LocalDateTime endDate, List<String> models, int page, int size) {
-        log.info("为用户 {} 执行统一搜索: query={}, startDate={}, endDate={}, models={}, page={}, size={}",
-                userId, query, startDate, endDate, models, page, size);
+        int queryLength = query == null ? 0 : query.length();
+        log.info("执行统一搜索: queryLength={}, startDate={}, endDate={}, modelCount={}, page={}, size={}",
+                queryLength, startDate, endDate, models == null ? 0 : models.size(), page, size);
 
         // 使用 FastJSON 构建原生JSON查询
         JSONObject boolQuery = new JSONObject();
@@ -174,15 +178,15 @@ public class SearchServiceImpl implements SearchService {
         boolClause.put("filter", filterClauses);
 
         String jsonQueryString = boolQuery.toJSONString();
-        log.debug("Executing Elasticsearch Query: {}", jsonQueryString);
+        log.debug("Elasticsearch 查询已构建: queryLength={}, filterCount={}", queryLength, filterClauses.size());
 
         StringQuery stringQuery = new StringQuery(jsonQueryString);
         stringQuery.setPageable(PageRequest.of(page, size));
 
         return elasticsearchOperations.search(stringQuery, ConversationDocument.class)
                 .map(searchHit -> searchHit.getContent())
-                .doOnComplete(() -> log.info("用户 {} 的统一搜索完成", userId))
-                .doOnError(e -> log.error("用户 {} 的统一搜索失败", userId, e));
+                .doOnComplete(() -> log.info("统一搜索完成"))
+                .doOnError(e -> log.error("统一搜索失败: errorType={}", e.getClass().getSimpleName()));
     }
 
     @Override
@@ -239,7 +243,8 @@ public class SearchServiceImpl implements SearchService {
                 .then(pruneStaleConversationIndexes())
                 .doOnSuccess(deleted -> log.info("ES 索引无损重建完成，清理了 {} 条失效索引", deleted))
                 .then()
-                .doOnError(error -> log.error("ES 索引无损重建失败，保留已有可用索引", error))
+                .doOnError(error -> log.error("ES 索引无损重建失败，保留已有可用索引: errorType={}",
+                        error.getClass().getSimpleName()))
                 .doFinally(signal -> rebuildRunning.set(false));
     }
 
@@ -293,7 +298,7 @@ public class SearchServiceImpl implements SearchService {
                     // 如果存在，更新时间戳
                     existingHistory.setTimestamp(LocalDateTime.now());
                     return searchHistoryRepository.save(existingHistory)
-                            .doOnSuccess(updated -> log.debug("搜索历史已更新: userId={}, query={}, id={}", userId, trimmedQuery, updated.getId()))
+                            .doOnSuccess(updated -> log.debug("搜索历史已更新: id={}", updated.getId()))
                             .then();
                 })
                 .switchIfEmpty(
@@ -307,20 +312,20 @@ public class SearchServiceImpl implements SearchService {
                         return searchHistory;
                     })
                     .flatMap(searchHistoryRepository::save)
-                    .doOnSuccess(saved -> log.debug("搜索历史记录已保存: userId={}, query={}, type={}, id={}", userId, trimmedQuery, type, saved.getId()))
+                    .doOnSuccess(saved -> log.debug("搜索历史记录已保存: type={}, id={}", type, saved.getId()))
                     .then()
                 )
-                .doOnError(error -> log.error("保存搜索历史失败: query={}", trimmedQuery, error));
+                .doOnError(error -> log.error("保存搜索历史失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     @Override
     public Flux<ConversationDocument> getSearchHistory(Long userId, int size) {
-        log.debug("开始获取去重搜索历史, userId={}, size={}", userId, size);
+        log.debug("开始获取去重搜索历史: size={}", size);
 
         // 优先使用改进的去重查询
         return searchHistoryRepository.findDistinctByUserIdOrderByTimestampDesc(userId, Math.max(1, size))
-                .doOnNext(history -> log.debug("找到去重历史记录: id={}, query={}, timestamp={}",
-                    history.getId(), history.getQuery(), history.getTimestamp()))
+                .doOnNext(history -> log.debug("找到去重历史记录: id={}, timestamp={}",
+                    history.getId(), history.getTimestamp()))
                 .map(searchHistory -> {
                     // 将搜索历史转换为ConversationDocument格式，以便前端显示
                     ConversationDocument doc = new ConversationDocument();
@@ -333,7 +338,7 @@ public class SearchServiceImpl implements SearchService {
                 })
                 .doOnComplete(() -> log.debug("去重搜索历史查询完成, size={}", size))
                 .doOnError(error -> {
-                    log.error("获取去重搜索历史失败", error);
+                    log.error("获取去重搜索历史失败: errorType={}", error.getClass().getSimpleName());
                     // 如果去重查询失败，尝试使用普通查询并在应用层去重
                     log.warn("降级使用普通查询并在应用层去重");
                 });
@@ -342,21 +347,23 @@ public class SearchServiceImpl implements SearchService {
     @Override
     public Mono<Void> clearSearchHistory(Long userId) {
         return searchHistoryRepository.deleteByUserId(userId)
-                .doOnSuccess(v -> log.info("用户 {} 搜索历史已清空", userId))
-                .doOnError(error -> log.error("用户 {} 清空搜索历史失败", userId, error));
+                .doOnSuccess(v -> log.info("用户搜索历史已清空"))
+                .doOnError(error -> log.error("用户搜索历史清空失败: errorType={}",
+                        error.getClass().getSimpleName()));
     }
 
     @Override
     public Mono<String> cleanupDuplicateSearchHistory(Long userId) {
         return searchHistoryRepository.findAllByUserIdOrderByTimestampDesc(userId)
-                .doOnNext(history -> log.debug("处理历史记录: id={}, query={}, timestamp={}",
-                    history.getId(), history.getQuery(), history.getTimestamp()))
+                .doOnNext(history -> log.debug("处理历史记录: id={}, timestamp={}",
+                    history.getId(), history.getTimestamp()))
                 .count()
                 .doOnNext(totalBefore -> log.info("清理前总记录数: {}", totalBefore))
                 .then(searchHistoryRepository.cleanupDuplicateHistoryByUserId(userId))
                 .then(searchHistoryRepository.findAllByUserIdOrderByTimestampDesc(userId).count())
                 .doOnNext(totalAfter -> log.info("清理后总记录数: {}", totalAfter))
                 .map(totalAfter -> "清理重复搜索历史完成，剩余记录数: " + totalAfter)
-                .doOnError(error -> log.error("清理重复搜索历史失败", error));
+                .doOnError(error -> log.error("清理重复搜索历史失败: errorType={}",
+                        error.getClass().getSimpleName()));
     }
 }

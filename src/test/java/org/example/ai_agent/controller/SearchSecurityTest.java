@@ -13,11 +13,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.server.ServerWebExchange;
@@ -32,7 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@WebFluxTest(controllers = {SearchController.class, AdminSearchController.class})
+@WebFluxTest(controllers = {SearchController.class, AdminSearchController.class, SearchSecurityTest.TestOnlyController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
         "app.security.cors.allowed-origins=http://localhost:3000",
@@ -44,21 +46,21 @@ class SearchSecurityTest {
     @Autowired
     private WebTestClient webTestClient;
 
-    @MockBean
+    @MockitoBean
     private SearchService searchService;
-    @MockBean
+    @MockitoBean
     private UserRepository userRepository;
-    @MockBean
+    @MockitoBean
     private SearchHistoryRepository searchHistoryRepository;
-    @MockBean
+    @MockitoBean
     private JwtUtil jwtUtil;
-    @MockBean
+    @MockitoBean
     private TokenRefreshFilter tokenRefreshFilter;
-    @MockBean
+    @MockitoBean
     private AdminUserRepository adminUserRepository;
-    @MockBean
+    @MockitoBean
     private TicketService ticketService;
-    @MockBean
+    @MockitoBean
     private ReactiveStringRedisTemplate redisTemplate;
 
     @BeforeEach
@@ -77,6 +79,14 @@ class SearchSecurityTest {
                 .uri(uriBuilder -> uriBuilder.path("/api/search")
                         .queryParam("query", "合同")
                         .build())
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void testNamespace_shouldNotBeAnonymousInProductionSecurity() {
+        webTestClient.get()
+                .uri("/api/test/runtime")
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
@@ -153,5 +163,14 @@ class SearchSecurityTest {
         when(jwtUtil.getPrincipalTypeFromToken(token)).thenReturn("ADMIN");
         when(jwtUtil.getAdminIdFromToken(token)).thenReturn(adminId);
         when(redisTemplate.hasKey("token:jti:admin-jti-" + adminId)).thenReturn(Mono.just(true));
+    }
+
+    @RestController
+    static class TestOnlyController {
+
+        @GetMapping("/api/test/runtime")
+        Mono<String> runtime() {
+            return Mono.just("test-only");
+        }
     }
 }

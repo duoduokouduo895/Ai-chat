@@ -68,7 +68,7 @@ public class RerankClient {
                 .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
                 .map(body -> applyScores(rerankCandidates, body, maxResults))
                 .onErrorResume(error -> {
-                    log.warn("Rerank 失败，降级使用 RRF 结果: error={}", error.getMessage());
+                    log.warn("Rerank 失败，降级使用 RRF 结果: errorType={}", error.getClass().getSimpleName());
                     return Mono.just(limit(candidates, maxResults));
                 });
     }

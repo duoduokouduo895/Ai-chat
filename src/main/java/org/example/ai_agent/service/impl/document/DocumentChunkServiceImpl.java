@@ -54,9 +54,10 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
                 return Mono.just(existingChunks.stream().map(this::toDto).toList());
             }
 
+            int contentLength = content == null ? 0 : content.length();
             return Mono.fromCallable(() -> {
-            log.info("开始创建文档块: documentId={}, knowledgeBaseId={}, contentLength={}", 
-                    documentId, knowledgeBaseId, content.length());
+            log.info("开始创建文档块: documentId={}, knowledgeBaseId={}, contentLength={}",
+                    documentId, knowledgeBaseId, contentLength);
             
             // 创建文档对象
             Document document = Document.from(content);
@@ -80,7 +81,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
                         String metadataJson = objectMapper.writeValueAsString(segment.metadata().toMap());
                         chunk.setMetadata(metadataJson);
                     } catch (Exception e) {
-                        log.warn("序列化metadata失败: chunkIndex={}, error={}", i, e.getMessage());
+                        log.warn("序列化metadata失败: chunkIndex={}, errorType={}", i, e.getClass().getSimpleName());
                         chunk.setMetadata("{}"); // 默认空 JSON 对象
                     }
                     
@@ -105,8 +106,8 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
         })
         .doOnSuccess(chunks -> log.info("文档块创建成功: documentId={}, chunkCount={}", 
                 documentId, chunks.size()))
-        .doOnError(error -> log.error("文档块创建失败: documentId={}, error={}", 
-                documentId, error.getMessage(), error))
+        .doOnError(error -> log.error("文档块创建失败: documentId={}, errorType={}",
+                documentId, error.getClass().getSimpleName()))
         .subscribeOn(Schedulers.boundedElastic());
     }
     

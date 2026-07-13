@@ -80,7 +80,7 @@ public class DocumentProcessingStages {
         try {
             inputStream.close();
         } catch (IOException error) {
-            log.warn("关闭 OSS 文档输入流失败", error);
+            log.warn("关闭 OSS 文档输入流失败: errorType={}", error.getClass().getSimpleName());
         }
     }
 }

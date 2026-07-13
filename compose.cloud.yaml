@@ -1,6 +1,6 @@
 services:
   ai-chat-backend:
-    image: ${AICHAT_IMAGE:?Load versions.env before running Compose}
+    image: ${AICHAT_IMAGE:?Set a mode-specific AICHAT_IMAGE in the runtime env file}
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,27 +11,29 @@ services:
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
-      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "${AICHAT_NACOS_DISCOVERY_ENABLED:?Set the Nacos discovery mode}"
       SPRING_R2DBC_HOST: mysql
       SPRING_DATA_REDIS_HOST: redis
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
-      SPRING_RABBITMQ_DYNAMIC: "false"
-      SPRING_RABBITMQ_LISTENER_SIMPLE_AUTO_STARTUP: "false"
-      APP_SCHEDULING_ENABLED: "false"
-      APP_FLYWAY_ENABLED: "false"
-      ELASTICSEARCH_SYNC_ENABLED: "false"
-      HEALTH_CHECK_ENABLED: "false"
+      SPRING_RABBITMQ_DYNAMIC: "${AICHAT_RABBITMQ_DYNAMIC:?Set the RabbitMQ topology mode}"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_AUTO_STARTUP: "${AICHAT_RABBITMQ_LISTENER_AUTO_STARTUP:?Set the RabbitMQ listener mode}"
+      APP_SCHEDULING_ENABLED: "${AICHAT_SCHEDULING_ENABLED:?Set the scheduling mode}"
+      APP_FLYWAY_ENABLED: "${AICHAT_FLYWAY_ENABLED:?Set the Flyway mode}"
+      ELASTICSEARCH_SYNC_ENABLED: "${AICHAT_ELASTICSEARCH_SYNC_ENABLED:?Set the Elasticsearch sync mode}"
+      HEALTH_CHECK_ENABLED: "${AICHAT_HEALTH_CHECK_ENABLED:-false}"
       AIDIAG_INTEGRATION_ENABLED: "true"
       AIDIAG_BASE_URL: http://aidiag-backend:8080
       AIDIAG_READ_API_USERNAME: ${AIDIAG_READ_API_USERNAME:-aidiag-reader}
-      AIDIAG_SERVICE_NAME: ai-chat-candidate
-      LANGCHAIN4J_OPEN_AI_RELIABILITY_WARMUP_ENABLED: "false"
+      AIDIAG_SERVICE_NAME: ${AICHAT_SERVICE_NAME:?Set a mode-specific service name}
+      AICHAT_OBSERVABILITY_OPS_LOG_FILE: ${AICHAT_OPS_LOG_FILE:?Set a mode-specific operations log file}
+      LANGCHAIN4J_OPEN_AI_RELIABILITY_WARMUP_ENABLED: "${AICHAT_MODEL_WARMUP_ENABLED:?Set the model warm-up mode}"
+      AICHAT_REQUIRE_NACOS_AUTH: "${AICHAT_REQUIRE_NACOS_AUTH:-false}"
       SERVER_SHUTDOWN: graceful
       SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 20s
       MANAGEMENT_SERVER_PORT: 9091
-      OTEL_SERVICE_NAME: ai-chat-candidate
-      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${DEPLOYMENT_ENVIRONMENT:-cloud-candidate},service.version=${AICHAT_RELEASE:-unknown}
+      OTEL_SERVICE_NAME: ${AICHAT_SERVICE_NAME:?Set a mode-specific service name}
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${DEPLOYMENT_ENVIRONMENT:?Set deployment environment},service.version=${AICHAT_RELEASE:?Set release name}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_TRACES_EXPORTER: otlp
@@ -39,8 +41,8 @@ services:
       OTEL_LOGS_EXPORTER: none
       OTEL_INSTRUMENTATION_COMMON_DEFAULT_ENABLED: "true"
     ports:
-      - "127.0.0.1:${AICHAT_CANDIDATE_PORT:-18082}:8080"
-      - "127.0.0.1:${AICHAT_MANAGEMENT_PORT:-19091}:9091"
+      - "127.0.0.1:${AICHAT_APP_PORT:?Set a loopback application port}:8080"
+      - "127.0.0.1:${AICHAT_MANAGEMENT_PORT:?Set a loopback management port}:9091"
     expose:
       - "9091"
     networks:
@@ -48,7 +50,7 @@ services:
       nacos:
       telemetry:
         aliases:
-          - ai-chat-candidate
+          - ${AICHAT_NETWORK_ALIAS:?Set a mode-specific network alias}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9091/actuator/health"]
       interval: 15s

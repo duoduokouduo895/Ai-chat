@@ -76,15 +76,18 @@ public class KnowledgeController {
             @Valid @RequestBody KnowledgeSearchDto searchRequest,
             Authentication authentication) {
 
-        log.info("知识库搜索请求: query={}, knowledgeBaseIds={}, maxResults={}",
-                searchRequest.getQuery(), searchRequest.getKnowledgeBaseIds(), searchRequest.getMaxResults());
+        log.info("知识库搜索请求: queryLength={}, knowledgeBaseCount={}, maxResults={}",
+                searchRequest.getQuery() == null ? 0 : searchRequest.getQuery().length(),
+                searchRequest.getKnowledgeBaseIds() == null ? 0 : searchRequest.getKnowledgeBaseIds().size(),
+                searchRequest.getMaxResults());
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> ragService.searchKnowledge(searchRequest, access.userId(), access.isAdmin()))
                 .doOnSuccess(result -> log.info("知识库搜索完成: resultCount={}, searchTime={}ms",
                         result.getTotalCount(), result.getSearchTime()))
-                .doOnError(error -> log.error("知识库搜索失败: query={}, error={}",
-                        searchRequest.getQuery(), error.getMessage()));
+                .doOnError(error -> log.error("知识库搜索失败: queryLength={}, errorType={}",
+                        searchRequest.getQuery() == null ? 0 : searchRequest.getQuery().length(),
+                        error.getClass().getSimpleName()));
     }
 
     /** 旧 RAG 生成入口已关闭，避免绕过统一聊天链路的额度与并发控制。 */
@@ -120,16 +123,16 @@ public class KnowledgeController {
     @PostMapping("/bases")
     public Mono<KnowledgeBaseDto> createKnowledgeBase(@Valid @RequestBody KnowledgeBaseCreateDto createRequest,
                                                       Authentication authentication) {
-        log.info("创建知识库请求: name={}, description={}, isPublic={}, embeddingModel={}",
-                createRequest.getName(), createRequest.getDescription(),
-                createRequest.getIsPublic(), createRequest.getEmbeddingModel());
+        int nameLength = createRequest.getName() == null ? 0 : createRequest.getName().length();
+        int descriptionLength = createRequest.getDescription() == null ? 0 : createRequest.getDescription().length();
+        log.info("创建知识库请求: nameLength={}, descriptionLength={}, isPublic={}, embeddingModel={}",
+                nameLength, descriptionLength, createRequest.getIsPublic(), createRequest.getEmbeddingModel());
 
         return accessContextResolver.requireUser(authentication)
                 .flatMap(access -> knowledgeBaseService.createKnowledgeBase(createRequest, access.userId())
-                        .doOnSuccess(dto -> log.info("知识库创建成功: id={}, name={}, creatorId={}",
-                                dto.getId(), dto.getName(), access.userId()))
-                        .doOnError(error -> log.error("知识库创建失败: name={}, error={}",
-                                createRequest.getName(), error.getMessage())));
+                        .doOnSuccess(dto -> log.info("知识库创建成功: id={}", dto.getId()))
+                        .doOnError(error -> log.error("知识库创建失败: errorType={}",
+                                error.getClass().getSimpleName())));
     }
 
     /**
@@ -139,16 +142,16 @@ public class KnowledgeController {
     public Mono<KnowledgeBaseDto> createKnowledgeBaseForAdmin(@Valid @RequestBody KnowledgeBaseCreateDto createRequest,
                                                               @RequestParam Long creatorId,
                                                               Authentication authentication) {
-        log.info("管理员创建知识库请求: name={}, creatorId={}, isPublic={}",
-                createRequest.getName(), creatorId, createRequest.getIsPublic());
+        int nameLength = createRequest.getName() == null ? 0 : createRequest.getName().length();
+        log.info("管理员创建知识库请求: nameLength={}, isPublic={}",
+                nameLength, createRequest.getIsPublic());
 
         return accessContextResolver.requireAdmin(authentication)
                 .then(accessContextResolver.requireExistingUserId(creatorId, "知识库归属用户不存在"))
                 .flatMap(validCreatorId -> knowledgeBaseService.createKnowledgeBase(createRequest, validCreatorId))
-                .doOnSuccess(dto -> log.info("管理员创建知识库成功: id={}, name={}, creatorId={}",
-                        dto.getId(), dto.getName(), creatorId))
-                .doOnError(error -> log.error("管理员创建知识库失败: creatorId={}, error={}",
-                        creatorId, error.getMessage()));
+                .doOnSuccess(dto -> log.info("管理员创建知识库成功: id={}", dto.getId()))
+                .doOnError(error -> log.error("管理员创建知识库失败: errorType={}",
+                        error.getClass().getSimpleName()));
     }
 
     /**
@@ -166,7 +169,7 @@ public class KnowledgeController {
                 .flatMapMany(access -> knowledgeBaseService.getKnowledgeBases(
                         access.isAdmin() ? null : access.userId(), publicOnly, page, size))
                 .doOnComplete(() -> log.info("知识库列表查询完成"))
-                .doOnError(error -> log.error("知识库列表查询失败: error={}", error.getMessage()));
+                .doOnError(error -> log.error("知识库列表查询失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -179,7 +182,7 @@ public class KnowledgeController {
 
         return knowledgeBaseService.getAllKnowledgeBases(page, size)
                 .doOnComplete(() -> log.info("管理员全站知识库列表查询完成"))
-                .doOnError(error -> log.error("管理员全站知识库列表查询失败: error={}", error.getMessage()));
+                .doOnError(error -> log.error("管理员全站知识库列表查询失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -201,7 +204,7 @@ public class KnowledgeController {
         return accessContextResolver.requireAdmin(authentication)
                 .then(knowledgeChunkSearchService.rebuildAllChunks())
                 .doOnSuccess(unused -> log.info("知识库 BM25 文档块索引重建完成"))
-                .doOnError(error -> log.error("知识库 BM25 文档块索引重建失败: error={}", error.getMessage(), error));
+                .doOnError(error -> log.error("知识库 BM25 文档块索引重建失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -213,8 +216,8 @@ public class KnowledgeController {
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> knowledgeBaseService.getKnowledgeBase(id, access.userId(), access.isAdmin()))
-                .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}, name={}", id, dto.getName()))
-                .doOnError(error -> log.error("知识库详情查询失败: id={}, error={}", id, error.getMessage()));
+                .doOnSuccess(dto -> log.info("知识库详情查询成功: id={}", id))
+                .doOnError(error -> log.error("知识库详情查询失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -229,7 +232,7 @@ public class KnowledgeController {
                 .flatMap(access -> knowledgeBaseService.getKnowledgeBaseStats(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(stats -> log.info("知识库统计查询成功: id={}, documentCount={}",
                         id, stats.getDocumentCount()))
-                .doOnError(error -> log.error("知识库统计查询失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("知识库统计查询失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -239,12 +242,13 @@ public class KnowledgeController {
     public Mono<KnowledgeBaseDto> updateKnowledgeBase(@PathVariable Long id,
                                                       @Valid @RequestBody KnowledgeBaseCreateDto updateRequest,
                                                       Authentication authentication) {
-        log.info("更新知识库请求: id={}, name={}", id, updateRequest.getName());
+        int nameLength = updateRequest.getName() == null ? 0 : updateRequest.getName().length();
+        log.info("更新知识库请求: id={}, nameLength={}", id, nameLength);
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> knowledgeBaseService.updateKnowledgeBase(id, updateRequest, access.userId(), access.isAdmin()))
-                .doOnSuccess(dto -> log.info("知识库更新成功: id={}, name={}", id, dto.getName()))
-                .doOnError(error -> log.error("知识库更新失败: id={}, error={}", id, error.getMessage()));
+                .doOnSuccess(dto -> log.info("知识库更新成功: id={}", id))
+                .doOnError(error -> log.error("知识库更新失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -257,7 +261,7 @@ public class KnowledgeController {
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> knowledgeBaseService.deleteKnowledgeBase(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))
-                .doOnError(error -> log.error("知识库删除失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("知识库删除失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -272,7 +276,7 @@ public class KnowledgeController {
                         .getAuthorizedKnowledgeBase(id, access.userId(), access.isAdmin(), false)
                         .thenReturn(Boolean.TRUE))
                 .doOnSuccess(exists -> log.info("知识库存在检查结果: id={}, exists={}", id, exists))
-                .doOnError(error -> log.error("知识库存在检查失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("知识库存在检查失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -281,8 +285,8 @@ public class KnowledgeController {
     @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<DocumentDto> uploadDocumentDirect(ServerWebExchange exchange, Authentication authentication) {
         return uploadFacade.uploadDocumentDirect(exchange, authentication)
-                .doOnSuccess(dto -> log.info("文档上传成功: id={}, fileName={}", dto.getId(), dto.getFileName()))
-                .doOnError(error -> log.error("文档上传失败: error={}", error.getMessage(), error));
+                .doOnSuccess(dto -> log.info("文档上传成功: id={}", dto.getId()))
+                .doOnError(error -> log.error("文档上传失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -291,9 +295,8 @@ public class KnowledgeController {
     @PostMapping(value = "/admin/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<DocumentDto> uploadDocumentDirectForAdmin(ServerWebExchange exchange, Authentication authentication) {
         return uploadFacade.uploadDocumentDirectForAdmin(exchange, authentication)
-                .doOnSuccess(dto -> log.info("管理员文档上传成功: id={}, fileName={}, uploaderId={}",
-                        dto.getId(), dto.getFileName(), dto.getUploaderId()))
-                .doOnError(error -> log.error("管理员文档上传失败: error={}", error.getMessage(), error));
+                .doOnSuccess(dto -> log.info("管理员文档上传成功: id={}", dto.getId()))
+                .doOnError(error -> log.error("管理员文档上传失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -306,14 +309,14 @@ public class KnowledgeController {
                                             @RequestParam(value = "enableVectorization", defaultValue = "true") Boolean enableVectorization,
                                             Authentication authentication) {
 
-        log.info("知识库文档上传请求: knowledgeBaseId={}, fileName={}, parseMode={}, enableVectorization={}",
-                knowledgeBaseId, file.getOriginalFilename(), parseMode, enableVectorization);
+        int fileNameLength = file.getOriginalFilename() == null ? 0 : file.getOriginalFilename().length();
+        log.info("知识库文档上传请求: knowledgeBaseId={}, fileNameLength={}, parseMode={}, enableVectorization={}",
+                knowledgeBaseId, fileNameLength, parseMode, enableVectorization);
 
         return uploadFacade.uploadDocument(knowledgeBaseId, file, parseMode, enableVectorization, authentication)
-                .doOnSuccess(dto -> log.info("知识库文档上传成功: id={}, fileName={}, uploaderId={}",
-                        dto.getId(), dto.getFileName(), dto.getUploaderId()))
-                .doOnError(error -> log.error("知识库文档上传失败: fileName={}, error={}",
-                        file.getOriginalFilename(), error.getMessage()));
+                .doOnSuccess(dto -> log.info("知识库文档上传成功: id={}", dto.getId()))
+                .doOnError(error -> log.error("知识库文档上传失败: errorType={}",
+                        error.getClass().getSimpleName()));
     }
 
     /**
@@ -332,8 +335,8 @@ public class KnowledgeController {
         return uploadFacade.batchUploadDocuments(knowledgeBaseId, files, parseMode, enableVectorization, authentication)
                 .doOnSuccess(result -> log.info("批量上传完成: 成功={}, 失败={}",
                         result.getSuccessDocuments().size(), result.getFailedDocuments().size()))
-                .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, error={}",
-                        knowledgeBaseId, error.getMessage()));
+                .doOnError(error -> log.error("批量上传文档失败: knowledgeBaseId={}, errorType={}",
+                        knowledgeBaseId, error.getClass().getSimpleName()));
     }
 
     /**
@@ -350,7 +353,7 @@ public class KnowledgeController {
                 .flatMapMany(access -> documentService.getDocuments(
                         knowledgeBaseId, page, size, access.userId(), access.isAdmin()))
                 .doOnComplete(() -> log.info("知识库文档列表查询完成: knowledgeBaseId={}", knowledgeBaseId))
-                .doOnError(error -> log.error("知识库文档列表查询失败: knowledgeBaseId={}, error={}", knowledgeBaseId, error.getMessage()));
+                .doOnError(error -> log.error("知识库文档列表查询失败: knowledgeBaseId={}, errorType={}", knowledgeBaseId, error.getClass().getSimpleName()));
     }
 
     /**
@@ -363,7 +366,7 @@ public class KnowledgeController {
 
         return documentService.getAllDocuments(page, size)
                 .doOnComplete(() -> log.info("管理员全站文档列表查询完成"))
-                .doOnError(error -> log.error("管理员全站文档列表查询失败: error={}", error.getMessage()));
+                .doOnError(error -> log.error("管理员全站文档列表查询失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -388,8 +391,8 @@ public class KnowledgeController {
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> documentService.getDocument(id, access.userId(), access.isAdmin()))
-                .doOnSuccess(dto -> log.info("文档详情查询成功: id={}, fileName={}", id, dto.getFileName()))
-                .doOnError(error -> log.error("文档详情查询失败: id={}, error={}", id, error.getMessage()));
+                .doOnSuccess(dto -> log.info("文档详情查询成功: id={}", id))
+                .doOnError(error -> log.error("文档详情查询失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -402,7 +405,7 @@ public class KnowledgeController {
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> documentService.deleteDocument(id, access.userId(), access.isAdmin()))
                 .doOnSuccess(v -> log.info("文档删除成功: id={}", id))
-                .doOnError(error -> log.error("文档删除失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("文档删除失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -425,14 +428,13 @@ public class KnowledgeController {
                     headers.add("Content-Disposition",
                         "attachment; filename=\"" + documentDto.getFileName() + "\"");
 
-                    log.info("文档下载重定向: id={}, fileName={}, url={}",
-                        id, documentDto.getFileName(), documentDto.getOssUrl());
+                    log.info("文档下载重定向已生成: id={}", id);
 
                     return Mono.just(ResponseEntity.status(HttpStatus.FOUND)
                             .headers(headers)
                             .build());
                 })
-                .doOnError(error -> log.error("文档下载失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("文档下载失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -444,8 +446,8 @@ public class KnowledgeController {
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> documentService.reparseDocument(id, access.userId(), access.isAdmin()))
-                .doOnSuccess(dto -> log.info("重新解析文档成功: id={}, fileName={}", id, dto.getFileName()))
-                .doOnError(error -> log.error("重新解析文档失败: id={}, error={}", id, error.getMessage()));
+                .doOnSuccess(dto -> log.info("重新解析文档成功: id={}", id))
+                .doOnError(error -> log.error("重新解析文档失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -457,8 +459,8 @@ public class KnowledgeController {
 
         return accessContextResolver.resolve(authentication)
                 .flatMap(access -> documentService.reEmbedDocument(id, access.userId(), access.isAdmin()))
-                .doOnSuccess(dto -> log.info("重新向量化文档成功: id={}, fileName={}", id, dto.getFileName()))
-                .doOnError(error -> log.error("重新向量化文档失败: id={}, error={}", id, error.getMessage()));
+                .doOnSuccess(dto -> log.info("重新向量化文档成功: id={}", id))
+                .doOnError(error -> log.error("重新向量化文档失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -510,7 +512,7 @@ public class KnowledgeController {
                             });
                 })
                 .doOnSuccess(result -> log.info("文档向量化状态检查完成: id={}", id))
-                .doOnError(error -> log.error("文档向量化状态检查失败: id={}, error={}", id, error.getMessage()));
+                .doOnError(error -> log.error("文档向量化状态检查失败: id={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -525,7 +527,7 @@ public class KnowledgeController {
             .flatMapMany(access -> documentService.getDocument(id, access.userId(), access.isAdmin())
                 .thenMany(recordService.getDocumentProcessingRecords(id)))
             .doOnComplete(() -> log.info("文档处理记录获取完成: documentId={}", id))
-            .doOnError(error -> log.error("获取文档处理记录失败: documentId={}, error={}", id, error.getMessage()));
+            .doOnError(error -> log.error("获取文档处理记录失败: documentId={}, errorType={}", id, error.getClass().getSimpleName()));
     }
 
     /**
@@ -541,7 +543,7 @@ public class KnowledgeController {
         return accessContextResolver.requireAdmin(authentication)
             .thenMany(recordService.getFailedProcessingRecords(page, size))
             .doOnComplete(() -> log.info("失败处理记录获取完成: page={}, size={}", page, size))
-            .doOnError(error -> log.error("获取失败处理记录失败: error={}", error.getMessage()));
+            .doOnError(error -> log.error("获取失败处理记录失败: errorType={}", error.getClass().getSimpleName()));
     }
 
     /**
@@ -554,7 +556,7 @@ public class KnowledgeController {
         return accessContextResolver.requireAdmin(authentication)
             .then(recordService.getProcessingStatistics())
             .doOnSuccess(stats -> log.info("处理统计信息获取成功: {}", stats))
-            .doOnError(error -> log.error("获取处理统计信息失败: error={}", error.getMessage()));
+            .doOnError(error -> log.error("获取处理统计信息失败: errorType={}", error.getClass().getSimpleName()));
     }
 
 }

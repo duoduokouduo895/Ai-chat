@@ -53,8 +53,7 @@ public class AiController {
                     chatRequest.setUserId(userId);
                     chatRequest.setAdminRequest(isAdmin(authentication));
 
-                    log.info("Chat request from user {}, model={}, knowledgeBaseCount={}",
-                            userId,
+                    log.info("Chat request accepted: model={}, knowledgeBaseCount={}",
                             chatRequest.getModel(),
                             chatRequest.getKnowledgeBaseIds() != null ? chatRequest.getKnowledgeBaseIds().size() : 0);
 
@@ -84,7 +83,8 @@ public class AiController {
             try {
                 return Mono.just(Long.parseLong(value));
             } catch (NumberFormatException ignored) {
-                log.warn("Authentication details are not a numeric user id: {}", value);
+                log.warn("Authentication details are not a numeric user id: detailType={}",
+                        details.getClass().getSimpleName());
             }
         }
 

@@ -56,7 +56,7 @@ public class HealthCheckTask {
                     }
                 })
                 .onErrorResume(error -> {
-                    log.warn("定时健康检查失败: {}", error.getMessage());
+                    log.warn("定时健康检查失败: errorType={}", error.getClass().getSimpleName());
                     return Mono.empty();
                 })
                 .subscribe();

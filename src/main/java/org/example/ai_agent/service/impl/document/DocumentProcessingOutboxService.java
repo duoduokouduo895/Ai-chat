@@ -115,19 +115,19 @@ public class DocumentProcessingOutboxService {
                                     })
                                 : retry(event, "RabbitMQ did not confirm the message"))
                         .then())
-                .onErrorResume(error -> retry(event, error.getMessage()).then());
+                .onErrorResume(error -> retry(event, error.getClass().getSimpleName()).then());
     }
 
     private Mono<DocumentProcessingMessage> deserialize(DocumentProcessingOutboxEvent event) {
         return Mono.fromCallable(() -> objectMapper.readValue(event.getPayload(), DocumentProcessingMessage.class));
     }
 
-    private Mono<Integer> retry(DocumentProcessingOutboxEvent event, String error) {
+    private Mono<Integer> retry(DocumentProcessingOutboxEvent event, String failureType) {
         LocalDateTime nextAttemptAt = LocalDateTime.now().plus(retryDelay(event.getAttemptCount()));
-        String sanitizedError = sanitizeError(error);
-        log.warn("outbox 投递失败，将重试: eventId={}, documentId={}, attempt={}, nextAttemptAt={}, error={}",
-                event.getId(), event.getDocumentId(), event.getAttemptCount(), nextAttemptAt, sanitizedError);
-        return outboxRepository.markRetry(event.getId(), nextAttemptAt, sanitizedError)
+        String safeFailureType = normalizeFailureType(failureType);
+        log.warn("outbox 投递失败，将重试: eventId={}, documentId={}, attempt={}, nextAttemptAt={}, failureType={}",
+                event.getId(), event.getDocumentId(), event.getAttemptCount(), nextAttemptAt, safeFailureType);
+        return outboxRepository.markRetry(event.getId(), nextAttemptAt, safeFailureType)
                 .doOnNext(updated -> {
                     if (updated != null && updated > 0) {
                         retryCounter.increment();
@@ -167,12 +167,12 @@ public class DocumentProcessingOutboxService {
         return candidate.compareTo(maximum) > 0 ? maximum : candidate;
     }
 
-    private String sanitizeError(String error) {
-        if (error == null || error.isBlank()) {
-            return "unknown dispatch failure";
+    private String normalizeFailureType(String failureType) {
+        if (failureType == null || failureType.isBlank()) {
+            return "UNKNOWN_DISPATCH_FAILURE";
         }
-        String compact = error.replaceAll("[\\r\\n\\t]+", " ").trim();
-        return compact.length() <= 500 ? compact : compact.substring(0, 500);
+        String normalized = failureType.replaceAll("[^A-Za-z0-9_.-]", "_");
+        return normalized.length() <= 100 ? normalized : normalized.substring(0, 100);
     }
 
     private String operationEvent(String result, String errorType) {

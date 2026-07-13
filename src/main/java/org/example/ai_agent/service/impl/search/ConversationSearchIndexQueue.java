@@ -66,7 +66,8 @@ public class ConversationSearchIndexQueue {
                 .subscribe(
                         ignored -> {
                         },
-                        error -> log.error("会话搜索索引后台队列异常终止", error)
+                        error -> log.error("会话搜索索引后台队列异常终止: errorType={}",
+                                error.getClass().getSimpleName())
                 );
         retryWorker = reactor.core.publisher.Flux.interval(retryInterval)
                 .subscribe(ignored -> drainPendingTasks());
@@ -96,8 +97,8 @@ public class ConversationSearchIndexQueue {
             .onErrorResume(error -> {
             failedCounter.increment();
             pendingTasks.merge(conversationId, pendingOperation, this::mergeOperations);
-            log.error("会话搜索索引后台同步失败: conversationId={}, operation={}",
-                    conversationId, pendingOperation, error);
+            log.error("会话搜索索引后台同步失败: conversationId={}, operation={}, errorType={}",
+                    conversationId, pendingOperation, error.getClass().getSimpleName());
             return Mono.empty();
         });
     }

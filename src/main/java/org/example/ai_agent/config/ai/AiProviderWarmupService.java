@@ -46,7 +46,7 @@ public class AiProviderWarmupService {
             log.info("AI供应商 DNS 预热完成: host={}, addressCount={}, duration={}ms",
                     host, addresses.length, durationMs);
         } catch (Exception e) {
-            log.warn("AI供应商 DNS 预热失败: host={}, error={}", host, e.getMessage());
+            log.warn("AI供应商 DNS 预热失败: host={}, errorType={}", host, e.getClass().getSimpleName());
         }
     }
 

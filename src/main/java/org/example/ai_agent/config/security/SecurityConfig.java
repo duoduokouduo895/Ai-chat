@@ -86,7 +86,7 @@ public class SecurityConfig {
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest", "/api/test/**").permitAll()
+                        .pathMatchers("/api/users/register", "/api/users/login", "/api/users/guest").permitAll()
                         .pathMatchers("/api/admin/auth/login").permitAll()
                         .pathMatchers("/api/admin/**", "/api/knowledge/admin/**", "/api/conversations/admin/**").hasRole("ADMIN")
                         .pathMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()

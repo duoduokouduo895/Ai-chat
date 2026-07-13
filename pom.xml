@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.0</version>
+        <version>4.0.7</version>
     </parent>
     <groupId>org.example</groupId>
     <artifactId>Ai_Agent</artifactId>
@@ -26,10 +26,12 @@
         <url/>
     </scm>
     <properties>
-        <java.version>17</java.version>
-        <spring-cloud-alibaba.version>2023.0.1.0</spring-cloud-alibaba.version>
-        <lombok.version>1.18.32</lombok.version>
-        <langchain4j.version>1.0.1-beta6</langchain4j.version>
+        <java.version>21</java.version>
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <lombok.version>1.18.42</lombok.version>
+        <langchain4j.version>1.15.1</langchain4j.version>
+        <langchain4j-spring.version>1.15.1-beta25</langchain4j-spring.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     <dependencies>
@@ -43,6 +45,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Boot 4 默认使用 Jackson 3；现有 LangChain4j/AMQP/Redis 代码仍基于 Jackson 2。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+
         <!-- 添加 Reactor Netty HTTP 客户端依赖以解决编译错误并优化性能 -->
         <dependency>
             <groupId>io.projectreactor.netty</groupId>
@@ -52,7 +60,6 @@
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
-            <version>5.3.1</version>
         </dependency>
 
        <!--   Security依赖     -->
@@ -91,11 +98,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- 显式指定Lettuce客户端版本以解决兼容性问题 -->
+        <!-- Lettuce 版本由 Spring Boot BOM 统一管理，避免覆盖 Netty/Reactor 兼容组合。 -->
         <dependency>
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>
-            <version>6.3.2.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -128,8 +134,8 @@
         <!-- ===== Flyway 数据库版本管理 ===== -->
         <!-- Flyway 核心：执行 db/migration/ 下的版本化迁移脚本 -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <!-- Flyway MySQL 方言支持 (Spring Boot 3.x 需要独立引入) -->
         <dependency>
@@ -200,34 +206,31 @@
         <!-- LangChain4j Dependencies -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <artifactId>langchain4j-open-ai-spring-boot4-starter</artifactId>
+            <version>${langchain4j-spring.version}</version>
         </dependency>
 
         <dependency>
             <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <artifactId>langchain4j-spring-boot4-starter</artifactId>
+            <version>${langchain4j-spring.version}</version>
         </dependency>
 
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
 
         <!-- LangChain4j 文档解析依赖 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-document-parser-apache-tika</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
 
         <!-- LangChain4j Elasticsearch 向量存储 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-elasticsearch</artifactId>
-            <version>${langchain4j.version}</version>
         </dependency>
 
         <!-- 阿里云OSS SDK -->
@@ -262,6 +265,12 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
@@ -273,6 +282,14 @@
         <dependencies>
 
             <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
                 <version>${spring-cloud-alibaba.version}</version>
@@ -282,7 +299,7 @@
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
-                <version>2023.0.1</version>
+                <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -296,7 +313,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <release>17</release>
+                    <release>${java.version}</release>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>

@@ -67,11 +67,11 @@ public class OssServiceImpl implements OssService {
                 
                 ossClient.putObject(ossProperties.getBucketName(), objectKey, inputStream, metadata);
                 
-                log.info("文件上传成功: fileName={}, objectKey={}, size={}", fileName, objectKey, fileSize);
+                log.info("文件上传成功: size={}", fileSize);
                 return objectKey;
                 
             } catch (Exception e) {
-                log.error("文件上传失败: fileName={}, error={}", fileName, e.getMessage(), e);
+                log.error("文件上传失败: errorType={}", e.getClass().getSimpleName());
                 throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -96,14 +96,13 @@ public class OssServiceImpl implements OssService {
                 
                 String url = getFileUrl(objectKey);
                 
-                log.info("知识库文档上传成功: knowledgeBaseId={}, fileName={}, objectKey={}, size={}", 
-                        knowledgeBaseId, fileName, objectKey, fileSize);
+                log.info("知识库文档上传成功: knowledgeBaseId={}, size={}", knowledgeBaseId, fileSize);
                 
                 return new OssFileInfo(objectKey, url, fileSize, contentType);
                 
             } catch (Exception e) {
-                log.error("知识库文档上传失败: knowledgeBaseId={}, fileName={}, error={}", 
-                         knowledgeBaseId, fileName, e.getMessage(), e);
+                log.error("知识库文档上传失败: knowledgeBaseId={}, errorType={}",
+                         knowledgeBaseId, e.getClass().getSimpleName());
                 throw new RuntimeException("知识库文档上传失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -119,10 +118,10 @@ public class OssServiceImpl implements OssService {
         return Mono.fromCallable(() -> {
             try {
                 ossClient.deleteObject(ossProperties.getBucketName(), ossPath);
-                log.info("文件删除成功: ossPath={}", ossPath);
+                log.info("文件删除成功");
                 return true;
             } catch (Exception e) {
-                log.error("文件删除失败: ossPath={}, error={}", ossPath, e.getMessage(), e);
+                log.error("文件删除失败: errorType={}", e.getClass().getSimpleName());
                 return false;
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -133,10 +132,10 @@ public class OssServiceImpl implements OssService {
         return Mono.fromCallable(() -> {
             try {
                 OSSObject ossObject = ossClient.getObject(ossProperties.getBucketName(), ossPath);
-                log.debug("获取文件输入流成功: ossPath={}", ossPath);
+                log.debug("获取文件输入流成功");
                 return ossObject.getObjectContent();
             } catch (Exception e) {
-                log.error("获取文件输入流失败: ossPath={}, error={}", ossPath, e.getMessage(), e);
+                log.error("获取文件输入流失败: errorType={}", e.getClass().getSimpleName());
                 throw new RuntimeException("获取文件失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());

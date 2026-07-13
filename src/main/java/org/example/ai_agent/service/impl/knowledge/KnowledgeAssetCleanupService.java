@@ -57,8 +57,8 @@ public class KnowledgeAssetCleanupService {
                 )
                 .then(documentRepository.deleteById(documentId))
                 .doOnSuccess(unused -> log.info("文档级联删除完成: documentId={}", documentId))
-                .doOnError(error -> log.error("文档级联删除失败: documentId={}, error={}",
-                        documentId, error.getMessage(), error));
+                .doOnError(error -> log.error("文档级联删除失败: documentId={}, errorType={}",
+                        documentId, error.getClass().getSimpleName()));
     }
 
     public Mono<Void> deleteKnowledgeBaseAssets(KnowledgeBase knowledgeBase) {
@@ -74,8 +74,8 @@ public class KnowledgeAssetCleanupService {
                 .then(knowledgeChunkSearchService.deleteKnowledgeBaseChunks(knowledgeBaseId))
                 .then(deleteKnowledgeBaseEmbeddings(knowledgeBaseId))
                 .doOnSuccess(unused -> log.info("知识库关联资源清理完成: knowledgeBaseId={}", knowledgeBaseId))
-                .doOnError(error -> log.error("知识库关联资源清理失败: knowledgeBaseId={}, error={}",
-                        knowledgeBaseId, error.getMessage(), error));
+                .doOnError(error -> log.error("知识库关联资源清理失败: knowledgeBaseId={}, errorType={}",
+                        knowledgeBaseId, error.getClass().getSimpleName()));
     }
 
     private Mono<Void> deleteDocumentEmbeddings(Long documentId) {

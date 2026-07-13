@@ -56,7 +56,7 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return response.content();
                 
             } catch (Exception e) {
-                log.error("文本向量化失败: modelId={}, error={}", modelId, e.getMessage(), e);
+                log.error("文本向量化失败: modelId={}, errorType={}", modelId, e.getClass().getSimpleName());
                 throw new RuntimeException("文本向量化失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -76,8 +76,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return response.content();
                 
             } catch (Exception e) {
-                log.error("批量文本向量化失败: modelId={}, textCount={}, error={}", 
-                         modelId, textSegments.size(), e.getMessage(), e);
+                log.error("批量文本向量化失败: modelId={}, textCount={}, errorType={}",
+                        modelId, textSegments.size(), e.getClass().getSimpleName());
                 throw new RuntimeException("批量文本向量化失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -111,8 +111,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return embeddingId;
                 
             } catch (Exception e) {
-                log.error("向量存储失败: knowledgeBaseId={}, documentId={}, chunkId={}, error={}", 
-                         knowledgeBaseId, documentId, chunkId, e.getMessage(), e);
+                log.error("向量存储失败: knowledgeBaseId={}, documentId={}, chunkId={}, errorType={}",
+                        knowledgeBaseId, documentId, chunkId, e.getClass().getSimpleName());
                 throw new RuntimeException("向量存储失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -152,8 +152,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 return embeddingIds;
                 
             } catch (Exception e) {
-                log.error("批量向量存储失败: knowledgeBaseId={}, documentId={}, error={}", 
-                         knowledgeBaseId, documentId, e.getMessage(), e);
+                log.error("批量向量存储失败: knowledgeBaseId={}, documentId={}, errorType={}",
+                        knowledgeBaseId, documentId, e.getClass().getSimpleName());
                 throw new RuntimeException("批量向量存储失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -194,17 +194,19 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                     .map(this::convertToServiceResult)
                     .toList();
                 
-                log.info("向量搜索完成: queryDimension={}, knowledgeBaseIds={}, resultCount={}", 
-                        queryEmbedding.dimension(), knowledgeBaseIds, results.size());
+                log.info("向量搜索完成: queryDimension={}, knowledgeBaseCount={}, resultCount={}",
+                        queryEmbedding.dimension(), knowledgeBaseIds.size(), results.size());
                 
                 return results;
                 
             } catch (Exception e) {
                 if (isIndexNotFound(e)) {
-                    log.warn("向量索引不存在，返回空检索结果: knowledgeBaseIds={}, error={}", knowledgeBaseIds, e.getMessage());
+                    log.warn("向量索引不存在，返回空检索结果: knowledgeBaseCount={}, errorType={}",
+                            knowledgeBaseIds.size(), e.getClass().getSimpleName());
                     return List.<EmbeddingService.EmbeddingSearchResult>of();
                 }
-                log.error("向量搜索失败: knowledgeBaseIds={}, error={}", knowledgeBaseIds, e.getMessage(), e);
+                log.error("向量搜索失败: knowledgeBaseCount={}, errorType={}",
+                        knowledgeBaseIds.size(), e.getClass().getSimpleName());
                 throw new RuntimeException("向量搜索失败: " + e.getMessage(), e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
@@ -252,8 +254,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 log.debug("向量索引不存在，清理视为完成: indexName={}", profile.indexName());
                 return true;
             }
-            log.error("{}向量删除失败: resourceId={}, indexName={}, error={}",
-                    resourceType, resourceId, profile.indexName(), e.getMessage(), e);
+            log.error("{}向量删除失败: resourceId={}, indexName={}, errorType={}",
+                    resourceType, resourceId, profile.indexName(), e.getClass().getSimpleName());
             return false;
         }
     }

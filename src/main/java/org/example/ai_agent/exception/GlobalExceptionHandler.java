@@ -24,8 +24,10 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleIllegalArgumentException(
             IllegalArgumentException ex, ServerWebExchange exchange) {
 
-        log.warn("请求参数不合法: {}", ex.getMessage());
-        return Mono.just(ResponseEntity.badRequest().body(buildError(400, ex.getMessage(), exchange, "BAD_REQUEST")));
+        log.warn("请求参数不合法: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
+        return Mono.just(ResponseEntity.badRequest()
+                .body(buildError(400, "请求参数不合法", exchange, "BAD_REQUEST")));
     }
 
     @ExceptionHandler(WebExchangeBindException.class)
@@ -44,7 +46,7 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleHandlerMethodValidationException(
             HandlerMethodValidationException ex, ServerWebExchange exchange) {
 
-        String message = ex.getAllValidationResults().stream()
+        String message = ex.getParameterValidationResults().stream()
                 .flatMap(result -> result.getResolvableErrors().stream())
                 .findFirst()
                 .map(error -> error.getDefaultMessage() != null ? error.getDefaultMessage() : "请求参数校验失败")
@@ -57,7 +59,8 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleServerWebInputException(
             ServerWebInputException ex, ServerWebExchange exchange) {
 
-        log.warn("请求输入无效: {}", ex.getReason());
+        log.warn("请求输入无效: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.badRequest().body(buildError(400, "请求参数格式不正确", exchange, "INVALID_INPUT")));
     }
 
@@ -65,7 +68,8 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleMaxUploadSizeExceededException(
             MaxUploadSizeExceededException ex, ServerWebExchange exchange) {
 
-        log.warn("上传文件超出大小限制: {}", ex.getMessage());
+        log.warn("上传文件超出大小限制: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.badRequest().body(buildError(400, "上传文件超过大小限制", exchange, "FILE_TOO_LARGE")));
     }
 
@@ -73,16 +77,18 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleSecurityException(
             SecurityException ex, ServerWebExchange exchange) {
 
-        log.warn("请求被拒绝: {}", ex.getMessage());
+        log.warn("请求被拒绝: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(buildError(403, ex.getMessage(), exchange, "FORBIDDEN")));
+                .body(buildError(403, "无权执行此操作", exchange, "FORBIDDEN")));
     }
 
     @ExceptionHandler(RuntimeException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleRuntimeException(
             RuntimeException ex, ServerWebExchange exchange) {
 
-        log.error("运行时异常: {}", ex.getMessage(), ex);
+        log.error("运行时异常: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(buildError(500, "服务器内部错误，请稍后重试", exchange, "INTERNAL_ERROR")));
     }
@@ -91,7 +97,8 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<Map<String, Object>>> handleException(
             Exception ex, ServerWebExchange exchange) {
 
-        log.error("未处理异常: {}", ex.getMessage(), ex);
+        log.error("未处理异常: errorType={}, path={}",
+                ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(buildError(500, "服务器内部错误，请稍后重试", exchange, "INTERNAL_ERROR")));
     }

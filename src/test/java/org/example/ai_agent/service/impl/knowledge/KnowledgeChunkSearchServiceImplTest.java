@@ -2,6 +2,7 @@ package org.example.ai_agent.service.impl.knowledge;
 
 import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.elasticsearch.core.query.DeleteQuery;
 import org.springframework.data.elasticsearch.core.query.StringQuery;
 
 import java.util.List;
@@ -65,5 +66,14 @@ class KnowledgeChunkSearchServiceImplTest {
 
         assertFalse(query.getSource().contains("chunkEmbeddingStatus"));
         assertFalse(query.getSource().contains("documentEmbeddingStatus"));
+    }
+
+    @Test
+    void deleteQueryUsesTermFilterRequiredByCurrentSpringDataApi() {
+        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null, null);
+
+        DeleteQuery query = service.termDeleteQuery("documentId", 42L);
+
+        assertTrue(((StringQuery) query.getQuery()).getSource().contains("\"documentId\":42"));
     }
 }

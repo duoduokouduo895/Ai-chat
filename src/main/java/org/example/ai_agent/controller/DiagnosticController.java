@@ -65,7 +65,7 @@ public class DiagnosticController {
                 })
             )
             .onErrorResume(error -> {
-                log.error("诊断健康检查失败", error);
+                log.error("诊断健康检查失败: errorType={}", error.getClass().getSimpleName());
                 Map<String, Object> errorResult = new HashMap<>();
                 errorResult.put("status", "ERROR");
                 errorResult.put("error", error.getMessage());
@@ -136,7 +136,8 @@ public class DiagnosticController {
                             });
                 })
                 .onErrorResume(error -> {
-                    log.error("检查文档处理流程失败: documentId={}", documentId, error);
+                    log.error("检查文档处理流程失败: documentId={}, errorType={}",
+                            documentId, error.getClass().getSimpleName());
                     Map<String, Object> errorResult = new HashMap<>();
                     errorResult.put("documentId", documentId);
                     errorResult.put("error", error.getMessage());
@@ -183,7 +184,8 @@ public class DiagnosticController {
                             });
                 })
                 .onErrorResume(error -> {
-                    log.error("触发文档分块和向量化失败: documentId={}", documentId, error);
+                    log.error("触发文档分块和向量化失败: documentId={}, errorType={}",
+                            documentId, error.getClass().getSimpleName());
                     Map<String, Object> errorResult = new HashMap<>();
                     errorResult.put("documentId", documentId);
                     errorResult.put("success", false);
@@ -257,7 +259,7 @@ public class DiagnosticController {
                 result.put("timestamp", System.currentTimeMillis());
 
             } catch (Exception e) {
-                log.error("获取RabbitMQ队列状态失败", e);
+                log.error("获取RabbitMQ队列状态失败: errorType={}", e.getClass().getSimpleName());
                 result.put("success", false);
                 result.put("error", e.getMessage());
                 result.put("timestamp", System.currentTimeMillis());

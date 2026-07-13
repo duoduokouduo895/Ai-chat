@@ -19,8 +19,8 @@ public class DocumentProcessingAckHandler {
                     message.getDocumentId(), message.getProcessingType(), scene);
             return Mono.empty();
         } catch (IOException e) {
-            log.error("消息确认失败: documentId={}, processingType={}, scene={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
+            log.error("消息确认失败: documentId={}, processingType={}, scene={}, errorType={}",
+                    message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
             return Mono.error(e);
         }
     }
@@ -36,8 +36,8 @@ public class DocumentProcessingAckHandler {
                     message.getDocumentId(), message.getProcessingType(), scene, requeue);
             return Mono.empty();
         } catch (IOException e) {
-            log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, error={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getMessage(), e);
+            log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, errorType={}",
+                    message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
             return Mono.error(e);
         }
     }

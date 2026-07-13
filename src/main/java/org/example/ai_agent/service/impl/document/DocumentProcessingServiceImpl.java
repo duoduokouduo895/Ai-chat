@@ -87,8 +87,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档解析处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> log.error("文档解析处理失败: documentId={}, error={}",
-                    message.getDocumentId(), error.getMessage(), error));
+            .doOnError(error -> log.error("文档解析处理失败: documentId={}, errorType={}",
+                    message.getDocumentId(), error.getClass().getSimpleName()));
     }
     
     @Override
@@ -112,8 +112,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档分块处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> log.error("文档分块处理失败: documentId={}, error={}",
-                    message.getDocumentId(), error.getMessage(), error));
+            .doOnError(error -> log.error("文档分块处理失败: documentId={}, errorType={}",
+                    message.getDocumentId(), error.getClass().getSimpleName()));
     }
     
     @Override
@@ -155,8 +155,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             })
             .doOnSuccess(result -> log.info("文档向量化处理完成: documentId={}, result={}", 
                     message.getDocumentId(), result))
-            .doOnError(error -> log.error("文档向量化处理失败: documentId={}, error={}",
-                    message.getDocumentId(), error.getMessage(), error));
+            .doOnError(error -> log.error("文档向量化处理失败: documentId={}, errorType={}",
+                    message.getDocumentId(), error.getClass().getSimpleName()));
     }
     
     @Override

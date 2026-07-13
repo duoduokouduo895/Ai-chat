@@ -147,14 +147,14 @@ public class UserServiceImpl implements UserService {
         guestUser.setIsGuest(true); // 标记这是一个游客账号
         
         // 记录日志
-        log.info("开始创建游客账号: {}", guestUsername);
+        log.info("开始创建游客账号");
         
         // 3. 将游客信息保存到数据库，并在成功后直接签发游客 token
         return userRepository.save(guestUser)
-                .doOnSuccess(savedUser -> log.info("游客账号创建成功, user_id: {}", savedUser.getUserId()))
+                .doOnSuccess(savedUser -> log.info("游客账号创建成功"))
                 .flatMap(this::issueToken)
                 .onErrorResume(e -> {
-                    log.error("创建游客账号失败: {}", e.getMessage(), e);
+                    log.error("创建游客账号失败: errorType={}", e.getClass().getSimpleName());
                     return Mono.error(new RuntimeException("无法创建游客账户，请稍后重试"));
                 });
     }
@@ -235,7 +235,7 @@ public class UserServiceImpl implements UserService {
         }
 
         String redisKey = TokenRedisKeys.jti(jti);
-        log.info("尝试将JTI存储到Redis，key: {}, value: {}, ttl: {}ms", redisKey, user.getUsername(), ttl.toMillis());
+        log.info("尝试将JTI存储到Redis: ttlMs={}", ttl.toMillis());
         log.debug("Redis操作详情 - key类型: {}, value类型: {}, TTL类型: {}",
                 redisKey.getClass().getSimpleName(),
                 user.getUsername().getClass().getSimpleName(),
@@ -244,14 +244,13 @@ public class UserServiceImpl implements UserService {
         return redisTemplate.opsForValue().set(redisKey, user.getUsername(), ttl)
                 .then(redisTemplate.opsForSet().add(TokenRedisKeys.userJtis(user.getUserId()), jti))
                 .then(redisTemplate.expire(TokenRedisKeys.userJtis(user.getUserId()), ttl))
-                .doOnSuccess(result -> log.info("JTI成功存储到Redis，key: {}, result: {}", redisKey, result))
+                .doOnSuccess(result -> log.info("JTI成功存储到Redis: result={}", result))
                 .doOnError(error -> {
-                    log.error("JTI存储到Redis失败，key: {}, 错误类型: {}, 错误消息: {}",
-                            redisKey, error.getClass().getSimpleName(), error.getMessage());
-                    log.error("完整错误堆栈:", error);
+                    log.error("JTI存储到Redis失败: errorType={}", error.getClass().getSimpleName());
                 })
                 .onErrorResume(throwable -> {
-                    log.error("处理Redis存储错误，尝试降级处理: {}", throwable.getMessage());
+                    log.error("处理Redis存储错误，拒绝签发会话: errorType={}",
+                            throwable.getClass().getSimpleName());
                     return Mono.error(new RuntimeException("无法将认证信息存储到Redis，登录失败", throwable));
                 })
                 .thenReturn(token);

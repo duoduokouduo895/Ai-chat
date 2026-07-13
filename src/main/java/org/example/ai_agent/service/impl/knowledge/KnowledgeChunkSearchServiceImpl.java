@@ -11,6 +11,7 @@ import org.example.ai_agent.observability.KnowledgeSearchTelemetry;
 import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ReactiveElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.query.DeleteQuery;
 import org.springframework.data.elasticsearch.core.query.StringQuery;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -45,18 +46,21 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
                 || request.authorizedKnowledgeBaseIds().isEmpty()) {
             return Flux.empty();
         }
+        int queryLength = request.query().length();
 
         return searchTelemetry.observe(ensureIndex()
                 .thenMany(elasticsearchOperations.search(buildSearchQuery(request), KnowledgeChunkDocument.class))
                 .map(hit -> new KnowledgeChunkSearchHit(hit.getContent(), hit.getScore()))
-                .doOnComplete(() -> log.info("知识库 BM25 检索完成: query={}, knowledgeBaseIds={}, maxResults={}",
-                        request.query(), request.authorizedKnowledgeBaseIds(), request.maxResults()))
+                .doOnComplete(() -> log.info("知识库 BM25 检索完成: queryLength={}, knowledgeBaseCount={}, maxResults={}",
+                        queryLength, request.authorizedKnowledgeBaseIds().size(), request.maxResults()))
                 .onErrorResume(error -> {
                     if (isIndexMissing(error)) {
-                        log.warn("知识库 BM25 索引不存在，返回空结果: error={}", error.getMessage());
+                        log.warn("知识库 BM25 索引不存在，返回空结果: errorType={}",
+                                error.getClass().getSimpleName());
                         return Flux.empty();
                     }
-                    log.error("知识库 BM25 检索失败: query={}, error={}", request.query(), error.getMessage(), error);
+                    log.error("知识库 BM25 检索失败: queryLength={}, errorType={}",
+                            queryLength, error.getClass().getSimpleName());
                     return Flux.error(error);
                 }));
     }
@@ -97,7 +101,7 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
             return Mono.empty();
         }
         return ensureIndex()
-                .then(elasticsearchOperations.delete(termQuery("documentId", documentId), KnowledgeChunkDocument.class))
+                .then(elasticsearchOperations.delete(termDeleteQuery("documentId", documentId), KnowledgeChunkDocument.class))
                 .doOnSuccess(deleted -> log.info("知识库 BM25 文档索引删除完成: documentId={}, deleted={}", documentId, deleted))
                 .then()
                 .onErrorResume(error -> isIndexMissing(error) ? Mono.empty() : Mono.error(error));
@@ -109,7 +113,7 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
             return Mono.empty();
         }
         return ensureIndex()
-                .then(elasticsearchOperations.delete(termQuery("knowledgeBaseId", knowledgeBaseId), KnowledgeChunkDocument.class))
+                .then(elasticsearchOperations.delete(termDeleteQuery("knowledgeBaseId", knowledgeBaseId), KnowledgeChunkDocument.class))
                 .doOnSuccess(deleted -> log.info("知识库 BM25 知识库索引删除完成: knowledgeBaseId={}, deleted={}",
                         knowledgeBaseId, deleted))
                 .then()
@@ -188,10 +192,11 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
         return query;
     }
 
-    private StringQuery termQuery(String field, Object value) {
-        return new StringQuery(new JSONObject()
+    DeleteQuery termDeleteQuery(String field, Object value) {
+        StringQuery query = new StringQuery(new JSONObject()
                 .fluentPut("term", new JSONObject().fluentPut(field, value))
                 .toJSONString());
+        return DeleteQuery.builder(query).build();
     }
 
     private KnowledgeChunkDocument toDocument(KnowledgeChunkIndexProjection row) {

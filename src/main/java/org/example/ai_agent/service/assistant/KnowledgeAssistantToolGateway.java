@@ -51,8 +51,8 @@ public class KnowledgeAssistantToolGateway {
                     .blockOptional(TOOL_TIMEOUT)
                     .orElseGet(List::of);
         } catch (RuntimeException error) {
-            log.warn("Assistant 知识库工具查询失败: requesterUserId={}, adminRequest={}, error={}",
-                    requesterUserId, adminRequest, error.getMessage());
+            log.warn("Assistant 知识库工具查询失败: adminRequest={}, errorType={}",
+                    adminRequest, error.getClass().getSimpleName());
             return List.of();
         }
     }
@@ -66,8 +66,8 @@ public class KnowledgeAssistantToolGateway {
             return documentService.getDocument(documentId, requesterUserId, adminRequest)
                     .blockOptional(TOOL_TIMEOUT);
         } catch (RuntimeException error) {
-            log.warn("Assistant 文档状态工具查询失败: documentId={}, requesterUserId={}, error={}",
-                    documentId, requesterUserId, error.getMessage());
+            log.warn("Assistant 文档状态工具查询失败: documentId={}, errorType={}",
+                    documentId, error.getClass().getSimpleName());
             return Optional.empty();
         }
     }

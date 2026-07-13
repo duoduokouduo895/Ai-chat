@@ -28,7 +28,7 @@ public class AssistantConversationTurn {
                     .thenReturn(request);
         }
 
-        log.info("会话ID为空，为用户 {} 创建新会话。", request.getUserId());
+        log.info("会话ID为空，创建新会话");
         Conversation newConversation = new Conversation();
         newConversation.setUserId(request.getUserId());
         newConversation.setTitle("New Conversation");
@@ -69,11 +69,11 @@ public class AssistantConversationTurn {
         return conversationService.addMessageToConversation(aiMessage)
                 .retry(3)
                 .doOnSuccess(savedMessage -> log.info("AI消息已成功保存，ID: {}, 内容长度: {}",
-                        savedMessage.getId(), content.length()))
-                .doOnError(e -> log.error("保存AI消息失败，内容: {}, 错误: {}",
-                        content.substring(0, Math.min(content.length(), 100)), e.getMessage(), e))
+                        savedMessage.getId(), aiMessage.getContent().length()))
+                .doOnError(e -> log.error("保存AI消息失败: contentLength={}, errorType={}",
+                        aiMessage.getContent().length(), e.getClass().getSimpleName()))
                 .onErrorResume(e -> {
-                    log.error("最终保存AI消息失败，将返回空结果", e);
+                    log.error("最终保存AI消息失败，将返回空结果: errorType={}", e.getClass().getSimpleName());
                     return Mono.empty();
                 });
     }

@@ -78,8 +78,9 @@ public class DocumentServiceImpl implements DocumentService {
     public Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId, String parseMode,
                                             Boolean enableVectorization, Long requesterUserId, boolean isAdmin) {
         return Mono.fromCallable(() -> {
-            log.info("开始上传文档: fileName={}, knowledgeBaseId={}, parseMode={}, enableVectorization={}", 
-                    file.getOriginalFilename(), knowledgeBaseId, parseMode, enableVectorization);
+            int fileNameLength = file.getOriginalFilename() == null ? 0 : file.getOriginalFilename().length();
+            log.info("开始上传文档: fileNameLength={}, knowledgeBaseId={}, parseMode={}, enableVectorization={}",
+                    fileNameLength, knowledgeBaseId, parseMode, enableVectorization);
             
             // 参数验证
             if (knowledgeBaseId == null) {
@@ -101,8 +102,8 @@ public class DocumentServiceImpl implements DocumentService {
                 file, knowledgeBaseId, parseMode, enableVectorization,
                 ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId))
         .map(this::toDto)
-        .doOnSuccess(dto -> log.info("文档上传成功: id={}, fileName={}", dto.getId(), dto.getFileName()))
-        .doOnError(error -> log.error("文档上传失败: fileName={}, error={}", file.getOriginalFilename(), error.getMessage()))
+        .doOnSuccess(dto -> log.info("文档上传成功: id={}", dto.getId()))
+        .doOnError(error -> log.error("文档上传失败: errorType={}", error.getClass().getSimpleName()))
         .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -157,7 +158,7 @@ public class DocumentServiceImpl implements DocumentService {
         .flatMapMany(window -> documentRepository.findSummariesByUploaderId(
                 uploaderId, window.limit(), window.offset()))
         .map(this::toListDto)
-        .doOnComplete(() -> log.info("按上传用户查询文档完成: uploaderId={}, page={}, size={}", uploaderId, page, size))
+        .doOnComplete(() -> log.info("按上传用户查询文档完成: page={}, size={}", page, size))
         .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -176,8 +177,8 @@ public class DocumentServiceImpl implements DocumentService {
                 return knowledgeAssetCleanupService.deleteDocumentAggregate(document)
                     .then(knowledgeBaseService.adjustDocumentCount(knowledgeBaseId, -1)
                             .onErrorResume(error -> {
-                                log.warn("减少知识库文档数量失败，等待定时校准: knowledgeBaseId={}, error={}",
-                                        knowledgeBaseId, error.getMessage());
+                            log.warn("减少知识库文档数量失败，等待定时校准: knowledgeBaseId={}, errorType={}",
+                                    knowledgeBaseId, error.getClass().getSimpleName());
                                 return Mono.empty();
                             }));
             })
@@ -189,7 +190,7 @@ public class DocumentServiceImpl implements DocumentService {
     public Mono<DocumentDto> reparseDocument(Long id, Long requesterUserId, boolean isAdmin) {
         return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
             .flatMap(document -> {
-                log.info("重新解析文档: id={}, fileName={}", id, document.getFileName());
+                log.info("重新解析文档: id={}", id);
                 
                 // 使用默认解析模式
                 String parseMode = "auto";
@@ -203,7 +204,7 @@ public class DocumentServiceImpl implements DocumentService {
             })
             .map(this::toDto)
             .doOnSuccess(dto -> log.info("重新解析文档完成: id={}", id))
-            .doOnError(error -> log.error("重新解析文档失败: id={}, error={}", id, error.getMessage()))
+            .doOnError(error -> log.error("重新解析文档失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -211,7 +212,7 @@ public class DocumentServiceImpl implements DocumentService {
     public Mono<DocumentDto> reEmbedDocument(Long id, Long requesterUserId, boolean isAdmin) {
         return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
             .flatMap(document -> {
-                log.info("重新向量化文档: id={}, fileName={}", id, document.getFileName());
+                log.info("重新向量化文档: id={}", id);
                 
                 return documentIngestionService.reEmbedDocument(id, document.getKnowledgeBaseId())
                     .map(task -> {
@@ -222,7 +223,7 @@ public class DocumentServiceImpl implements DocumentService {
             })
             .map(this::toDto)
             .doOnSuccess(dto -> log.info("重新向量化文档完成: id={}", id))
-            .doOnError(error -> log.error("重新向量化文档失败: id={}, error={}", id, error.getMessage()))
+            .doOnError(error -> log.error("重新向量化文档失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
             .subscribeOn(Schedulers.boundedElastic());
     }
     
@@ -236,8 +237,7 @@ public class DocumentServiceImpl implements DocumentService {
         List<String> supportedList = Arrays.asList(supportedTypes);
         boolean isSupported = supportedList.contains(extension.toLowerCase());
         
-        log.info("文件类型检查: fileName={}, extension={}, supportedTypes={}, isSupported={}", 
-                fileName, extension, supportedList, isSupported);
+        log.info("文件类型检查: extension={}, isSupported={}", extension, isSupported);
         
         return isSupported;
     }
@@ -280,8 +280,8 @@ public class DocumentServiceImpl implements DocumentService {
                 .flatMap(knowledgeBaseService::getKnowledgeBase)
                 .map(KnowledgeBaseDto::getName)
                 .onErrorResume(error -> {
-                    log.warn("补全文档知识库名称失败: documentId={}, knowledgeBaseId={}, error={}",
-                            entity.getId(), entity.getKnowledgeBaseId(), error.getMessage());
+                    log.warn("补全文档知识库名称失败: documentId={}, knowledgeBaseId={}, errorType={}",
+                            entity.getId(), entity.getKnowledgeBaseId(), error.getClass().getSimpleName());
                     return Mono.empty();
                 })
                 .defaultIfEmpty("未知知识库");
@@ -290,8 +290,8 @@ public class DocumentServiceImpl implements DocumentService {
                 .flatMap(userRepository::findById)
                 .map(User::getUsername)
                 .onErrorResume(error -> {
-                    log.warn("补全文档上传者名称失败: documentId={}, uploaderId={}, error={}",
-                            entity.getId(), entity.getUploaderId(), error.getMessage());
+                    log.warn("补全文档上传者名称失败: documentId={}, errorType={}",
+                            entity.getId(), error.getClass().getSimpleName());
                     return Mono.empty();
                 })
                 .defaultIfEmpty("未知用户");
@@ -403,7 +403,7 @@ public class DocumentServiceImpl implements DocumentService {
             try {
                 inputStream.close();
             } catch (Exception error) {
-                log.warn("关闭上传文件输入流失败", error);
+                log.warn("关闭上传文件输入流失败: errorType={}", error.getClass().getSimpleName());
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }

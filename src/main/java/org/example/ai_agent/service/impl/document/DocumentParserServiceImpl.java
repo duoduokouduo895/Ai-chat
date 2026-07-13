@@ -61,7 +61,9 @@ public class DocumentParserServiceImpl implements DocumentParserService {
     public Mono<Document> parseDocument(InputStream inputStream, String fileName, String fileType) {
         return Mono.fromCallable(() -> {
             try {
-                log.info("开始解析文档: fileName={}, fileType={}", fileName, fileType);
+                int fileNameLength = fileName == null ? 0 : fileName.length();
+                log.info("开始解析文档: fileNameLength={}, fileType={}",
+                        fileNameLength, fileType);
                 
                 // 使用LangChain4j的DocumentParser解析文档
                 Document document = documentParser.parse(inputStream);
@@ -74,15 +76,14 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 metadata.put("parse_time", System.currentTimeMillis());
                 
                 String text = enforceExtractedTextLimit(document.text());
-                log.info("文档解析成功: fileName={}, contentLength={}", 
-                        fileName, text.length());
+                log.info("文档解析成功: contentLength={}", text.length());
                 
                 return Document.from(text, metadata);
                 
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
             } catch (Exception e) {
-                log.error("文档解析失败: fileName={}, error={}", fileName, e.getMessage(), e);
+                log.error("文档解析失败: errorType={}", e.getClass().getSimpleName());
                 throw new RuntimeException("文档解析失败: " + e.getMessage(), e);
             }
         }).subscribeOn(documentParsingScheduler);
@@ -104,7 +105,7 @@ public class DocumentParserServiceImpl implements DocumentParserService {
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
             } catch (Exception e) {
-                log.error("文档分割失败: error={}", e.getMessage(), e);
+                log.error("文档分割失败: errorType={}", e.getClass().getSimpleName());
                 throw new RuntimeException("文档分割失败: " + e.getMessage(), e);
             }
         }).subscribeOn(documentParsingScheduler);
@@ -115,8 +116,7 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                                             String fileType, String modelId) {
         return Mono.fromCallable(() -> {
             try {
-                log.info("开始使用AI解析文档: fileName={}, fileType={}, modelId={}", 
-                        fileName, fileType, modelId);
+                log.info("开始使用AI解析文档: fileType={}, modelId={}", fileType, modelId);
                 
                 // 首先尝试基础解析
                 Document basicDocument = documentParser.parse(inputStream);
@@ -135,14 +135,14 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                     metadata.put("ai_model", modelId);
                     metadata.put("parse_time", System.currentTimeMillis());
                     
-                    log.info("AI增强解析完成: fileName={}, originalLength={}, enhancedLength={}", 
-                            fileName, basicText.length(), enhancedText.length());
+                    log.info("AI增强解析完成: originalLength={}, enhancedLength={}",
+                            basicText.length(), enhancedText.length());
                     
                     return Document.from(enforceExtractedTextLimit(enhancedText), metadata);
                 } else {
                     if (shouldEnhance) {
-                        log.info("跳过超长文档的 AI 增强解析: fileName={}, contentLength={}, limit={}",
-                                fileName, basicText.length(), processingProperties.effectiveMaxAiEnhancementCharacters());
+                        log.info("跳过超长文档的 AI 增强解析: contentLength={}, limit={}",
+                                basicText.length(), processingProperties.effectiveMaxAiEnhancementCharacters());
                     }
                     // 使用基础解析结果
                     Metadata metadata = basicDocument.metadata();
@@ -157,7 +157,7 @@ public class DocumentParserServiceImpl implements DocumentParserService {
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
             } catch (Exception e) {
-                log.error("AI文档解析失败: fileName={}, error={}", fileName, e.getMessage(), e);
+                log.error("AI文档解析失败: errorType={}", e.getClass().getSimpleName());
                 throw new RuntimeException("AI文档解析失败: " + e.getMessage(), e);
             }
         }).subscribeOn(documentParsingScheduler);
@@ -237,7 +237,7 @@ public class DocumentParserServiceImpl implements DocumentParserService {
             return enhancedText.length() > originalText.length() ? enhancedText : originalText;
             
         } catch (Exception e) {
-            log.error("AI增强解析失败，使用原始解析结果: error={}", e.getMessage());
+            log.error("AI增强解析失败，使用原始解析结果: errorType={}", e.getClass().getSimpleName());
             return originalText;
         }
     }

@@ -55,9 +55,9 @@ public class RegisteredUserCleanupService {
                         deleteKnowledgeBases(userId),
                         searchService.clearSearchHistory(userId)
                 ))
-                .doOnSuccess(unused -> log.info("注册用户关联资源清理完成: userId={}", userId))
-                .doOnError(error -> log.error("注册用户关联资源清理失败: userId={}, error={}",
-                        userId, error.getMessage(), error));
+                .doOnSuccess(unused -> log.info("注册用户关联资源清理完成"))
+                .doOnError(error -> log.error("注册用户关联资源清理失败: errorType={}",
+                        error.getClass().getSimpleName()));
     }
 
     private Mono<Void> deleteConversations(Long userId) {

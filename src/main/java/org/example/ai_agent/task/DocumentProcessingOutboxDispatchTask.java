@@ -25,7 +25,8 @@ public class DocumentProcessingOutboxDispatchTask {
         }
 
         outboxService.dispatchPending()
-                .doOnError(error -> log.error("文档 outbox 投递轮次失败", error))
+                .doOnError(error -> log.error("文档 outbox 投递轮次失败: errorType={}",
+                        error.getClass().getSimpleName()))
                 .doFinally(signal -> taskGuard.finish())
                 .subscribe();
     }
