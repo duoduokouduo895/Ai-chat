@@ -66,7 +66,9 @@ if [[ "${mode}" == candidate ]]; then
   expected_service="ai-chat-candidate"
   expected_environment="cloud-candidate"
   expected_ops_log="/var/log/ai-chat/operations.jsonl"
-  require_value AICHAT_NACOS_DISCOVERY_ENABLED false
+  expected_nacos_server="nacos-v3-candidate:8848"
+  require_value AICHAT_REQUIRE_NACOS_AUTH true
+  require_value AICHAT_NACOS_DISCOVERY_ENABLED true
   require_value AICHAT_RABBITMQ_DYNAMIC false
   require_value AICHAT_RABBITMQ_LISTENER_AUTO_STARTUP false
   require_value AICHAT_SCHEDULING_ENABLED false
@@ -78,6 +80,7 @@ else
   expected_service="ai-chat-production"
   expected_environment="cloud-production"
   expected_ops_log="/var/log/ai-chat/production-operations.jsonl"
+  expected_nacos_server="nacos:8848"
   require_value AICHAT_PRODUCTION_CONFIRMED true
   require_value AICHAT_REQUIRE_NACOS_AUTH true
   require_value AICHAT_NACOS_DISCOVERY_ENABLED true
@@ -95,6 +98,7 @@ require_value AICHAT_NETWORK_ALIAS "${expected_service}"
 require_value DEPLOYMENT_ENVIRONMENT "${expected_environment}"
 require_value AICHAT_OPS_LOG_FILE "${expected_ops_log}"
 require_value AICHAT_HEALTH_CHECK_ENABLED false
+require_value NACOS_SERVER_ADDR "${expected_nacos_server}"
 
 app_port="$(env_value AICHAT_APP_PORT)"
 if [[ -z "${app_port}" && "${mode}" == candidate ]]; then
@@ -148,9 +152,10 @@ compose_for() {
     if [[ "${require_nacos_auth}" == true ]]; then
       target_files+=(-f "${target_release}/deploy/compose.nacos-auth.yaml")
     fi
-  elif [[ "${mode}" == candidate && "${require_nacos_auth}" == false && -f "${target_release}/compose.candidate.yaml" ]]; then
-    # One-release compatibility seam: the first deployment of the shared Module can
-    # still restore the currently active Stage 5 candidate if its health gate fails.
+  elif [[ "${mode}" == candidate && -f "${target_release}/compose.candidate.yaml" ]]; then
+    # One-release compatibility seam: the first authenticated Nacos 3 candidate can
+    # still restore the currently active pre-module Stage 5 candidate if its health
+    # gate fails. The legacy Compose file owns its old Nacos/auth semantics.
     target_files=(-f "${target_release}/compose.candidate.yaml")
   else
     echo "Release does not support the required ${mode} deployment mode: ${target_release}" >&2

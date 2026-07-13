@@ -31,9 +31,9 @@ class NacosConfigurationTest {
 
         assertEquals("true", nacos.getProperty("spring.cloud.nacos.config.enabled"));
         assertEquals("true", nacos.getProperty("spring.cloud.nacos.discovery.enabled"));
-        assertEquals("${NACOS_SERVER_ADDR:34.150.80.173:8848}",
+        assertEquals("${NACOS_SERVER_ADDR}",
                 nacos.getProperty("spring.cloud.nacos.config.server-addr"));
-        assertEquals("${NACOS_SERVER_ADDR:34.150.80.173:8848}",
+        assertEquals("${NACOS_SERVER_ADDR}",
                 nacos.getProperty("spring.cloud.nacos.discovery.server-addr"));
         assertEquals("${NACOS_CONFIG_TIMEOUT_MS:3000}",
                 nacos.getProperty("spring.cloud.nacos.config.timeout"));

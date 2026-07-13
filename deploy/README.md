@@ -27,10 +27,12 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 
 | 模式 | 作用 | 写任务 | 默认 loopback 端口 | 活动链接 |
 |---|---|---|---|---|
-| `candidate` | 启动、依赖、指标、Trace 与脱敏日志验收 | 全部关闭 | `18082` / `19091` | `/opt/ai-chat/candidate` |
+| `candidate` | 隔离 Nacos 3 鉴权、注册、启动、依赖、指标、Trace 与脱敏日志验收 | Flyway/listener/scheduler 等业务写任务关闭 | `18082` / `19091` | `/opt/ai-chat/candidate` |
 | `production` | 正式业务实例 | Flyway、RabbitMQ listener、定时任务和索引同步开启 | `18083` / `19092` | `/opt/ai-chat/current` |
 
 两个端口都只绑定 `127.0.0.1`。脚本不会修改 Nginx 或 DNS，也不会自动停止旧服务器。
+
+候选与生产必须使用不同的 `AICHAT_SECRETS_DIR`：候选固定为 `/opt/ai-chat/runtime/.secrets/candidate`，生产固定为 `/opt/ai-chat/runtime/.secrets/production`。不得通过复制或覆盖同一组 `nacos_username`、`nacos_password` 来切换模式，否则凭据轮换会同时破坏另一条回滚链。
 生产模式只有在 `AICHAT_PRODUCTION_CONFIRMED=true` 时才会启动；这个值表示维护窗口已经开始，
 旧实例中的 listener、scheduler 和其他写任务已经停止，避免双写。
 
