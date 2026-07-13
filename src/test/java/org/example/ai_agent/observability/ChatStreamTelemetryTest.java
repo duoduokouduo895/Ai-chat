@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -92,14 +93,21 @@ class ChatStreamTelemetryTest {
 
     @Test
     void operationalJsonContainsOnlyControlledFields() throws Exception {
-        String json = telemetry.operationalEventJson("error", 17, "INTERNAL_ERROR");
+        MDC.put("trace_id", "0123456789abcdef0123456789abcdef");
+        MDC.put("span_id", "0123456789abcdef");
+        String json;
+        try {
+            json = telemetry.operationalEventJson("error", 17, "INTERNAL_ERROR");
+        } finally {
+            MDC.clear();
+        }
         JsonNode root = objectMapper.readTree(json);
 
         assertEquals(6, root.size());
         assertEquals("ai_chat_stream_finished", root.get("event").asText());
         assertEquals("error", root.get("result").asText());
-        assertNotNull(root.get("traceId"));
-        assertNotNull(root.get("spanId"));
+        assertEquals("0123456789abcdef0123456789abcdef", root.get("traceId").asText());
+        assertEquals("0123456789abcdef", root.get("spanId").asText());
         assertFalse(json.matches("(?is).*(prompt|answer|userId|conversationId|token|authorization).*"));
     }
 }

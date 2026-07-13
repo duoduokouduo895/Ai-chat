@@ -53,13 +53,19 @@ public class ChatStreamTelemetry {
     }
 
     String operationalEventJson(String outcome, long durationMs, String errorType) {
+        return operationalEventJson(outcome, durationMs, errorType,
+                safeMdc("trace_id", UNKNOWN_TRACE_ID), safeMdc("span_id", UNKNOWN_SPAN_ID));
+    }
+
+    private String operationalEventJson(String outcome, long durationMs, String errorType,
+                                        String traceId, String spanId) {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("event", "ai_chat_stream_finished");
         event.put("result", outcome);
         event.put("durationMs", Math.max(0, durationMs));
         event.put("errorType", errorType);
-        event.put("traceId", safeMdc("trace_id", UNKNOWN_TRACE_ID));
-        event.put("spanId", safeMdc("span_id", UNKNOWN_SPAN_ID));
+        event.put("traceId", traceId);
+        event.put("spanId", spanId);
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException exception) {
@@ -78,6 +84,8 @@ public class ChatStreamTelemetry {
         private final AtomicBoolean firstMessage = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
         private final AtomicReference<Throwable> error = new AtomicReference<>();
+        private final String traceId = safeMdc("trace_id", UNKNOWN_TRACE_ID);
+        private final String spanId = safeMdc("span_id", UNKNOWN_SPAN_ID);
 
         private StreamObservation(boolean ragMode) {
             this.rag = Boolean.toString(ragMode);
@@ -119,7 +127,7 @@ public class ChatStreamTelemetry {
                     .record(durationNanos, TimeUnit.NANOSECONDS);
 
             OPERATIONS.info(operationalEventJson(outcome, TimeUnit.NANOSECONDS.toMillis(durationNanos),
-                    failure == null ? "none" : safeErrorType(failure)));
+                    failure == null ? "none" : safeErrorType(failure), traceId, spanId));
         }
 
         private String classify(SignalType signalType, Throwable failure) {
