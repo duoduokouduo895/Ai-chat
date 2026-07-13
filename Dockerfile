@@ -6,6 +6,7 @@ RUN mvn -B -ntp dependency:copy \
     -Dartifact=io.opentelemetry.javaagent:opentelemetry-javaagent:2.29.0 \
     -DoutputDirectory=/otel
 
+COPY compose.cloud.yaml ./compose.cloud.yaml
 COPY src ./src
 RUN mvn -B -ntp verify
 
