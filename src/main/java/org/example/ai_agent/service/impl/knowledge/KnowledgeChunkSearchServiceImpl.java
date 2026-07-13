@@ -7,6 +7,7 @@ import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.document.KnowledgeChunkDocument;
 import org.example.ai_agent.dto.knowledge.KnowledgeChunkIndexProjection;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
+import org.example.ai_agent.observability.KnowledgeSearchTelemetry;
 import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ReactiveElasticsearchOperations;
@@ -26,12 +27,15 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
 
     private final KnowledgeDocumentChunkRepository chunkRepository;
     private final ReactiveElasticsearchOperations elasticsearchOperations;
+    private final KnowledgeSearchTelemetry searchTelemetry;
     private final AtomicBoolean indexChecked = new AtomicBoolean(false);
 
     public KnowledgeChunkSearchServiceImpl(KnowledgeDocumentChunkRepository chunkRepository,
-                                           ReactiveElasticsearchOperations elasticsearchOperations) {
+                                           ReactiveElasticsearchOperations elasticsearchOperations,
+                                           KnowledgeSearchTelemetry searchTelemetry) {
         this.chunkRepository = chunkRepository;
         this.elasticsearchOperations = elasticsearchOperations;
+        this.searchTelemetry = searchTelemetry;
     }
 
     @Override
@@ -42,7 +46,7 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
             return Flux.empty();
         }
 
-        return ensureIndex()
+        return searchTelemetry.observe(ensureIndex()
                 .thenMany(elasticsearchOperations.search(buildSearchQuery(request), KnowledgeChunkDocument.class))
                 .map(hit -> new KnowledgeChunkSearchHit(hit.getContent(), hit.getScore()))
                 .doOnComplete(() -> log.info("知识库 BM25 检索完成: query={}, knowledgeBaseIds={}, maxResults={}",
@@ -54,7 +58,7 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
                     }
                     log.error("知识库 BM25 检索失败: query={}, error={}", request.query(), error.getMessage(), error);
                     return Flux.error(error);
-                });
+                }));
     }
 
     @Override

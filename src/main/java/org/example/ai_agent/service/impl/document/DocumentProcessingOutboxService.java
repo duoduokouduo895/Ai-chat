@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Gauge;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
@@ -16,6 +17,11 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 文档流水线的持久化投递模块。
@@ -24,6 +30,8 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class DocumentProcessingOutboxService {
+
+    private static final Logger OPERATIONS = LoggerFactory.getLogger("aichat.operations");
 
     static final String STATUS_PENDING = "PENDING";
     static final String STATUS_RETRY = "RETRY";
@@ -36,6 +44,7 @@ public class DocumentProcessingOutboxService {
     private final Counter publishedCounter;
     private final Counter retryCounter;
     private final Counter recoveredCounter;
+    private final AtomicLong pendingGauge = new AtomicLong();
 
     public DocumentProcessingOutboxService(DocumentProcessingOutboxRepository outboxRepository,
                                            DocumentProcessingPublisher publisher,
@@ -50,6 +59,9 @@ public class DocumentProcessingOutboxService {
         this.publishedCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "published");
         this.retryCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "retry");
         this.recoveredCounter = meterRegistry.counter("aichat.document.outbox.events", "outcome", "recovered");
+        Gauge.builder("aichat.document.outbox.pending", pendingGauge, AtomicLong::get)
+                .description("Unpublished document outbox events from the last database refresh")
+                .register(meterRegistry);
     }
 
     public Mono<Boolean> enqueue(DocumentProcessingMessage message, String routingKey) {
@@ -58,12 +70,20 @@ public class DocumentProcessingOutboxService {
                 .doOnSuccess(event -> log.debug("文档消息已写入 outbox: eventId={}, documentId={}, routingKey={}",
                         event.getId(), event.getDocumentId(), event.getRoutingKey()))
                 .doOnSuccess(event -> enqueuedCounter.increment())
+                .doOnSuccess(event -> pendingGauge.incrementAndGet())
                 .map(ignored -> true);
     }
 
     public Mono<Void> dispatchPending() {
         LocalDateTime staleBefore = LocalDateTime.now().minus(properties.effectiveOutboxClaimTimeout());
-        return outboxRepository.recoverStaleClaims(staleBefore)
+        return outboxRepository.countPending()
+                .doOnNext(count -> pendingGauge.set(Math.max(0, count)))
+                .onErrorResume(error -> {
+                    log.warn("刷新 outbox backlog 指标失败，继续执行原投递流程: errorType={}",
+                            error.getClass().getSimpleName());
+                    return Mono.empty();
+                })
+                .then(outboxRepository.recoverStaleClaims(staleBefore))
                 .doOnNext(recovered -> {
                     if (recovered > 0) {
                         recoveredCounter.increment(recovered);
@@ -90,6 +110,7 @@ public class DocumentProcessingOutboxService {
                                     .doOnNext(updated -> {
                                         if (updated != null && updated > 0) {
                                             publishedCounter.increment();
+                                            pendingGauge.updateAndGet(value -> Math.max(0, value - 1));
                                         }
                                     })
                                 : retry(event, "RabbitMQ did not confirm the message"))
@@ -110,6 +131,7 @@ public class DocumentProcessingOutboxService {
                 .doOnNext(updated -> {
                     if (updated != null && updated > 0) {
                         retryCounter.increment();
+                        OPERATIONS.warn(operationEvent("retry", "BROKER_PUBLISH_FAILED"));
                     }
                 });
     }
@@ -151,5 +173,17 @@ public class DocumentProcessingOutboxService {
         }
         String compact = error.replaceAll("[\\r\\n\\t]+", " ").trim();
         return compact.length() <= 500 ? compact : compact.substring(0, 500);
+    }
+
+    private String operationEvent(String result, String errorType) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("event", "document_outbox_dispatch");
+        event.put("result", result);
+        event.put("errorType", errorType);
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JsonProcessingException exception) {
+            return "{\"event\":\"document_outbox_dispatch\",\"result\":\"logging_error\"}";
+        }
     }
 }

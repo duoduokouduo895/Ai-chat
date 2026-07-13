@@ -13,7 +13,7 @@ class KnowledgeChunkSearchServiceImplTest {
 
     @Test
     void nonAdminQueryAddsRedundantPermissionAndStatusFilters() {
-        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null);
+        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null, null);
 
         StringQuery query = service.buildSearchQuery(new KnowledgeChunkSearchService.SearchRequest(
                 "退款流程",
@@ -34,7 +34,7 @@ class KnowledgeChunkSearchServiceImplTest {
 
     @Test
     void adminQueryStillFiltersStatusButSkipsUserOwnershipFilter() {
-        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null);
+        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null, null);
 
         StringQuery query = service.buildSearchQuery(new KnowledgeChunkSearchService.SearchRequest(
                 "监控告警",
@@ -54,7 +54,7 @@ class KnowledgeChunkSearchServiceImplTest {
 
     @Test
     void bm25QueryDoesNotRequireChunkEmbeddingStatus() {
-        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null);
+        KnowledgeChunkSearchServiceImpl service = new KnowledgeChunkSearchServiceImpl(null, null, null);
 
         StringQuery query = service.buildSearchQuery(new KnowledgeChunkSearchService.SearchRequest(
                 "导入失败",

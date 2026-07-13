@@ -74,6 +74,7 @@ class DocumentProcessingOutboxServiceTest {
     void dispatchPending_shouldMarkEventPublishedOnlyAfterBrokerConfirm() throws Exception {
         DocumentProcessingOutboxEvent event = event(7L, 0);
         when(outboxRepository.recoverStaleClaims(any(LocalDateTime.class))).thenReturn(Mono.just(0));
+        when(outboxRepository.countPending()).thenReturn(Mono.just(1L));
         when(outboxRepository.findDispatchable(anyInt())).thenReturn(Flux.just(event));
         when(outboxRepository.claimForDispatch(7L)).thenReturn(Mono.just(1));
         when(publisher.publish(any(DocumentProcessingMessage.class), eq("document.parse"))).thenReturn(Mono.just(true));
@@ -89,6 +90,7 @@ class DocumentProcessingOutboxServiceTest {
     void dispatchPending_shouldKeepEventRetryableWhenBrokerDoesNotConfirm() throws Exception {
         DocumentProcessingOutboxEvent event = event(8L, 2);
         when(outboxRepository.recoverStaleClaims(any(LocalDateTime.class))).thenReturn(Mono.just(0));
+        when(outboxRepository.countPending()).thenReturn(Mono.just(1L));
         when(outboxRepository.findDispatchable(anyInt())).thenReturn(Flux.just(event));
         when(outboxRepository.claimForDispatch(8L)).thenReturn(Mono.just(1));
         when(publisher.publish(any(DocumentProcessingMessage.class), eq("document.parse"))).thenReturn(Mono.just(false));

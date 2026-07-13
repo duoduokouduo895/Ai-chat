@@ -24,6 +24,9 @@ public interface DocumentProcessingOutboxRepository
             """)
     Flux<DocumentProcessingOutboxEvent> findDispatchable(@Param("batchSize") int batchSize);
 
+    @Query("SELECT COUNT(*) FROM document_processing_outbox WHERE status IN ('PENDING', 'RETRY', 'SENDING')")
+    Mono<Long> countPending();
+
     @Modifying
     @Query("""
             UPDATE document_processing_outbox
