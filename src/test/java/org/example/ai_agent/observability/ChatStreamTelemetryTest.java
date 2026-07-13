@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import org.example.ai_agent.service.impl.chat.ChatStreamClientException;
 
@@ -60,6 +61,32 @@ class ChatStreamTelemetryTest {
 
         assertEquals(1.0, registry.get("aichat.chat.requests")
                 .tags("outcome", "timeout", "rag", "false").counter().count());
+        assertEquals(0.0, registry.get("aichat.chat.streams.active").gauge().value());
+    }
+
+    @Test
+    void classifiesInternalErrorWithoutUsingItsMessageAsATag() {
+        StepVerifier.create(telemetry.observe(Flux.error(new IllegalStateException("private failure detail")), true))
+                .expectError(IllegalStateException.class)
+                .verify();
+
+        assertEquals(1.0, registry.get("aichat.chat.requests")
+                .tags("outcome", "error", "rag", "true").counter().count());
+        registry.getMeters().forEach(meter -> meter.getId().getTags().forEach(tag ->
+                assertFalse(tag.getValue().contains("private failure detail"))));
+    }
+
+    @Test
+    void concurrentSubscriptionsDoNotLeakTheActiveGauge() {
+        Mono<Void> subscriptions = Flux.range(0, 64)
+                .flatMap(ignored -> telemetry.observe(Flux.just(
+                        ServerSentEvent.<String>builder().event("message").data("chunk").build()), false).then(), 16)
+                .then();
+
+        StepVerifier.create(subscriptions).verifyComplete();
+
+        assertEquals(64.0, registry.get("aichat.chat.requests")
+                .tags("outcome", "success", "rag", "false").counter().count());
         assertEquals(0.0, registry.get("aichat.chat.streams.active").gauge().value());
     }
 
