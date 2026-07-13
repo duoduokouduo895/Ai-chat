@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class ChatStreamTelemetry {
 
+    static final String REACTOR_TRACE_ID = ChatStreamTelemetry.class.getName() + ".traceId";
+    static final String REACTOR_SPAN_ID = ChatStreamTelemetry.class.getName() + ".spanId";
     private static final Logger OPERATIONS = LoggerFactory.getLogger("aichat.operations");
     private static final String UNKNOWN_TRACE_ID = "00000000000000000000000000000000";
     private static final String UNKNOWN_SPAN_ID = "0000000000000000";
@@ -44,8 +46,12 @@ public class ChatStreamTelemetry {
     }
 
     public Flux<ServerSentEvent<String>> observe(Flux<ServerSentEvent<String>> source, boolean ragMode) {
-        return Flux.defer(() -> {
-            StreamObservation observation = new StreamObservation(ragMode);
+        return Flux.deferContextual(context -> {
+            TraceIdentifiers identifiers = context.hasKey(REACTOR_TRACE_ID)
+                    ? new TraceIdentifiers(context.get(REACTOR_TRACE_ID),
+                            context.getOrDefault(REACTOR_SPAN_ID, UNKNOWN_SPAN_ID))
+                    : currentTraceIdentifiers();
+            StreamObservation observation = new StreamObservation(ragMode, identifiers);
             activeStreams.incrementAndGet();
             return source
                     .doOnNext(observation::onEvent)
@@ -97,10 +103,11 @@ public class ChatStreamTelemetry {
         private final AtomicBoolean firstMessage = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
         private final AtomicReference<Throwable> error = new AtomicReference<>();
-        private final TraceIdentifiers traceIdentifiers = currentTraceIdentifiers();
+        private final TraceIdentifiers traceIdentifiers;
 
-        private StreamObservation(boolean ragMode) {
+        private StreamObservation(boolean ragMode, TraceIdentifiers traceIdentifiers) {
             this.rag = Boolean.toString(ragMode);
+            this.traceIdentifiers = traceIdentifiers;
         }
 
         private void onEvent(ServerSentEvent<String> event) {
