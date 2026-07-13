@@ -1,5 +1,6 @@
 **
 !pom.xml
+!compose.cloud.yaml
 !src/
 !src/**
 !deploy/
