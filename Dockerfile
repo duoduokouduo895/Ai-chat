@@ -2,7 +2,6 @@ FROM maven:3.9.16-eclipse-temurin-17@sha256:da66ff6a39526253d98bf5d01fefcd0142bc
 WORKDIR /workspace
 
 COPY pom.xml ./
-RUN mvn -B -ntp dependency:go-offline
 RUN mvn -B -ntp dependency:copy \
     -Dartifact=io.opentelemetry.javaagent:opentelemetry-javaagent:2.29.0 \
     -DoutputDirectory=/otel
