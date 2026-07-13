@@ -3,8 +3,12 @@ package org.example.ai_agent.observability;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.context.Scope;
 import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -93,13 +97,14 @@ class ChatStreamTelemetryTest {
 
     @Test
     void operationalJsonContainsOnlyControlledFields() throws Exception {
-        MDC.put("trace_id", "0123456789abcdef0123456789abcdef");
-        MDC.put("span_id", "0123456789abcdef");
+        SpanContext spanContext = SpanContext.create(
+                "0123456789abcdef0123456789abcdef",
+                "0123456789abcdef",
+                TraceFlags.getSampled(),
+                TraceState.getDefault());
         String json;
-        try {
+        try (Scope ignored = Span.wrap(spanContext).makeCurrent()) {
             json = telemetry.operationalEventJson("error", 17, "INTERNAL_ERROR");
-        } finally {
-            MDC.clear();
         }
         JsonNode root = objectMapper.readTree(json);
 

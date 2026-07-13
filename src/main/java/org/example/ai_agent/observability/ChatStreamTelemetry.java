@@ -6,6 +6,8 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -53,8 +55,9 @@ public class ChatStreamTelemetry {
     }
 
     String operationalEventJson(String outcome, long durationMs, String errorType) {
+        TraceIdentifiers identifiers = currentTraceIdentifiers();
         return operationalEventJson(outcome, durationMs, errorType,
-                safeMdc("trace_id", UNKNOWN_TRACE_ID), safeMdc("span_id", UNKNOWN_SPAN_ID));
+                identifiers.traceId(), identifiers.spanId());
     }
 
     private String operationalEventJson(String outcome, long durationMs, String errorType,
@@ -78,14 +81,23 @@ public class ChatStreamTelemetry {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private TraceIdentifiers currentTraceIdentifiers() {
+        SpanContext spanContext = Span.current().getSpanContext();
+        if (spanContext.isValid()) {
+            return new TraceIdentifiers(spanContext.getTraceId(), spanContext.getSpanId());
+        }
+        return new TraceIdentifiers(
+                safeMdc("trace_id", UNKNOWN_TRACE_ID),
+                safeMdc("span_id", UNKNOWN_SPAN_ID));
+    }
+
     private final class StreamObservation {
         private final String rag;
         private final long startedNanos = System.nanoTime();
         private final AtomicBoolean firstMessage = new AtomicBoolean();
         private final AtomicBoolean finished = new AtomicBoolean();
         private final AtomicReference<Throwable> error = new AtomicReference<>();
-        private final String traceId = safeMdc("trace_id", UNKNOWN_TRACE_ID);
-        private final String spanId = safeMdc("span_id", UNKNOWN_SPAN_ID);
+        private final TraceIdentifiers traceIdentifiers = currentTraceIdentifiers();
 
         private StreamObservation(boolean ragMode) {
             this.rag = Boolean.toString(ragMode);
@@ -127,7 +139,8 @@ public class ChatStreamTelemetry {
                     .record(durationNanos, TimeUnit.NANOSECONDS);
 
             OPERATIONS.info(operationalEventJson(outcome, TimeUnit.NANOSECONDS.toMillis(durationNanos),
-                    failure == null ? "none" : safeErrorType(failure), traceId, spanId));
+                    failure == null ? "none" : safeErrorType(failure),
+                    traceIdentifiers.traceId(), traceIdentifiers.spanId()));
         }
 
         private String classify(SignalType signalType, Throwable failure) {
@@ -147,5 +160,8 @@ public class ChatStreamTelemetry {
             }
             return "INTERNAL_ERROR";
         }
+    }
+
+    private record TraceIdentifiers(String traceId, String spanId) {
     }
 }
