@@ -1,8 +1,8 @@
 # AI-chat Stage 5 candidate deployment
 
 This deployment is deliberately passive. It disables Nacos discovery,
-RabbitMQ listeners, all `@Scheduled` jobs, Elasticsearch synchronization, the
-application health polling task, and model warm-up. It can validate startup,
+RabbitMQ topology declaration/listeners, all `@Scheduled` jobs, Elasticsearch synchronization, the
+application health polling task, Flyway migrations, and model warm-up. It can validate startup,
 configuration, dependency connectivity, health, and telemetry without taking
 traffic or competing with the old production instance.
 

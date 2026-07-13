@@ -1,6 +1,7 @@
 package org.example.ai_agent.config.database;
 
 import org.flywaydb.core.Flyway;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,6 +24,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @EnableConfigurationProperties(FlywayProperties.class)
+@ConditionalOnProperty(prefix = "app.flyway", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class FlywayConfig {
 
     @Value("${spring.r2dbc.host}")
