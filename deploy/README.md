@@ -9,7 +9,9 @@ traffic or competing with the old production instance.
 The candidate joins the existing `middleware-net` for MySQL, Redis, RabbitMQ,
 and Elasticsearch, `nacos-net` for Nacos, and `aidiag-telemetry` for Alloy.
 These names are the verified cloud networks; the deployment does not recreate
-or publish the middleware services.
+or publish the middleware services. Candidate environment overrides route
+MySQL, Redis, RabbitMQ, and Elasticsearch through their Docker DNS names rather
+than the public host address stored for the legacy deployment.
 
 The release contains source code, not a locally built Jar. Docker runs the
 tests and builds the Jar in a pinned Java 17/Maven image, then copies only the
