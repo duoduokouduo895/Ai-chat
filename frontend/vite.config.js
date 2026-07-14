@@ -56,9 +56,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes('highlight.js') || id.includes('marked') || id.includes('dompurify')) {
               return 'markdown';
             }
-            if (id.includes('axios')) {
-              return 'network';
-            }
             if (id.includes('vue') || id.includes('vue-router')) {
               return 'vendor';
             }
