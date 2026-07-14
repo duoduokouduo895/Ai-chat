@@ -33,10 +33,23 @@ cutover_id="$(env_value AICHAT_CUTOVER_ID)"
 cutover_dir="${base_dir}/runtime/cutovers/${cutover_id}"
 backup_file="${cutover_dir}/ai_agent_db.sql.gz"
 checksum_file="${backup_file}.sha256"
+legacy_stop_evidence="${cutover_dir}/legacy-old-writer-stopped.env"
 [[ -f "${backup_file}" && -f "${checksum_file}" ]] \
   || { echo "Verified ai_agent_db backup is required before approval" >&2; exit 70; }
 (cd "${cutover_dir}" && sha256sum --check "$(basename "${checksum_file}")" >/dev/null)
 gzip --test "${backup_file}"
+[[ -f "${legacy_stop_evidence}" && ! -L "${legacy_stop_evidence}" \
+  && "$(stat -c '%a:%u:%g' "${legacy_stop_evidence}")" == 600:0:0 ]] \
+  || { echo "Root-only legacy writer stop evidence is required before approval" >&2; exit 70; }
+for expected in \
+  "CUTOVER_ID=${cutover_id}" \
+  'OLD_PRODUCTION_WRITERS_STOPPED=true' \
+  'LEGACY_MAIN_PID_RUNNING=false' \
+  'LEGACY_APP_PORT=8080' \
+  'LEGACY_APP_PORT_LISTENING=false'; do
+  [[ "$(grep -cFx "${expected}" "${legacy_stop_evidence}")" -eq 1 ]] \
+    || { echo "Legacy writer stop evidence is incomplete or belongs to another cutover" >&2; exit 70; }
+done
 
 writer_evidence="${cutover_dir}/old-writers-stopped.env"
 approval_evidence="${cutover_dir}/approved.env"
@@ -53,6 +66,7 @@ umask 077
 cat >"${writer_evidence}" <<EOF
 CUTOVER_ID=${cutover_id}
 OLD_PRODUCTION_WRITERS_STOPPED=true
+LEGACY_STOP_EVIDENCE_SHA256=$(sha256sum "${legacy_stop_evidence}" | awk '{print $1}')
 RECORDED_AT=${recorded_at}
 EOF
 cat >"${approval_evidence}" <<EOF

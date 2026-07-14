@@ -1,0 +1,50 @@
+# managed-by: ai-chat-v1-cutover
+# cutover-id: __CUTOVER_ID__
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.dduo.chat;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.dduo.chat;
+
+    ssl_certificate __CERT_FILE__;
+    ssl_certificate_key __KEY_FILE__;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:AICHAT_TLS:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 16m;
+
+    location = /healthz {
+        proxy_pass http://127.0.0.1:__MANAGEMENT_PORT__/actuator/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 10s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:__APP_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}

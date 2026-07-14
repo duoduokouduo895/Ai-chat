@@ -31,6 +31,13 @@ public class GeneralAssistantFactory {
 
     public GeneralAssistant createAssistant(ChatRequest chatRequest) {
         String effectiveModelId = normalizeModelId(chatRequest.getEffectiveModelId());
+        if (chatRequest.isRagMode()) {
+            // RAG 上下文已经由 AssistantInputBuilder 完成检索并写入提示词。
+            // 再暴露知识库工具不仅重复检索，还会让部分 OpenAI-compatible
+            // 流式模型把工具协议标记当作普通文本输出。
+            return createAssistant(effectiveModelId, null);
+        }
+
         KnowledgeAssistantToolGateway toolGateway = new KnowledgeAssistantToolGateway(
                 chatRequest.getUserId(),
                 chatRequest.isAdminRequest(),
@@ -46,11 +53,13 @@ public class GeneralAssistantFactory {
         dev.langchain4j.memory.chat.ChatMemoryProvider memoryProvider =
                 memoryId -> chatMemoryProvider.get(String.valueOf(memoryId));
 
-        return AiServices.builder(GeneralAssistant.class)
+        var builder = AiServices.builder(GeneralAssistant.class)
                 .streamingChatModel(aiModelRegistry.getStreamingModel(modelId))
-                .chatMemoryProvider(memoryProvider)
-                .tools(knowledgeTools)
-                .build();
+                .chatMemoryProvider(memoryProvider);
+        if (knowledgeTools != null) {
+            builder.tools(knowledgeTools);
+        }
+        return builder.build();
     }
 
     private String normalizeModelId(String modelId) {

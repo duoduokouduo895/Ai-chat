@@ -49,6 +49,47 @@ Spring Boot 4 默认转向 Jackson 3；当前 RabbitMQ、Redis 和部分 LangCha
 `ai_agent_db` 全量备份及 SHA-256、候选应用已停止、生产 Secret 与候选不同、批准记录绑定当前 release
 内容摘要。缺少任一项都会 fail closed，避免 listener、scheduler、Flyway V5 或索引同步发生双写。
 
+旧服务器的 systemd 启动脚本、环境文件或 PID 文件如果已经丢失，不能直接执行 `systemctl stop`。
+先在旧服务器运行以下命令创建 root-only 恢复包；它会复制当前 Jar，并从 `/proc/<pid>` 精确保存命令行和
+进程环境，但不会停止或重启服务，也不会输出环境值：
+
+~~~bash
+bash deploy/cloud-control-legacy-writer.sh prepare <cutover-id>
+~~~
+
+恢复包位于 `/opt/ai-chat-legacy-cutover/<cutover-id>`，目录 mode 700、文件 mode 600，其中可能包含 Secret，
+不得下载、提交 Git 或写入普通日志。只有 `prepare` 返回 PASS 且 Jar SHA-256 一致后，维护窗口内才允许执行：
+
+~~~bash
+AICHAT_LEGACY_STOP_CONFIRMED=STOP_LEGACY_WRITER \
+  bash deploy/cloud-control-legacy-writer.sh stop <cutover-id>
+~~~
+
+脚本只对 systemd 记录的 MainPID 发送 `SIGTERM`，不会自动升级为 `SIGKILL`；随后验证旧 PID、prepare 时
+绑定的应用端口和
+Java 中间件连接均消失，并生成 `stopped.env`。将该文件传到 GCP 后必须以 root 身份安装为
+`/opt/ai-chat/runtime/cutovers/<cutover-id>/legacy-old-writer-stopped.env`（owner `root:root`、mode 600）；
+`cloud-approve-production-cutover.sh` 会校验 cutover id、PID/端口断言和文件 SHA-256，并针对本次旧站强制
+`LEGACY_APP_PORT=8080`，拒绝只靠口头确认或在 stop/start 间更换端口继续。
+回滚启动要求先确认 GCP production 已停止，防止双写：
+
+~~~bash
+AICHAT_LEGACY_START_CONFIRMED=START_LEGACY_WRITER \
+AICHAT_GCP_PRODUCTION_STOPPED_CONFIRMED=GCP_PRODUCTION_IS_STOPPED \
+  bash deploy/cloud-control-legacy-writer.sh start <cutover-id>
+~~~
+
+恢复使用临时 systemd unit 和已校验的 Jar/环境快照；只把“进程 active 且 8080 监听”视为恢复启动，业务健康
+仍要单独验证。完成稳定切换前不能删除旧服务器或该恢复包。
+
+发布前可在具有 systemd 的非生产主机执行真实生命周期测试。测试自动选择空闲高位端口，创建并清理临时 unit、
+临时 Jar 和恢复目录，覆盖 MainPID 漂移、缺少确认、优雅停写证据和回滚启动：
+
+~~~bash
+bash deploy/tests/legacy-writer-lifecycle-test.sh \
+  deploy/cloud-control-legacy-writer.sh
+~~~
+
 ## 安全边界
 
 - AIDiag、Nacos 和 Elasticsearch 密钥只通过 Compose file secrets 挂载，不写入镜像、runtime env 或 `docker inspect`。
@@ -85,6 +126,17 @@ install -m 600 deploy/production.env.example /opt/ai-chat/runtime/production.env
 bash deploy/cloud-stage-candidate.sh /opt/ai-chat/releases/<release-name>
 ~~~
 
+已存在健康 production 时，若新版本没有任何 Flyway migration 变化，使用专用升级入口：
+
+~~~bash
+bash deploy/cloud-upgrade-production.sh \
+  /opt/ai-chat/releases/<release-name> --confirm-no-schema-production-upgrade
+~~~
+
+该入口会先验证现有 production 健康、逐文件比较新旧 migration 目录（允许 Windows/Unix 行尾差异）并构建新镜像，再原子切换
+`/opt/ai-chat/current` 和重建后端容器。新实例健康门禁失败时自动构建并恢复旧 release；升级过程不修改
+Nginx 或 DNS。migration 有任何差异时必须回到维护窗口、备份和批准流程，不能使用此入口。
+
 生产预备文件中的 `AICHAT_PRODUCTION_CONFIRMED` 必须保持 `false`。完成生产身份、稳定别名和非密钥配置后，
 先执行无副作用预检：
 
@@ -120,3 +172,36 @@ bash deploy/cloud-activate-production.sh /opt/ai-chat/releases/<release-name>
 
 生产容器健康只代表新进程可工作，仍需完成真实登录、SSE Chat、知识库、管理端、指标、日志、Trace、
 告警和回滚演练，之后才能切换 Nginx/DNS。
+
+## Nginx 与 DNS 切换
+
+`deploy/nginx/api.dduo.chat.conf.template` 只把公开入口代理到 `127.0.0.1:18083`，并关闭 proxy
+buffering 以支持 SSE；`/healthz` 只代理到 loopback management health，供外部检查验证 DNS、TLS、Nginx
+和 JVM 总体状态。激活脚本要求 production 容器 `healthy/restart 0`、两个端口只监听 IPv4 loopback、
+证书至少七天有效且 SAN 精确覆盖 `api.dduo.chat`、证书与私钥匹配。它会先执行 `nginx -t`，reload
+后在 20 秒有界窗口内通过 `--resolve api.dduo.chat:443:127.0.0.1` 重试 TLS/upstream 探测，以兼容 Nginx
+异步切换 worker；门禁要求 `/healthz` 返回 200，且无认证访问只读 `/api/ai/models` 精确返回 401。不得使用
+会创建数据的 Guest POST，也不得把任意 4xx/5xx 当作成功。脚本本身不会修改 DNS。
+
+~~~bash
+AICHAT_PRODUCTION_NGINX_CONFIRMED=ACTIVATE_AI_CHAT_PRODUCTION_NGINX \
+  bash deploy/cloud-activate-production-nginx.sh \
+  /opt/ai-chat/releases/<release-name> <cutover-id>
+~~~
+
+只有外部 DNS 已恢复到非 GCP 地址且解析结果不再包含 `34.150.80.173` 时，才允许撤回 Nginx：
+
+~~~bash
+AICHAT_PRODUCTION_NGINX_ROLLBACK_CONFIRMED=ROLLBACK_AI_CHAT_PRODUCTION_NGINX \
+AICHAT_PUBLIC_DNS_ROLLBACK_CONFIRMED=DNS_POINTS_AWAY_FROM_GCP \
+  bash deploy/cloud-rollback-production-nginx.sh <cutover-id>
+~~~
+
+首次切换时 GCP 尚无 `api.dduo.chat` 证书。必须先通过 DNS-01 或从受信任旧服务器安全迁移证书，不能用
+自签名证书代替生产 TLS 门禁。DNS 切换和外部可用性监控仍按 AIDiag V1 生产切换手册人工执行。
+
+2026-07-14 已从旧服务器安全迁移仍有效的 Let's Encrypt 证书，GCP 私钥权限收紧为 `root:root 600`；使用
+control release `20260714-v1-production-nginx-gate-r8` 修复 reload 即时探测和错误 Guest GET 门禁后，Nginx
+原子激活通过。本机及主机外 `--resolve` 均得到 `/healthz=200`、`/api/ai/models=401`、TLS verify result 0；
+AI-chat application release/current 仍为已批准 r7，容器未重启，DNS 未修改。证书到期时间为
+2026-08-12，正式长期运行前必须在 GCP 配置续期或新的 DNS-01 证书流程。

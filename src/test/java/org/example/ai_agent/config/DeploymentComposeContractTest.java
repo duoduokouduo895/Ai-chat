@@ -43,5 +43,80 @@ class DeploymentComposeContractTest {
         assertTrue(preflight.contains("AI-chat candidate must be stopped before production activation"));
         assertTrue(preflight.contains("export AICHAT_RELEASE=\"${release_name}\""));
         assertTrue(preflight.contains("Production Secret is missing, unsafe, or multiline"));
+
+        String approval = Files.readString(Path.of("deploy/cloud-approve-production-cutover.sh"));
+        assertTrue(approval.contains("legacy-old-writer-stopped.env"));
+        assertTrue(approval.contains("LEGACY_MAIN_PID_RUNNING=false"));
+        assertTrue(approval.contains("LEGACY_APP_PORT=8080"));
+        assertTrue(approval.contains("LEGACY_APP_PORT_LISTENING=false"));
+        assertTrue(approval.contains("LEGACY_STOP_EVIDENCE_SHA256="));
+    }
+
+    @Test
+    void shouldKeepNginxAndDnsCutoverExplicitAndRollbackSafe() throws IOException {
+        String template = Files.readString(Path.of("deploy/nginx/api.dduo.chat.conf.template"));
+        String activation = Files.readString(Path.of("deploy/cloud-activate-production-nginx.sh"));
+        String rollback = Files.readString(Path.of("deploy/cloud-rollback-production-nginx.sh"));
+
+        assertTrue(template.contains("proxy_pass http://127.0.0.1:__APP_PORT__"));
+        assertTrue(template.contains("location = /healthz"));
+        assertTrue(template.contains("proxy_pass http://127.0.0.1:__MANAGEMENT_PORT__/actuator/health"));
+        assertTrue(template.contains("proxy_buffering off"));
+        assertTrue(template.contains("client_max_body_size 16m"));
+        assertFalse(template.contains("listen 0.0.0.0"));
+
+        assertTrue(activation.contains("ACTIVATE_AI_CHAT_PRODUCTION_NGINX"));
+        assertTrue(activation.contains("AI-chat production must be healthy with zero restarts"));
+        assertTrue(activation.contains("openssl x509 -in \"${cert_file}\" -noout -checkend 604800"));
+        assertTrue(activation.contains("TLS certificate and private key do not match"));
+        assertTrue(activation.contains("--resolve api.dduo.chat:443:127.0.0.1"));
+        assertTrue(activation.contains("health_status"));
+        assertTrue(activation.contains("https://api.dduo.chat/api/ai/models"));
+        assertTrue(activation.contains("\"${protected_api_status}\" == 401"));
+        assertFalse(activation.contains("https://api.dduo.chat/api/users/guest"));
+        assertTrue(activation.contains("local deadline=$((SECONDS + 20))"));
+        assertTrue(activation.contains("while (( SECONDS < deadline ))"));
+        assertTrue(activation.contains("sleep 0.25"));
+        assertTrue(activation.contains("dns_mutation=none"));
+
+        assertTrue(rollback.contains("DNS_POINTS_AWAY_FROM_GCP"));
+        assertTrue(rollback.contains("Public DNS still resolves to GCP"));
+        assertTrue(rollback.contains("managed config was restored"));
+    }
+
+    @Test
+    void shouldRequireARecoverableLegacyWriterBeforeProductionCutover() throws IOException {
+        String control = Files.readString(Path.of("deploy/cloud-control-legacy-writer.sh"));
+        String lifecycleTest = Files.readString(Path.of("deploy/tests/legacy-writer-lifecycle-test.sh"));
+
+        assertTrue(control.contains("prepare <cutover-id>"));
+        assertTrue(control.contains("STOP_LEGACY_WRITER"));
+        assertTrue(control.contains("GCP_PRODUCTION_IS_STOPPED"));
+        assertTrue(control.contains("/proc/${pid}/cmdline"));
+        assertTrue(control.contains("/proc/${pid}/environ"));
+        assertTrue(control.contains("Legacy JVM did not stop after SIGTERM; no SIGKILL was issued"));
+        assertTrue(control.contains("Legacy application port changed after recovery preparation"));
+        assertTrue(control.contains("OLD_PRODUCTION_WRITERS_STOPPED=true"));
+        assertTrue(control.contains("LEGACY_WRITER_RESTORED=true"));
+        assertTrue(lifecycleTest.contains("pid_drift_rejected=true"));
+        assertTrue(lifecycleTest.contains("unconfirmed_stop_rejected=true"));
+        assertTrue(lifecycleTest.contains("unconfirmed_restore_rejected=true"));
+        assertTrue(lifecycleTest.contains("graceful_stop_and_restore=true"));
+    }
+
+    @Test
+    void shouldKeepNoSchemaProductionUpgradeRollbackSafe() throws IOException {
+        String upgrade = Files.readString(Path.of("deploy/cloud-upgrade-production.sh"));
+
+        assertTrue(upgrade.contains("--confirm-no-schema-production-upgrade"));
+        assertTrue(upgrade.contains("Database migrations changed; use the full maintenance-window cutover workflow"));
+        assertTrue(upgrade.contains("--strip-trailing-cr"));
+        assertTrue(upgrade.contains("Current production container must be healthy with zero restarts"));
+        assertTrue(upgrade.contains("compose_for \"${release}\" build"));
+        assertTrue(upgrade.contains("switch_link \"${previous_release}\""));
+        assertTrue(upgrade.contains("--force-recreate"));
+        assertTrue(upgrade.contains("database_migrations=unchanged"));
+        assertTrue(upgrade.contains("nginx_mutation=none"));
+        assertTrue(upgrade.contains("dns_mutation=none"));
     }
 }

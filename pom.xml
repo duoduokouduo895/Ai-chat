@@ -9,7 +9,7 @@
     </parent>
     <groupId>org.example</groupId>
     <artifactId>Ai_Agent</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>Ai_Agent</name>
     <description>Ai_Agent</description>
     <url/>

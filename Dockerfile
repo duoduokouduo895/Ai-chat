@@ -7,6 +7,7 @@ RUN mvn -B -ntp dependency:copy \
     -DoutputDirectory=/otel
 
 COPY compose.cloud.yaml ./compose.cloud.yaml
+COPY deploy ./deploy
 COPY src ./src
 RUN mvn -B -ntp verify
 
