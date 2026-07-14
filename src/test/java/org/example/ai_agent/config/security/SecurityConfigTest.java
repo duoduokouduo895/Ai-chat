@@ -10,10 +10,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.web.cors.CorsConfiguration;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +42,41 @@ class SecurityConfigTest {
     private TicketService ticketService;
     @Mock
     private ReactiveStringRedisTemplate redisTemplate;
+
+    @Test
+    void productionCorsAllowsCanonicalFrontendAndRejectsUnknownOrigins() throws IOException {
+        Properties properties = new Properties();
+        try (var reader = Files.newBufferedReader(
+                Path.of("src/main/resources/application.properties"), StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        SecurityConfig securityConfig = new SecurityConfig(
+                jwtUtil,
+                tokenRefreshFilter,
+                userRepository,
+                adminUserRepository,
+                ticketService,
+                redisTemplate,
+                properties.getProperty("app.security.cors.allowed-origins")
+        );
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .options("/api/ai/models")
+                .header("Origin", "https://dduo.chat")
+                .header("Access-Control-Request-Method", "GET")
+                .build());
+
+        CorsConfiguration configuration = securityConfig.corsConfigurationSource()
+                .getCorsConfiguration(exchange);
+
+        assertThat(configuration).isNotNull();
+        assertThat(configuration.getAllowCredentials()).isTrue();
+        assertThat(configuration.getAllowedOrigins())
+                .contains("https://dduo.chat", "https://app.dduo.chat", "https://app.dduo.me")
+                .doesNotContain("*");
+        assertThat(configuration.checkOrigin("https://dduo.chat")).isEqualTo("https://dduo.chat");
+        assertThat(configuration.checkOrigin("https://app.dduo.me")).isEqualTo("https://app.dduo.me");
+        assertThat(configuration.checkOrigin("https://attacker.example")).isNull();
+    }
 
     @Test
     void jwtAuthenticationUsesSignedUserIdWithoutLoadingUserRecord() {

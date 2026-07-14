@@ -1,0 +1,65 @@
+# managed-by: ai-chat-domain-migration
+# migration-id: __MIGRATION_ID__
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.dduo.me;
+    root /www/wwwroot/api.dduo.me;
+
+    # Preserve BaoTa's ACME challenge handling for certificate renewal.
+    include /www/server/panel/vhost/nginx/well-known/api.dduo.me.conf;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.dduo.me;
+    root /www/wwwroot/api.dduo.me;
+
+    ssl_certificate /www/server/panel/vhost/cert/api.dduo.me/fullchain.pem;
+    ssl_certificate_key /www/server/panel/vhost/cert/api.dduo.me/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:AICHAT_TLS_DDUO_ME:10m;
+    ssl_session_timeout 1d;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    client_max_body_size 16m;
+
+    # Preserve BaoTa's ACME challenge handling for certificate renewal.
+    include /www/server/panel/vhost/nginx/well-known/api.dduo.me.conf;
+
+    location = /healthz {
+        proxy_pass http://127.0.0.1:__MANAGEMENT_PORT__/actuator/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 10s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:__APP_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    access_log /www/wwwlogs/api.dduo.me.log;
+    error_log /www/wwwlogs/api.dduo.me.error.log;
+}
