@@ -16,6 +16,7 @@ class ChatStreamEventFactoryTest {
     void metadata_shouldKeepFrontendContract() throws Exception {
         ChatRequest request = ChatRequest.builder()
                 .conversationId(99L)
+                .model("chat-reasoning")
                 .knowledgeBaseIds(List.of(1L))
                 .build();
 
@@ -26,6 +27,7 @@ class ChatStreamEventFactoryTest {
         org.junit.jupiter.api.Assertions.assertEquals("metadata", json.get("type").asText());
         org.junit.jupiter.api.Assertions.assertEquals(99L, json.get("conversationId").asLong());
         org.junit.jupiter.api.Assertions.assertEquals("rag", json.get("mode").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("chat-reasoning", json.get("model").asText());
     }
 
     @Test

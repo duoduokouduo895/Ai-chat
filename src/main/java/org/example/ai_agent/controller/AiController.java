@@ -3,6 +3,7 @@ package org.example.ai_agent.controller;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.ai.ModelCatalogProperties;
+import org.example.ai_agent.config.ai.ChatModelRoutingPolicy;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
@@ -31,13 +32,16 @@ public class AiController {
     private final AiChatService aiChatService;
     private final UserRepository userRepository;
     private final ChatAdmissionService chatAdmissionService;
+    private final ChatModelRoutingPolicy chatModelRoutingPolicy;
 
     public AiController(AiModelRegistry aiModelRegistry, AiChatService aiChatService, UserRepository userRepository,
-                        ChatAdmissionService chatAdmissionService) {
+                        ChatAdmissionService chatAdmissionService,
+                        ChatModelRoutingPolicy chatModelRoutingPolicy) {
         this.aiModelRegistry = aiModelRegistry;
         this.aiChatService = aiChatService;
         this.userRepository = userRepository;
         this.chatAdmissionService = chatAdmissionService;
+        this.chatModelRoutingPolicy = chatModelRoutingPolicy;
     }
 
     @GetMapping("/models")
@@ -52,6 +56,7 @@ public class AiController {
                 .flatMapMany(userId -> {
                     chatRequest.setUserId(userId);
                     chatRequest.setAdminRequest(isAdmin(authentication));
+                    chatRequest.setModel(chatModelRoutingPolicy.resolve(chatRequest));
 
                     log.info("Chat request accepted: model={}, knowledgeBaseCount={}",
                             chatRequest.getModel(),

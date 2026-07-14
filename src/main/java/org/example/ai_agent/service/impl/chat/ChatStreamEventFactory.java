@@ -21,7 +21,8 @@ public class ChatStreamEventFactory {
         Map<String, Object> metadata = Map.of(
                 "type", "metadata",
                 "conversationId", request.getConversationId(),
-                "mode", request.isRagMode() ? "rag" : "normal"
+                "mode", request.isRagMode() ? "rag" : "normal",
+                "model", request.getEffectiveModelId()
         );
         return ServerSentEvent.<String>builder()
                 .event("metadata")

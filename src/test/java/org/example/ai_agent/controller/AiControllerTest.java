@@ -1,6 +1,7 @@
 package org.example.ai_agent.controller;
 
 import org.example.ai_agent.dto.chat.ChatRequest;
+import org.example.ai_agent.config.ai.ChatModelRoutingPolicy;
 import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
@@ -37,12 +38,15 @@ class AiControllerTest {
     private UserRepository userRepository;
     @Mock
     private ChatAdmissionService chatAdmissionService;
+    @Mock
+    private ChatModelRoutingPolicy chatModelRoutingPolicy;
 
     private AiController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new AiController(aiModelRegistry, aiChatService, userRepository, chatAdmissionService);
+        controller = new AiController(aiModelRegistry, aiChatService, userRepository, chatAdmissionService,
+                chatModelRoutingPolicy);
     }
 
     @Test
@@ -61,6 +65,7 @@ class AiControllerTest {
         authentication.setDetails("not-a-number");
 
         when(userRepository.findByUsername("alice")).thenReturn(Mono.just(user));
+        when(chatModelRoutingPolicy.resolve(request)).thenReturn("test-model");
         when(chatAdmissionService.admit(org.mockito.ArgumentMatchers.eq(42L),
                 org.mockito.ArgumentMatchers.eq(false), any()))
                 .thenReturn(Mono.just(ChatAdmissionService.AdmissionLease.noop()));
@@ -76,5 +81,6 @@ class AiControllerTest {
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
         verify(aiChatService).chat(captor.capture());
         org.junit.jupiter.api.Assertions.assertEquals(42L, captor.getValue().getUserId());
+        org.junit.jupiter.api.Assertions.assertEquals("test-model", captor.getValue().getModel());
     }
 }
