@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * LangChain4j知识库配置类
  * <p>
- * 基于LangChain4j 1.0.1源码分析，配置文档解析、向量化、RAG等核心组件
+ * 基于 LangChain4j 1.15.x 文档处理 API，配置文档解析、向量化、RAG 等核心组件
  * </p>
  * 
  * @author AI Agent

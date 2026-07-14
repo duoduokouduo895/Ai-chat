@@ -13,6 +13,7 @@
 | Nacos Client | 3.1.1 | 由 Alibaba BOM 管理，不手工覆盖 |
 | Elasticsearch | server / IK 9.3.2；Java client 9.2.8；legacy REST client 9.3.1 | server 与 IK 精确一致；客户端保持 BOM 解析结果 |
 | LangChain4j | 1.15.1 / Spring `1.15.1-beta25` | 使用 Boot 4 专用 starter；beta 仅指 Spring 集成层 |
+| Apache Tika | 3.2.3（LangChain4j 传递管理） | 不再用显式 2.9.4 覆盖 parser 模块，避免 Tika 2/3 主版本混用 |
 | OTel Java Agent | 2.29.0 | 只导出 Trace，Metrics 和日志仍走既有通道 |
 
 这些值同时记录在 `versions.env`；依赖版本以 Maven BOM 的实际解析结果为准。隔离 Nacos 3.2.2

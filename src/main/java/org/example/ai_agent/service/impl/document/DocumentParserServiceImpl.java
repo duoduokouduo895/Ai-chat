@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * 文档解析服务实现类
  * <p>
- * 基于LangChain4j 1.0.1的文档处理架构，集成Apache Tika和硅基流动API
+ * 基于 LangChain4j 1.15.x 的文档处理架构，集成 Apache Tika 和硅基流动 API
  * </p>
  * 
  * @author AI Agent
