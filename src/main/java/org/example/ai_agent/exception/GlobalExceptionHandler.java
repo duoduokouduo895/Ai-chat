@@ -1,5 +1,6 @@
 package org.example.ai_agent.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,6 +54,21 @@ public class GlobalExceptionHandler {
                 .orElse("请求参数校验失败");
         log.warn("方法参数校验失败: {}", message);
         return Mono.just(ResponseEntity.badRequest().body(buildError(400, message, exchange, "VALIDATION_ERROR")));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleConstraintViolationException(
+            ConstraintViolationException ex, ServerWebExchange exchange) {
+
+        String message = ex.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> violation.getMessage() != null
+                        ? violation.getMessage()
+                        : "请求参数校验失败")
+                .orElse("请求参数校验失败");
+        log.warn("方法级约束校验失败: {}", message);
+        return Mono.just(ResponseEntity.badRequest()
+                .body(buildError(400, message, exchange, "VALIDATION_ERROR")));
     }
 
     @ExceptionHandler(ServerWebInputException.class)

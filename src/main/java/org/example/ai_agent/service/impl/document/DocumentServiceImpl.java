@@ -100,7 +100,9 @@ public class DocumentServiceImpl implements DocumentService {
         })
         .flatMap(ossFileInfo -> saveDocumentRecordAndQueueIngestion(
                 file, knowledgeBaseId, parseMode, enableVectorization,
-                ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId))
+                ossFileInfo.ossPath(), ossFileInfo.url(), requesterUserId)
+                .onErrorResume(error -> cleanupFailedUpload(ossFileInfo.ossPath())
+                        .then(Mono.error(error))))
         .map(this::toDto)
         .doOnSuccess(dto -> log.info("文档上传成功: id={}", dto.getId()))
         .doOnError(error -> log.error("文档上传失败: errorType={}", error.getClass().getSimpleName()))
@@ -406,6 +408,23 @@ public class DocumentServiceImpl implements DocumentService {
                 log.warn("关闭上传文件输入流失败: errorType={}", error.getClass().getSimpleName());
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    private Mono<Void> cleanupFailedUpload(String ossPath) {
+        return ossService.deleteFile(ossPath)
+                .doOnNext(deleted -> {
+                    if (Boolean.TRUE.equals(deleted)) {
+                        log.info("文档入库失败，已删除 OSS 孤儿对象");
+                    } else {
+                        log.warn("文档入库失败且 OSS 孤儿对象删除未成功");
+                    }
+                })
+                .onErrorResume(cleanupError -> {
+                    log.warn("文档入库失败后清理 OSS 孤儿对象异常: errorType={}",
+                            cleanupError.getClass().getSimpleName());
+                    return Mono.empty();
+                })
+                .then();
     }
     
     /**

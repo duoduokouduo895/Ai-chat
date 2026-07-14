@@ -31,6 +31,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -121,6 +123,59 @@ class SearchSecurityTest {
                 .jsonPath("$[0].title").isEqualTo("合同检索");
 
         verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void searchEndpoint_shouldRejectOversizedPageBeforeCallingElasticsearch() {
+        mockUserJwt("user-token", "alice", 42L);
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/api/search")
+                        .queryParam("query", "合同")
+                        .queryParam("size", "101")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errorCode").isEqualTo("VALIDATION_ERROR");
+
+        verify(searchService, never()).searchConversations(any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class));
+    }
+
+    @Test
+    void searchEndpoint_shouldRejectReversedDateRange() {
+        mockUserJwt("user-token", "alice", 42L);
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/api/search")
+                        .queryParam("query", "合同")
+                        .queryParam("startDate", "2026-07-15T00:00:00")
+                        .queryParam("endDate", "2026-07-14T00:00:00")
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errorCode").isEqualTo("BAD_REQUEST");
+
+        verify(searchService, never()).searchConversations(any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class));
+    }
+
+    @Test
+    void searchHistoryEndpoint_shouldRejectQueryLargerThanDatabaseColumn() {
+        mockUserJwt("user-token", "alice", 42L);
+
+        webTestClient.post()
+                .uri("/api/search/history")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer user-token")
+                .bodyValue(java.util.Map.of("query", "x".repeat(256), "type", "basic"))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errorCode").isEqualTo("VALIDATION_ERROR");
+
+        verify(searchService, never()).recordSearchHistory(any(), any(), any());
     }
 
     @Test

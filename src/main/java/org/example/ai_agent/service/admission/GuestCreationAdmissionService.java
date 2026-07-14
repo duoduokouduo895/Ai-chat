@@ -1,5 +1,6 @@
 package org.example.ai_agent.service.admission;
 
+import io.netty.util.NetUtil;
 import org.example.ai_agent.config.security.ChatAdmissionProperties;
 import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.http.HttpStatus;
@@ -10,9 +11,15 @@ import reactor.core.publisher.Mono;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 
-/** 游客账号创建的前置防刷。默认只信任 TCP 对端地址，不信任可伪造的转发头。 */
+/**
+ * 游客账号创建的前置防刷。
+ * 只有 TCP 对端是本机或私网代理时才信任 Nginx 覆写的 X-Real-IP；
+ * 公网直连和非法 Header 均回退到 TCP 对端地址。
+ */
 @Service
 public class GuestCreationAdmissionService {
+
+    private static final String REAL_IP_HEADER = "X-Real-IP";
 
     private final RedisAdmissionStore redisAdmissionStore;
     private final ChatAdmissionProperties properties;
@@ -41,6 +48,34 @@ public class GuestCreationAdmissionService {
             return "unknown";
         }
         InetAddress address = remoteAddress.getAddress();
-        return address != null ? address.getHostAddress() : remoteAddress.getHostString();
+        if (address == null) {
+            return remoteAddress.getHostString();
+        }
+
+        if (isTrustedReverseProxy(address)) {
+            String forwardedAddress = normalizeIpLiteral(
+                    exchange.getRequest().getHeaders().getFirst(REAL_IP_HEADER));
+            if (forwardedAddress != null) {
+                return forwardedAddress;
+            }
+        }
+
+        return address.getHostAddress();
+    }
+
+    private boolean isTrustedReverseProxy(InetAddress address) {
+        return address.isLoopbackAddress() || address.isSiteLocalAddress();
+    }
+
+    private String normalizeIpLiteral(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String candidate = value.trim();
+        if (!NetUtil.isValidIpV4Address(candidate) && !NetUtil.isValidIpV6Address(candidate)) {
+            return null;
+        }
+        InetAddress address = NetUtil.createInetAddressFromIpAddressString(candidate);
+        return address != null ? address.getHostAddress() : null;
     }
 }

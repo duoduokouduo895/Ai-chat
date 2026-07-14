@@ -147,6 +147,7 @@ public class TokenRefreshFilter implements WebFilter {
                 .flatMap(saved -> handleRefreshedTokenSaved(exchange, requestPath, authToken, refreshedToken, newJti, username, userId, saved))
                 .doOnError(error -> log.warn("Token 刷新失败: 新 JTI 写入 Redis 异常, path={}, errorType={}",
                         requestPath, error.getClass().getSimpleName()))
+                .onErrorResume(error -> Mono.empty())
                 .then();
     }
 

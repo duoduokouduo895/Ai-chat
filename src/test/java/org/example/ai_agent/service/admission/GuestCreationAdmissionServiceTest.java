@@ -25,15 +25,46 @@ class GuestCreationAdmissionServiceTest {
     private RedisAdmissionStore redisAdmissionStore;
 
     @Test
-    void admit_shouldUseRemoteAddressInsteadOfForwardedHeader() {
+    void admit_shouldUseNginxRealIpWhenDirectPeerIsTrustedProxy() {
         ChatAdmissionProperties properties = new ChatAdmissionProperties();
         GuestCreationAdmissionService service = new GuestCreationAdmissionService(redisAdmissionStore, properties);
         MockServerHttpRequest request = MockServerHttpRequest.post("/api/users/guest")
                 .remoteAddress(new InetSocketAddress("127.0.0.1", 12345))
-                .header("X-Forwarded-For", "198.51.100.9")
+                .header("X-Real-IP", "198.51.100.9")
+                .header("X-Forwarded-For", "203.0.113.10, 198.51.100.9")
                 .build();
 
-        when(redisAdmissionStore.tryConsume(eq(TokenRedisKeys.guestCreation("127.0.0.1")), anyInt(), any()))
+        when(redisAdmissionStore.tryConsume(eq(TokenRedisKeys.guestCreation("198.51.100.9")), anyInt(), any()))
+                .thenReturn(Mono.just(true));
+
+        StepVerifier.create(service.admit(MockServerWebExchange.from(request))).verifyComplete();
+    }
+
+    @Test
+    void admit_shouldIgnoreRealIpWhenDirectPeerIsPublic() {
+        ChatAdmissionProperties properties = new ChatAdmissionProperties();
+        GuestCreationAdmissionService service = new GuestCreationAdmissionService(redisAdmissionStore, properties);
+        MockServerHttpRequest request = MockServerHttpRequest.post("/api/users/guest")
+                .remoteAddress(new InetSocketAddress("203.0.113.7", 12345))
+                .header("X-Real-IP", "198.51.100.9")
+                .build();
+
+        when(redisAdmissionStore.tryConsume(eq(TokenRedisKeys.guestCreation("203.0.113.7")), anyInt(), any()))
+                .thenReturn(Mono.just(true));
+
+        StepVerifier.create(service.admit(MockServerWebExchange.from(request))).verifyComplete();
+    }
+
+    @Test
+    void admit_shouldFallBackToPeerWhenTrustedProxySendsInvalidRealIp() {
+        ChatAdmissionProperties properties = new ChatAdmissionProperties();
+        GuestCreationAdmissionService service = new GuestCreationAdmissionService(redisAdmissionStore, properties);
+        MockServerHttpRequest request = MockServerHttpRequest.post("/api/users/guest")
+                .remoteAddress(new InetSocketAddress("10.0.0.1", 12345))
+                .header("X-Real-IP", "not-an-ip")
+                .build();
+
+        when(redisAdmissionStore.tryConsume(eq(TokenRedisKeys.guestCreation("10.0.0.1")), anyInt(), any()))
                 .thenReturn(Mono.just(true));
 
         StepVerifier.create(service.admit(MockServerWebExchange.from(request))).verifyComplete();

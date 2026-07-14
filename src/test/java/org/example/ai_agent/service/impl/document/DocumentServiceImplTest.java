@@ -12,6 +12,7 @@ import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.DocumentIngestionService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
+import org.example.ai_agent.service.document.DocumentUploadValidator;
 import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -20,11 +21,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.reactive.TransactionalOperator;
+import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +51,12 @@ class DocumentServiceImplTest {
     private UserRepository userRepository;
     @Mock
     private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    @Mock
+    private DocumentUploadValidator documentUploadValidator;
+    @Mock
+    private TransactionalOperator transactionalOperator;
+    @Mock
+    private MultipartFile multipartFile;
 
     private DocumentServiceImpl service;
 
@@ -58,6 +69,69 @@ class DocumentServiceImplTest {
         ReflectionTestUtils.setField(service, "documentIngestionService", documentIngestionService);
         ReflectionTestUtils.setField(service, "userRepository", userRepository);
         ReflectionTestUtils.setField(service, "knowledgeAssetCleanupService", knowledgeAssetCleanupService);
+        ReflectionTestUtils.setField(service, "documentUploadValidator", documentUploadValidator);
+        ReflectionTestUtils.setField(service, "transactionalOperator", transactionalOperator);
+        ReflectionTestUtils.setField(service, "supportedTypes", new String[]{"md"});
+    }
+
+    @Test
+    void uploadDocument_shouldDeleteOssObjectWhenDatabaseTransactionFails() throws Exception {
+        KnowledgeBase knowledgeBase = new KnowledgeBase();
+        knowledgeBase.setId(21L);
+        OssService.OssFileInfo ossFileInfo = new OssService.OssFileInfo(
+                "knowledge/kb_21/file.md", "https://oss.example/file.md", 4L, "text/markdown");
+
+        when(multipartFile.getOriginalFilename()).thenReturn("file.md");
+        when(multipartFile.getSize()).thenReturn(4L);
+        when(multipartFile.getContentType()).thenReturn("text/markdown");
+        when(multipartFile.getInputStream()).thenReturn(new java.io.ByteArrayInputStream("test".getBytes()));
+        when(knowledgeBaseService.getAuthorizedKnowledgeBase(21L, 42L, false, true))
+                .thenReturn(Mono.just(knowledgeBase));
+        when(ossService.uploadKnowledgeDocument(eq(21L), eq("file.md"), any(), eq(4L), eq("text/markdown")))
+                .thenReturn(Mono.just(ossFileInfo));
+        when(documentRepository.save(any(KnowledgeDocument.class)))
+                .thenReturn(Mono.error(new RuntimeException("database unavailable")));
+        when(ossService.deleteFile("knowledge/kb_21/file.md")).thenReturn(Mono.just(true));
+        when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        StepVerifier.create(service.uploadDocument(multipartFile, 21L, "auto", true, 42L, false))
+                .expectErrorMatches(error -> error instanceof RuntimeException
+                        && "database unavailable".equals(error.getMessage()))
+                .verify();
+
+        verify(ossService).deleteFile("knowledge/kb_21/file.md");
+        verify(documentIngestionService, never()).startIngestion(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void uploadDocument_shouldPreserveDatabaseErrorWhenOssCleanupAlsoFails() throws Exception {
+        KnowledgeBase knowledgeBase = new KnowledgeBase();
+        knowledgeBase.setId(21L);
+        OssService.OssFileInfo ossFileInfo = new OssService.OssFileInfo(
+                "knowledge/kb_21/file.md", "https://oss.example/file.md", 4L, "text/markdown");
+
+        when(multipartFile.getOriginalFilename()).thenReturn("file.md");
+        when(multipartFile.getSize()).thenReturn(4L);
+        when(multipartFile.getContentType()).thenReturn("text/markdown");
+        when(multipartFile.getInputStream()).thenReturn(new java.io.ByteArrayInputStream("test".getBytes()));
+        when(knowledgeBaseService.getAuthorizedKnowledgeBase(21L, 42L, false, true))
+                .thenReturn(Mono.just(knowledgeBase));
+        when(ossService.uploadKnowledgeDocument(eq(21L), eq("file.md"), any(), eq(4L), eq("text/markdown")))
+                .thenReturn(Mono.just(ossFileInfo));
+        when(documentRepository.save(any(KnowledgeDocument.class)))
+                .thenReturn(Mono.error(new RuntimeException("database unavailable")));
+        when(ossService.deleteFile("knowledge/kb_21/file.md"))
+                .thenReturn(Mono.error(new RuntimeException("oss unavailable")));
+        when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        StepVerifier.create(service.uploadDocument(multipartFile, 21L, "auto", true, 42L, false))
+                .expectErrorMatches(error -> error instanceof RuntimeException
+                        && "database unavailable".equals(error.getMessage()))
+                .verify();
+
+        verify(ossService).deleteFile("knowledge/kb_21/file.md");
     }
 
     @Test
