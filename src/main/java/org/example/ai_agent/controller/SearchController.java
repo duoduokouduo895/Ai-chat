@@ -6,8 +6,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.example.ai_agent.document.ConversationDocument;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.dto.search.SearchHistoryDto;
-import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.SearchService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -27,11 +27,11 @@ import reactor.core.publisher.Mono;
 public class SearchController {
 
     private final SearchService searchService;
-    private final UserRepository userRepository; // 新增
+    private final RequestActorResolver requestActorResolver;
 
-    public SearchController(SearchService searchService, UserRepository userRepository) { // 新增
+    public SearchController(SearchService searchService, RequestActorResolver requestActorResolver) {
         this.searchService = searchService;
-        this.userRepository = userRepository; // 新增
+        this.requestActorResolver = requestActorResolver;
     }
 
     /**
@@ -60,7 +60,7 @@ public class SearchController {
 
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
-                .flatMap(this::resolveCurrentUserId)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
                 .flatMapMany(userId -> searchService.searchConversations(userId, query, startDate, endDate, models, page, size));
     }
 
@@ -75,7 +75,10 @@ public class SearchController {
     public Mono<java.util.List<String>> getSearchSuggestions(
             @RequestParam @NotBlank @Size(max = 100) String prefix,
             @RequestParam(defaultValue = "5") @Min(1) @Max(20) int size) {
-        return searchService.getSearchSuggestions(prefix, size);
+        return ReactiveSecurityContextHolder.getContext()
+                .map(SecurityContext::getAuthentication)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
+                .flatMap(userId -> searchService.getSearchSuggestions(userId, prefix, size));
     }
 
 
@@ -84,7 +87,7 @@ public class SearchController {
     public Mono<Void> recordSearchHistory(@Valid @RequestBody SearchHistoryDto searchHistoryDto) {
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
-                .flatMap(this::resolveCurrentUserId)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
                 .flatMap(userId -> searchService.recordSearchHistory(userId, searchHistoryDto.getQuery(), searchHistoryDto.getType()));
     }
 
@@ -93,7 +96,7 @@ public class SearchController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
-                .flatMap(this::resolveCurrentUserId)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
                 .flatMapMany(userId -> searchService.getSearchHistory(userId, size));
     }
 
@@ -101,7 +104,7 @@ public class SearchController {
     public Mono<Void> clearSearchHistory() {
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
-                .flatMap(this::resolveCurrentUserId)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
                 .flatMap(searchService::clearSearchHistory);
     }
 
@@ -109,31 +112,10 @@ public class SearchController {
     public Mono<String> cleanupDuplicateSearchHistory() {
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
-                .flatMap(this::resolveCurrentUserId)
+                .flatMap(requestActorResolver::requireLegacyUserScopedActorId)
                 .flatMap(searchService::cleanupDuplicateSearchHistory);
     }
 
-    private Mono<Long> resolveCurrentUserId(Authentication authentication) {
-        if (authentication == null) {
-            return Mono.error(new SecurityException("Current user is not authenticated"));
-        }
-
-        Object details = authentication.getDetails();
-        if (details instanceof Number number) {
-            return Mono.just(number.longValue());
-        }
-        if (details instanceof String value && !value.isBlank()) {
-            try {
-                return Mono.just(Long.parseLong(value));
-            } catch (NumberFormatException ignored) {
-                // Fall back to the username lookup for legacy authentication sources.
-            }
-        }
-
-        return userRepository.findByUsername(authentication.getName())
-                .map(user -> user.getUserId())
-                .switchIfEmpty(Mono.error(new SecurityException("Current user does not exist")));
-    }
 }
 
 

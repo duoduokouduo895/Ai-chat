@@ -107,8 +107,7 @@ public class UserServiceImpl implements UserService {
         }
 
         // 4. 从 Redis 白名单中删除 JTI
-        String redisKey = TokenRedisKeys.jti(jti);
-        Mono<Long> deleteJti = redisTemplate.delete(redisKey);
+        Mono<Long> deleteJti = redisTemplate.delete(TokenRedisKeys.jti(jti), TokenRedisKeys.refreshJti(jti));
         if (userId == null) {
             return deleteJti.then();
         }
@@ -234,6 +233,7 @@ public class UserServiceImpl implements UserService {
             return Mono.error(new IllegalStateException("Token 的过期时间无效。"));
         }
 
+        Duration refreshTtl = jwtUtil.refreshSessionTtl(token);
         String redisKey = TokenRedisKeys.jti(jti);
         log.info("尝试将JTI存储到Redis: ttlMs={}", ttl.toMillis());
         log.debug("Redis操作详情 - key类型: {}, value类型: {}, TTL类型: {}",
@@ -242,8 +242,9 @@ public class UserServiceImpl implements UserService {
                 ttl.getClass().getSimpleName());
 
         return redisTemplate.opsForValue().set(redisKey, user.getUsername(), ttl)
+                .then(redisTemplate.opsForValue().set(TokenRedisKeys.refreshJti(jti), user.getUsername(), refreshTtl))
                 .then(redisTemplate.opsForSet().add(TokenRedisKeys.userJtis(user.getUserId()), jti))
-                .then(redisTemplate.expire(TokenRedisKeys.userJtis(user.getUserId()), ttl))
+                .then(redisTemplate.expire(TokenRedisKeys.userJtis(user.getUserId()), refreshTtl))
                 .doOnSuccess(result -> log.info("JTI成功存储到Redis: result={}", result))
                 .doOnError(error -> {
                     log.error("JTI存储到Redis失败: errorType={}", error.getClass().getSimpleName());

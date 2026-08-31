@@ -2,7 +2,7 @@ package org.example.ai_agent.service.provider;
 
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.repository.chat.RedisChatMemoryStore;
 import org.springframework.stereotype.Service;
 
 /**
@@ -13,14 +13,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class ChatMemoryProvider {
 
-    private final RedisChatMemeoryStore chatMemoryStore;
+    private final RedisChatMemoryStore chatMemoryStore;
 
     /**
      * 使用构造函数注入RedisChatMemoryStore。
      *
      * @param chatMemoryStore Redis聊天记忆存储实例
      */
-    public ChatMemoryProvider(RedisChatMemeoryStore chatMemoryStore) {
+    public ChatMemoryProvider(RedisChatMemoryStore chatMemoryStore) {
         this.chatMemoryStore = chatMemoryStore;
     }
 

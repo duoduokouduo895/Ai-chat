@@ -7,8 +7,6 @@ import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -21,7 +19,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-@Component
 public class TokenRefreshFilter implements WebFilter {
 
     private static final Duration GUEST_ACTIVITY_WRITE_INTERVAL = Duration.ofMinutes(5);
@@ -54,8 +51,8 @@ public class TokenRefreshFilter implements WebFilter {
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String authToken = authHeader.substring(7).trim();
             try {
-                return touchGuestActivity(authToken)
-                        .then(refreshTokenIfNeeded(exchange, requestPath, authToken));
+                return refreshTokenIfNeeded(exchange, requestPath, authToken)
+                        .then(touchGuestActivity(authToken));
             } catch (Exception e) {
                 logTokenRefreshException(requestPath, e);
             }
@@ -114,83 +111,72 @@ public class TokenRefreshFilter implements WebFilter {
     }
 
     private Mono<Void> refreshTokenIfNeeded(ServerWebExchange exchange, String requestPath, String authToken) {
-        if (!jwtUtil.shouldRefreshToken(authToken)) {
+        final JwtUtil.AuthenticationClaims claims;
+        try {
+            claims = jwtUtil.parseRefreshClaims(authToken);
+        } catch (JwtUtil.InvalidAuthenticationTokenException error) {
+            return Mono.empty();
+        }
+        if (claims == null) {
             return Mono.empty();
         }
 
-        String username = jwtUtil.getUsernameFromToken(authToken);
-        Long userId = jwtUtil.getUserIdFromToken(authToken);
-
-        String refreshedToken = jwtUtil.refreshToken(authToken);
-        if (refreshedToken == null) {
-            log.warn("Token 刷新返回空: path={}", requestPath);
-            return Mono.empty();
-        }
-
-        String newJti = jwtUtil.getIdFromToken(refreshedToken);
-        if (newJti == null) {
-            log.warn("Token 刷新失败: 无法从新 Token 提取 JTI, path={}", requestPath);
-            return Mono.empty();
-        }
-
-        Date expiration = jwtUtil.getExpirationDateFromToken(refreshedToken);
-        if (expiration == null) {
-            log.warn("Token 刷新失败: 无法读取新 Token 过期时间, path={}", requestPath);
-            return Mono.empty();
-        }
-
-        String redisKey = TokenRedisKeys.jti(newJti);
-        Duration ttl = Duration.ofMillis(expiration.getTime() - System.currentTimeMillis());
-
-        return redisTemplate.opsForValue().setIfAbsent(redisKey, username != null ? username : "unknown", ttl)
+        return redisTemplate.opsForValue().getAndDelete(TokenRedisKeys.refreshJti(claims.jti()))
                 .timeout(Duration.ofSeconds(2))
-                .flatMap(saved -> handleRefreshedTokenSaved(exchange, requestPath, authToken, refreshedToken, newJti, username, userId, saved))
+                .flatMap(ignored -> issueRefreshedToken(exchange, requestPath, authToken, claims))
                 .doOnError(error -> log.warn("Token 刷新失败: 新 JTI 写入 Redis 异常, path={}, errorType={}",
                         requestPath, error.getClass().getSimpleName()))
                 .onErrorResume(error -> Mono.empty())
                 .then();
     }
 
-    private Mono<Void> handleRefreshedTokenSaved(ServerWebExchange exchange,
+    private Mono<Void> issueRefreshedToken(ServerWebExchange exchange,
                                            String requestPath,
                                            String authToken,
-                                           String refreshedToken,
-                                           String newJti,
-                                           String username,
-                                           Long userId,
-                                           Boolean saved) {
-        if (!Boolean.TRUE.equals(saved)) {
-            log.warn("Token 刷新失败: 新 JTI 写入 Redis 失败或已存在");
-            return Mono.empty();
+                                           JwtUtil.AuthenticationClaims claims) {
+        String refreshedToken = jwtUtil.refreshToken(authToken);
+        String newJti = jwtUtil.getIdFromToken(refreshedToken);
+        Date expiration = jwtUtil.getExpirationDateFromToken(refreshedToken);
+        if (newJti == null || expiration == null) {
+            return Mono.error(new IllegalStateException("刷新后的Token缺少必要Claim"));
         }
 
-        String oldJti = jwtUtil.getIdFromToken(authToken);
-        ServerHttpResponse response = exchange.getResponse();
-        response.getHeaders().add("X-Refreshed-Token", refreshedToken);
-        log.debug("Token 刷新成功: path={}", requestPath);
+        Duration accessTtl = Duration.ofMillis(expiration.getTime() - System.currentTimeMillis());
+        if (accessTtl.isNegative() || accessTtl.isZero()) {
+            return Mono.error(new IllegalStateException("刷新后的Token已过期"));
+        }
+        Duration refreshTtl = jwtUtil.refreshSessionTtl(refreshedToken);
+        String subject = claims.principalType().equals("ADMIN")
+                ? "admin:" + claims.username()
+                : claims.username();
 
-        Mono<Void> registerNewJti = userId == null
+        return redisTemplate.opsForValue()
+                .setIfAbsent(TokenRedisKeys.jti(newJti), subject, accessTtl)
+                .flatMap(saved -> Boolean.TRUE.equals(saved)
+                        ? redisTemplate.opsForValue().set(TokenRedisKeys.refreshJti(newJti), subject, refreshTtl)
+                        : Mono.error(new IllegalStateException("新JTI注册冲突")))
+                .then(registerNewJti(claims.userId(), newJti, refreshTtl))
+                .then(redisTemplate.delete(TokenRedisKeys.jti(claims.jti())))
+                .then(removeOldJti(claims.userId(), claims.jti()))
+                .doOnSuccess(unused -> {
+                    exchange.getResponse().getHeaders().set("X-Refreshed-Token", refreshedToken);
+                    log.debug("Token 刷新成功: path={}", requestPath);
+                });
+    }
+
+    private Mono<Void> registerNewJti(Long userId, String newJti, Duration refreshTtl) {
+        return userId == null
                 ? Mono.empty()
                 : redisTemplate.opsForSet().add(TokenRedisKeys.userJtis(userId), newJti)
                         .then(redisTemplate.expire(TokenRedisKeys.userJtis(userId),
-                                Duration.ofMillis(jwtUtil.getExpirationDateFromToken(refreshedToken).getTime()
-                                        - System.currentTimeMillis())))
+                                refreshTtl))
                         .then();
+    }
 
-        if (oldJti != null && !oldJti.equals(newJti)) {
-            return registerNewJti.then(redisTemplate.delete(TokenRedisKeys.jti(oldJti)))
-                    .then(userId == null
-                            ? Mono.empty()
-                            : redisTemplate.opsForSet().remove(TokenRedisKeys.userJtis(userId), oldJti).then())
-                    .doOnSuccess(deleted -> {
-                        log.debug("旧 JTI 已从 Redis 移除");
-                    })
-                    .doOnError(error -> log.warn("旧 JTI 清理失败: errorType={}", error.getClass().getSimpleName()))
-                    .onErrorResume(error -> Mono.empty())
-                    .then();
-        }
-
-        return registerNewJti;
+    private Mono<Void> removeOldJti(Long userId, String oldJti) {
+        return userId == null
+                ? Mono.empty()
+                : redisTemplate.opsForSet().remove(TokenRedisKeys.userJtis(userId), oldJti).then();
     }
 
     private boolean isPublicPath(String path) {

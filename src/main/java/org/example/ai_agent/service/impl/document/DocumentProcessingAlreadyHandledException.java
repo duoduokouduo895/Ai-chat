@@ -1,5 +1,7 @@
 package org.example.ai_agent.service.impl.document;
 
+import org.example.ai_agent.constants.DocumentProcessingStatus;
+
 /**
  * 表示同一文档阶段已经在处理或已经完成。
  *
@@ -16,6 +18,10 @@ public class DocumentProcessingAlreadyHandledException extends RuntimeException 
     }
 
     public boolean isCompleted() {
-        return "COMPLETED".equals(status);
+        try {
+            return DocumentProcessingStatus.fromValue(status) == DocumentProcessingStatus.COMPLETED;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 }

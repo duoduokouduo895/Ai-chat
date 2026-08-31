@@ -2,15 +2,16 @@ package org.example.ai_agent.util;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import javax.crypto.SecretKey;
 import org.example.ai_agent.config.security.JwtConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.Date;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -24,7 +25,6 @@ public class JwtUtil {
     private final JwtConfig jwtConfig;
     private final SecretKey key;
 
-    @Autowired
     public JwtUtil(JwtConfig jwtConfig) {
         this.jwtConfig = jwtConfig;
         log.info("初始化JWT工具，配置: expiration={}, refreshWindow={}",
@@ -82,6 +82,178 @@ public class JwtUtil {
         } catch (Exception e) {
             log.warn("从Token中提取过期时间失败: errorType={}", e.getClass().getSimpleName());
             return null;
+        }
+    }
+
+    /**
+     * 判断 Token 是否可以用于认证业务请求。
+     *
+     * <p>Token 解析的其他方法会保留过期 Token 的 claims，以支持刷新窗口。
+     * 这不代表过期 Token 仍然可以访问业务接口，因此认证链必须使用这个严格方法。</p>
+     */
+    public boolean isTokenValidForAuthentication(String token) {
+        try {
+            parseAuthenticationClaims(token);
+            return true;
+        } catch (InvalidAuthenticationTokenException e) {
+            log.debug("Token不可用于认证: errorType={}", e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /**
+     * Strictly parses the claims used by the authentication chain.
+     *
+     * <p>This method deliberately does not reuse {@link #getAllClaimsFromToken(String)}:
+     * that compatibility method preserves expired claims for the refresh flow.
+     * Authentication must never receive those claims.</p>
+     */
+    public AuthenticationClaims parseAuthenticationClaims(String token) {
+        String cleanToken = token == null ? null : token.trim();
+        if (cleanToken == null || cleanToken.isEmpty()) {
+            throw new InvalidAuthenticationTokenException("Token为空");
+        }
+
+        try {
+            Claims claims = Jwts.parser()
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(cleanToken)
+                    .getPayload();
+
+            return toAuthenticationClaims(claims);
+        } catch (JwtException | IllegalArgumentException e) {
+            if (e instanceof InvalidAuthenticationTokenException invalid) {
+                throw invalid;
+            }
+            throw new InvalidAuthenticationTokenException("Token签名或有效期无效", e);
+        }
+    }
+
+    /**
+     * Parses a token for the refresh flow. Signature and required claims remain
+     * mandatory; an expired token is accepted only while it is inside the
+     * configured refresh window.
+     */
+    public AuthenticationClaims parseRefreshClaims(String token) {
+        String cleanToken = token == null ? null : token.trim();
+        if (cleanToken == null || cleanToken.isEmpty()) {
+            throw new InvalidAuthenticationTokenException("Token为空");
+        }
+
+        try {
+            Claims claims = parseClaimsAllowingExpiredToken(cleanToken);
+            AuthenticationClaims authenticationClaims = toAuthenticationClaims(claims);
+            Date expiration = requiredExpiration(claims);
+            long now = System.currentTimeMillis();
+            long refreshWindow = jwtConfig.getRefreshWindow() == null ? 0L : jwtConfig.getRefreshWindow();
+            if (now <= expiration.getTime() - refreshWindow || now >= expiration.getTime() + refreshWindow) {
+                throw new InvalidAuthenticationTokenException("Token不在刷新窗口内");
+            }
+            return authenticationClaims;
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new InvalidAuthenticationTokenException("Token签名、Claim或刷新窗口无效", e);
+        }
+    }
+
+    /** Returns the Redis lifetime required for a refresh-session JTI. */
+    public Duration refreshSessionTtl(String token) {
+        Date expiration = getExpirationDateFromToken(token);
+        if (expiration == null) {
+            throw new InvalidAuthenticationTokenException("Token缺少有效过期时间");
+        }
+        long refreshWindow = jwtConfig.getRefreshWindow() == null ? 0L : jwtConfig.getRefreshWindow();
+        long ttlMillis = expiration.getTime() + refreshWindow - System.currentTimeMillis();
+        if (ttlMillis <= 0) {
+            throw new InvalidAuthenticationTokenException("Token刷新会话已过期");
+        }
+        return Duration.ofMillis(ttlMillis);
+    }
+
+    private Claims parseClaimsAllowingExpiredToken(String token) {
+        try {
+            return Jwts.parser()
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (ExpiredJwtException expired) {
+            return expired.getClaims();
+        }
+    }
+
+    private AuthenticationClaims toAuthenticationClaims(Claims claims) {
+        String username = requiredText(claims.getSubject(), "subject");
+        String jti = requiredText(claims.getId(), "jti");
+        requiredExpiration(claims);
+        String principalType = requiredText(claims.get("principalType", String.class), "principalType");
+
+        return switch (principalType.toUpperCase(java.util.Locale.ROOT)) {
+            case "USER" -> new AuthenticationClaims(
+                    username,
+                    jti,
+                    "USER",
+                    requiredPositiveLong(claims.get("userId"), "userId"),
+                    null,
+                    Boolean.TRUE.equals(claims.get("isGuest", Boolean.class)));
+            case "ADMIN" -> new AuthenticationClaims(
+                    username,
+                    jti,
+                    "ADMIN",
+                    null,
+                    requiredPositiveLong(claims.get("adminId"), "adminId"),
+                    false);
+            default -> throw new InvalidAuthenticationTokenException("principalType无效");
+        };
+    }
+
+    private Date requiredExpiration(Claims claims) {
+        Date expiration = claims.getExpiration();
+        if (expiration == null) {
+            throw new InvalidAuthenticationTokenException("缺少必要Claim: expiration");
+        }
+        return expiration;
+    }
+
+    private String requiredText(String value, String claimName) {
+        if (value == null || value.isBlank()) {
+            throw new InvalidAuthenticationTokenException("缺少必要Claim: " + claimName);
+        }
+        return value;
+    }
+
+    private Long requiredPositiveLong(Object value, String claimName) {
+        Long parsed = null;
+        if (value instanceof Number number) {
+            parsed = number.longValue();
+        } else if (value instanceof String string && !string.isBlank()) {
+            try {
+                parsed = Long.valueOf(string.trim());
+            } catch (NumberFormatException ignored) {
+                // Fall through to the common invalid-claim error.
+            }
+        }
+        if (parsed == null || parsed <= 0) {
+            throw new InvalidAuthenticationTokenException("缺少有效Claim: " + claimName);
+        }
+        return parsed;
+    }
+
+    public record AuthenticationClaims(String username,
+                                       String jti,
+                                       String principalType,
+                                       Long userId,
+                                       Long adminId,
+                                       boolean guest) {
+    }
+
+    public static class InvalidAuthenticationTokenException extends RuntimeException {
+        public InvalidAuthenticationTokenException(String message) {
+            super(message);
+        }
+
+        public InvalidAuthenticationTokenException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -206,6 +378,7 @@ public class JwtUtil {
     }
 
     public String refreshToken(String token) {
+        parseRefreshClaims(token);
         final Claims claims = getAllClaimsFromToken(token);
         if (claims != null) {
             try {
@@ -251,21 +424,8 @@ public class JwtUtil {
      */
     public Boolean canTokenBeRefreshed(String token) {
         try {
-            final Date expirationDate = getExpirationDateFromToken(token);
-            if (expirationDate == null) {
-                return false; // 无法获取过期时间，不可刷新
-            }
-
-            Date now = new Date();
-            long refreshWindowMillis = jwtConfig.getRefreshWindow();
-
-            // 计算刷新窗口的开始时间
-            Date refreshWindowStart = new Date(expirationDate.getTime() - refreshWindowMillis);
-            // 计算刷新窗口的结束时间 (宽限期)
-            Date gracePeriodEnd = new Date(expirationDate.getTime() + refreshWindowMillis);
-
-            // 当前时间必须在刷新窗口开始之后，并且在宽限期结束之前
-            return now.after(refreshWindowStart) && now.before(gracePeriodEnd);
+            parseRefreshClaims(token);
+            return true;
         } catch (Exception e) {
             // 任何解析异常都认为 token 不可刷新
             return false;
@@ -285,34 +445,8 @@ public class JwtUtil {
      */
     public Boolean shouldRefreshToken(String token) {
         try {
-            final Date expirationDate = getExpirationDateFromToken(token);
-            if (expirationDate == null) {
-                log.debug("无法获取Token过期时间，不可刷新");
-                return false;
-            }
-
-            Date now = new Date();
-            long refreshWindowMillis = jwtConfig.getRefreshWindow();
-            
-            // 计算刷新窗口的开始时间（过期时间前的一段时间）
-            Date refreshWindowStart = new Date(expirationDate.getTime() - refreshWindowMillis);
-            // 计算宽限期结束时间（过期时间后的一段时间）
-            Date gracePeriodEnd = new Date(expirationDate.getTime() + refreshWindowMillis);
-
-            boolean shouldRefresh = now.after(refreshWindowStart) && now.before(gracePeriodEnd);
-            
-            if (shouldRefresh) {
-                long timeToExpiry = expirationDate.getTime() - now.getTime();
-                if (timeToExpiry > 0) {
-                    log.info("Token应该刷新 - 距离过期还有: {}ms, 刷新窗口: {}ms", 
-                            timeToExpiry, refreshWindowMillis);
-                } else {
-                    log.info("Token应该刷新 - 已过期: {}ms, 但在宽限期内: {}ms", 
-                            -timeToExpiry, refreshWindowMillis);
-                }
-            }
-            
-            return shouldRefresh;
+            parseRefreshClaims(token);
+            return true;
         } catch (Exception e) {
             log.warn("检查Token刷新条件失败: errorType={}", e.getClass().getSimpleName());
             return false;

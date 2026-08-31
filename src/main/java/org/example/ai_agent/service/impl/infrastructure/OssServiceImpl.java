@@ -6,8 +6,8 @@ import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.OSSObject;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.properties.OssProperties;
+import org.example.ai_agent.exception.ExternalDependencyException;
 import org.example.ai_agent.service.OssService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -30,10 +30,13 @@ import java.util.UUID;
 @Service
 public class OssServiceImpl implements OssService {
     
-    @Autowired
-    private OssProperties ossProperties;
+    private final OssProperties ossProperties;
     
     private OSS ossClient;
+
+    public OssServiceImpl(OssProperties ossProperties) {
+        this.ossProperties = ossProperties;
+    }
     
     @PostConstruct
     public void init() {
@@ -70,9 +73,9 @@ public class OssServiceImpl implements OssService {
                 log.info("文件上传成功: size={}", fileSize);
                 return objectKey;
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("文件上传失败: errorType={}", e.getClass().getSimpleName());
-                throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("oss", "upload file", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -100,10 +103,10 @@ public class OssServiceImpl implements OssService {
                 
                 return new OssFileInfo(objectKey, url, fileSize, contentType);
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("知识库文档上传失败: knowledgeBaseId={}, errorType={}",
                          knowledgeBaseId, e.getClass().getSimpleName());
-                throw new RuntimeException("知识库文档上传失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("oss", "upload knowledge document", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -120,7 +123,7 @@ public class OssServiceImpl implements OssService {
                 ossClient.deleteObject(ossProperties.getBucketName(), ossPath);
                 log.info("文件删除成功");
                 return true;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("文件删除失败: errorType={}", e.getClass().getSimpleName());
                 return false;
             }
@@ -134,9 +137,9 @@ public class OssServiceImpl implements OssService {
                 OSSObject ossObject = ossClient.getObject(ossProperties.getBucketName(), ossPath);
                 log.debug("获取文件输入流成功");
                 return ossObject.getObjectContent();
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("获取文件输入流失败: errorType={}", e.getClass().getSimpleName());
-                throw new RuntimeException("获取文件失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("oss", "get file", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }

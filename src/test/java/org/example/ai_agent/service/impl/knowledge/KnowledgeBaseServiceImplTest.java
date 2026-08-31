@@ -5,6 +5,7 @@ import org.example.ai_agent.dto.knowledge.AdminKnowledgeBaseSummaryProjection;
 import org.example.ai_agent.entity.KnowledgeBase;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
+import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -31,15 +32,18 @@ class KnowledgeBaseServiceImplTest {
     private KnowledgeDocumentRepository knowledgeDocumentRepository;
     @Mock
     private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    @Mock
+    private KnowledgeChunkSearchService knowledgeChunkSearchService;
 
     private KnowledgeBaseServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new KnowledgeBaseServiceImpl();
-        ReflectionTestUtils.setField(service, "knowledgeBaseRepository", knowledgeBaseRepository);
-        ReflectionTestUtils.setField(service, "documentRepository", knowledgeDocumentRepository);
-        ReflectionTestUtils.setField(service, "knowledgeAssetCleanupService", knowledgeAssetCleanupService);
+        service = new KnowledgeBaseServiceImpl(
+                knowledgeBaseRepository,
+                knowledgeDocumentRepository,
+                knowledgeAssetCleanupService,
+                knowledgeChunkSearchService);
     }
 
     @Test

@@ -29,7 +29,8 @@ class KnowledgeAccessContextResolverTest {
     @Test
     void resolve_shouldReturnUserContext() {
         KnowledgeAccessContextResolver resolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
 
         StepVerifier.create(resolver.resolve(authentication(11L, "ROLE_USER")))
                 .assertNext(access -> {
@@ -42,7 +43,8 @@ class KnowledgeAccessContextResolverTest {
     @Test
     void requireAdmin_shouldAllowAdmin() {
         KnowledgeAccessContextResolver resolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
 
         StepVerifier.create(resolver.requireAdmin(authentication(1L, "ROLE_ADMIN")))
                 .verifyComplete();
@@ -51,7 +53,8 @@ class KnowledgeAccessContextResolverTest {
     @Test
     void resolve_shouldRejectUnauthenticatedRequest() {
         KnowledgeAccessContextResolver resolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
 
         StepVerifier.create(resolver.resolve(null))
                 .expectErrorSatisfies(error -> {
@@ -64,7 +67,8 @@ class KnowledgeAccessContextResolverTest {
     @Test
     void requireUser_shouldRejectInvalidDetails() {
         KnowledgeAccessContextResolver resolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
         UsernamePasswordAuthenticationToken authentication =
                 new UsernamePasswordAuthenticationToken(
                         "alice", "n/a", List.of(new SimpleGrantedAuthority("ROLE_USER")));
@@ -81,7 +85,8 @@ class KnowledgeAccessContextResolverTest {
     @Test
     void resolveAdminUploaderId_shouldFallbackToKnowledgeBaseCreator() {
         KnowledgeAccessContextResolver resolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
         KnowledgeBaseDto knowledgeBase = new KnowledgeBaseDto();
         knowledgeBase.setId(66L);
         knowledgeBase.setCreatorId(501L);

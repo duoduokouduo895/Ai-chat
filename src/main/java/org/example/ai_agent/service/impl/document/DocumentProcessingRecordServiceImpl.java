@@ -2,13 +2,14 @@ package org.example.ai_agent.service.impl.document;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.constants.DocumentProcessingType;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.entity.DocumentProcessingRecord;
 import org.example.ai_agent.repository.document.DocumentProcessingRecordRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -29,22 +30,32 @@ import java.time.LocalDateTime;
 @Service
 public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRecordService {
     
-    @Autowired
-    private DocumentProcessingRecordRepository recordRepository;
+    private final DocumentProcessingRecordRepository recordRepository;
     
-    @Autowired
-    private KnowledgeDocumentRepository knowledgeDocumentRepository;
+    private final KnowledgeDocumentRepository knowledgeDocumentRepository;
     
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
 
     @Value("${document-processing.claim-timeout-minutes:30}")
     private long claimTimeoutMinutes;
+
+    public DocumentProcessingRecordServiceImpl(DocumentProcessingRecordRepository recordRepository,
+                                               KnowledgeDocumentRepository knowledgeDocumentRepository,
+                                               ObjectMapper objectMapper) {
+        this.recordRepository = recordRepository;
+        this.knowledgeDocumentRepository = knowledgeDocumentRepository;
+        this.objectMapper = objectMapper;
+    }
     
     @Override
     public Mono<DocumentProcessingRecord> createProcessingRecord(DocumentProcessingMessage message) {
-        // 首先检查文档是否存在，防止外键约束失败
-        return knowledgeDocumentRepository.existsById(message.getDocumentId())
+        if (message == null) {
+            return Mono.error(new IllegalArgumentException("处理消息不能为空"));
+        }
+        return Mono.defer(() -> {
+            DocumentProcessingType processingType = message.processingType();
+            // 首先检查文档是否存在，防止外键约束失败
+            return knowledgeDocumentRepository.existsById(message.getDocumentId())
             .flatMap(documentExists -> {
                 if (!documentExists) {
                     String errorMsg = String.format("Document with id %d does not exist, cannot create processing record", 
@@ -58,8 +69,8 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                     DocumentProcessingRecord record = new DocumentProcessingRecord();
                     record.setDocumentId(message.getDocumentId());
                     record.setKnowledgeBaseId(message.getKnowledgeBaseId());
-                    record.setProcessingType(message.getProcessingType());
-                    record.setStatus(DocumentProcessingConstants.Status.PENDING);
+                    record.setProcessingType(processingType.name());
+                    record.setStatus(DocumentProcessingStatus.PENDING.value());
                     record.setRetryCount(0);
                     
                     LocalDateTime now = LocalDateTime.now();
@@ -95,10 +106,17 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 return new RuntimeException("Failed to create processing record", throwable);
             })
             .subscribeOn(Schedulers.boundedElastic());
+        });
     }
     
     @Override
-    public Mono<DocumentProcessingRecord> startProcessing(Long documentId, String processingType) {
+    public Mono<DocumentProcessingRecord> startProcessing(Long documentId, String rawProcessingType) {
+        final String processingType;
+        try {
+            processingType = normalizeProcessingType(rawProcessingType);
+        } catch (IllegalArgumentException error) {
+            return Mono.error(error);
+        }
         // 首先检查文档是否存在
         return knowledgeDocumentRepository.existsById(documentId)
             .flatMap(documentExists -> {
@@ -110,24 +128,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 
                 return recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(documentId, processingType)
                     .switchIfEmpty(createDefaultRecord(documentId, processingType))
-                    .flatMap(record -> {
-                        if (record == null) {
-                            log.error("无法获取或创建处理记录: documentId={}, processingType={}", documentId, processingType);
-                            return Mono.error(new IllegalStateException("Unable to get or create processing record"));
-                        }
-
-                        if (DocumentProcessingConstants.Status.COMPLETED.equals(record.getStatus())
-                                || hasActiveProcessingClaim(record)) {
-                            return Mono.error(new DocumentProcessingAlreadyHandledException(
-                                    documentId, processingType, record.getStatus()));
-                        }
-                        
-                        record.setStatus(DocumentProcessingConstants.Status.PROCESSING);
-                        record.setStartTime(LocalDateTime.now());
-                        record.setUpdatedAt(LocalDateTime.now());
-                        
-                        return recordRepository.save(record);
-                    });
+                    .flatMap(record -> claimProcessing(record, documentId, processingType));
             })
             .doOnSuccess(record -> {
                 if (record != null) {
@@ -150,7 +151,13 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
     }
     
     @Override
-    public Mono<DocumentProcessingRecord> completeProcessing(Long documentId, String processingType, String result) {
+    public Mono<DocumentProcessingRecord> completeProcessing(Long documentId, String rawProcessingType, String result) {
+        final String processingType;
+        try {
+            processingType = normalizeProcessingType(rawProcessingType);
+        } catch (IllegalArgumentException error) {
+            return Mono.error(error);
+        }
         return recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(documentId, processingType)
             .switchIfEmpty(Mono.error(new IllegalStateException("Processing record not found for completion")))
             .flatMap(record -> {
@@ -160,7 +167,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 }
                 
                 LocalDateTime endTime = LocalDateTime.now();
-                record.setStatus(DocumentProcessingConstants.Status.COMPLETED);
+                record.setStatus(DocumentProcessingStatus.COMPLETED.value());
                 record.setEndTime(endTime);
                 record.setUpdatedAt(endTime);
                 record.setProcessingResult(result);
@@ -191,12 +198,19 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
     }
     
     @Override
-    public Mono<DocumentProcessingRecord> failProcessing(Long documentId, String processingType, 
+    public Mono<DocumentProcessingRecord> failProcessing(Long documentId, String rawProcessingType,
                                                        String errorMessage, String errorStack) {
+        final String processingType;
+        try {
+            processingType = normalizeProcessingType(rawProcessingType);
+        } catch (IllegalArgumentException error) {
+            return Mono.error(error);
+        }
         return recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(documentId, processingType)
+            .switchIfEmpty(Mono.error(new IllegalStateException("Processing record not found for failure")))
             .flatMap(record -> {
                 LocalDateTime endTime = LocalDateTime.now();
-                record.setStatus(DocumentProcessingConstants.Status.FAILED);
+                record.setStatus(DocumentProcessingStatus.FAILED.value());
                 record.setEndTime(endTime);
                 record.setUpdatedAt(endTime);
                 record.setErrorMessage(errorMessage);
@@ -223,11 +237,17 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
     }
     
     @Override
-    public Mono<DocumentProcessingRecord> incrementRetryCount(Long documentId, String processingType) {
+    public Mono<DocumentProcessingRecord> incrementRetryCount(Long documentId, String rawProcessingType) {
+        final String processingType;
+        try {
+            processingType = normalizeProcessingType(rawProcessingType);
+        } catch (IllegalArgumentException error) {
+            return Mono.error(error);
+        }
         return recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(documentId, processingType)
             .flatMap(record -> {
                 record.setRetryCount(record.getRetryCount() + 1);
-                record.setStatus(DocumentProcessingConstants.Status.PENDING);
+                record.setStatus(DocumentProcessingStatus.PENDING.value());
                 record.setUpdatedAt(LocalDateTime.now());
                 
                 return recordRepository.save(record);
@@ -251,7 +271,13 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
     }
     
     @Override
-    public Mono<DocumentProcessingRecord> getProcessingRecord(Long documentId, String processingType) {
+    public Mono<DocumentProcessingRecord> getProcessingRecord(Long documentId, String rawProcessingType) {
+        final String processingType;
+        try {
+            processingType = normalizeProcessingType(rawProcessingType);
+        } catch (IllegalArgumentException error) {
+            return Mono.error(error);
+        }
         return recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(documentId, processingType)
             .doOnSubscribe(s -> log.debug("查询处理记录: documentId={}, processingType={}", documentId, processingType));
     }
@@ -262,7 +288,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
         final int finalSize = size != null && size > 0 && size <= 100 ? size : 10;
         
         return recordRepository.findByStatusOrderByCreatedAtDesc(
-                DocumentProcessingConstants.Status.FAILED, 
+                DocumentProcessingStatus.FAILED.value(),
                 PageRequest.of(finalPage, finalSize))
             .doOnSubscribe(s -> log.debug("查询失败处理记录: page={}, size={}", finalPage, finalSize));
     }
@@ -278,10 +304,10 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
     @Override
     public Mono<ProcessingStatistics> getProcessingStatistics() {
         return Mono.zip(
-            recordRepository.countByStatus(DocumentProcessingConstants.Status.PENDING),
-            recordRepository.countByStatus(DocumentProcessingConstants.Status.PROCESSING),
-            recordRepository.countByStatus(DocumentProcessingConstants.Status.COMPLETED),
-            recordRepository.countByStatus(DocumentProcessingConstants.Status.FAILED)
+            recordRepository.countByStatus(DocumentProcessingStatus.PENDING.value()),
+            recordRepository.countByStatus(DocumentProcessingStatus.PROCESSING.value()),
+            recordRepository.countByStatus(DocumentProcessingStatus.COMPLETED.value()),
+            recordRepository.countByStatus(DocumentProcessingStatus.FAILED.value())
         )
         .map(tuple -> {
             Long pendingCount = tuple.getT1();
@@ -305,7 +331,7 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
             DocumentProcessingRecord record = new DocumentProcessingRecord();
             record.setDocumentId(documentId);
             record.setProcessingType(processingType);
-            record.setStatus(DocumentProcessingConstants.Status.PENDING);
+            record.setStatus(DocumentProcessingStatus.PENDING.value());
             record.setRetryCount(0);
             
             LocalDateTime now = LocalDateTime.now();
@@ -322,13 +348,39 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
         });
     }
 
-    private boolean hasActiveProcessingClaim(DocumentProcessingRecord record) {
-        if (!DocumentProcessingConstants.Status.PROCESSING.equals(record.getStatus())) {
-            return false;
+    private Mono<DocumentProcessingRecord> claimProcessing(DocumentProcessingRecord record,
+                                                            Long documentId,
+                                                            String processingType) {
+        if (record == null || record.getId() == null) {
+            return Mono.error(new IllegalStateException("Unable to get or create processing record"));
         }
-        if (record.getUpdatedAt() == null) {
-            return false;
+        if (DocumentProcessingStatus.COMPLETED.value().equals(record.getStatus())) {
+            return Mono.error(new DocumentProcessingAlreadyHandledException(
+                    documentId, processingType, record.getStatus()));
         }
-        return record.getUpdatedAt().isAfter(LocalDateTime.now().minusMinutes(Math.max(1, claimTimeoutMinutes)));
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime claimExpiredBefore = now.minusMinutes(Math.max(1, claimTimeoutMinutes));
+        return recordRepository.claimProcessing(
+                        record.getId(),
+                        DocumentProcessingStatus.PROCESSING.value(),
+                        now,
+                        now,
+                        claimExpiredBefore)
+                .flatMap(updated -> {
+                    if (updated != null && updated == 1) {
+                        return recordRepository.findById(record.getId())
+                                .switchIfEmpty(Mono.error(new IllegalStateException(
+                                        "Claimed processing record disappeared")));
+                    }
+                    return recordRepository.findById(record.getId())
+                            .defaultIfEmpty(record)
+                            .flatMap(current -> Mono.error(new DocumentProcessingAlreadyHandledException(
+                                    documentId, processingType, current.getStatus())));
+                });
+    }
+
+    private String normalizeProcessingType(String processingType) {
+        return DocumentProcessingType.fromValue(processingType).name();
     }
 }

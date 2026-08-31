@@ -12,7 +12,6 @@ import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.KnowledgeChunkSearchService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -41,17 +40,13 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service
 public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
-    @Autowired
-    private KnowledgeBaseRepository knowledgeBaseRepository;
+    private final KnowledgeBaseRepository knowledgeBaseRepository;
 
-    @Autowired
-    private KnowledgeDocumentRepository documentRepository;
+    private final KnowledgeDocumentRepository documentRepository;
 
-    @Autowired
-    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private final KnowledgeAssetCleanupService knowledgeAssetCleanupService;
 
-    @Autowired
-    private KnowledgeChunkSearchService knowledgeChunkSearchService;
+    private final KnowledgeChunkSearchService knowledgeChunkSearchService;
 
     @Value("${knowledge-base.embedding.default-model:qwen-embedding-8b}")
     private String defaultEmbeddingModel;
@@ -61,6 +56,16 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     @Value("${knowledge-base.list.slow-threshold-ms:500}")
     private long knowledgeBaseListSlowThresholdMs;
+
+    public KnowledgeBaseServiceImpl(KnowledgeBaseRepository knowledgeBaseRepository,
+                                    KnowledgeDocumentRepository documentRepository,
+                                    KnowledgeAssetCleanupService knowledgeAssetCleanupService,
+                                    KnowledgeChunkSearchService knowledgeChunkSearchService) {
+        this.knowledgeBaseRepository = knowledgeBaseRepository;
+        this.documentRepository = documentRepository;
+        this.knowledgeAssetCleanupService = knowledgeAssetCleanupService;
+        this.knowledgeChunkSearchService = knowledgeChunkSearchService;
+    }
 
     @Override
     public Mono<KnowledgeBaseDto> createKnowledgeBase(KnowledgeBaseCreateDto createDto, Long creatorId) {
@@ -342,7 +347,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     public KnowledgeBaseDto toDto(KnowledgeBase entity) {
         if (entity == null) {
-            return null;
+            throw new IllegalArgumentException("知识库实体不能为空");
         }
 
         KnowledgeBaseDto dto = new KnowledgeBaseDto();
@@ -395,7 +400,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     public KnowledgeBase toEntity(KnowledgeBaseCreateDto createDto, Long creatorId) {
         if (createDto == null) {
-            return null;
+            throw new IllegalArgumentException("知识库创建请求不能为空");
         }
 
         KnowledgeBase entity = new KnowledgeBase();

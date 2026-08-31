@@ -4,52 +4,51 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageDeserializer;
 import dev.langchain4j.data.message.ChatMessageSerializer;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.SetOperations;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Repository
-public class RedisChatMemeoryStore implements ChatMemoryStore {
+public class RedisChatMemoryStore implements ChatMemoryStore {
 
     private static final Duration MEMORY_TTL = Duration.ofDays(1);
     private static final String CONVERSATION_MEMORY_INDEX_PREFIX = "chat-memory:conversation:";
 
-    @Autowired
-    private StringRedisTemplate redisTemplate;
+    private final StringRedisTemplate redisTemplate;
 
-    @Override
-    public List<ChatMessage> getMessages(Object conversationid) {
-        //获取对话信息
-        String json = redisTemplate.opsForValue().get(conversationid.toString());
-        //转换
-        List<ChatMessage> list = ChatMessageDeserializer.messagesFromJson(json);
-        return list;
+    public RedisChatMemoryStore(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
-    public void updateMessages(Object conversationid, List<ChatMessage> list) {
-        //更新会话消息
-        String Json = ChatMessageSerializer.messagesToJson(list);
-        //存入redis
-        String memoryId = conversationid.toString();
-        redisTemplate.opsForValue().set(memoryId, Json, MEMORY_TTL);
-        String indexKey = conversationMemoryIndexKey(memoryId);
-        if (indexKey != null) {
-            redisTemplate.opsForSet().add(indexKey, memoryId);
-            redisTemplate.expire(indexKey, MEMORY_TTL);
+    public List<ChatMessage> getMessages(Object conversationId) {
+        String json = redisTemplate.opsForValue().get(conversationId.toString());
+        return ChatMessageDeserializer.messagesFromJson(json);
+    }
+
+    @Override
+    public void updateMessages(Object conversationId, List<ChatMessage> messages) {
+        String json = ChatMessageSerializer.messagesToJson(messages);
+        String memoryId = conversationId.toString();
+        redisTemplate.opsForValue().set(memoryId, json, MEMORY_TTL);
+        Optional<String> indexKey = conversationMemoryIndexKey(memoryId);
+        if (indexKey.isPresent()) {
+            redisTemplate.opsForSet().add(indexKey.get(), memoryId);
+            redisTemplate.expire(indexKey.get(), MEMORY_TTL);
         }
     }
 
     @Override
-    public void deleteMessages(Object conversationid) {
-            redisTemplate.delete(conversationid.toString());
+    public void deleteMessages(Object conversationId) {
+        redisTemplate.delete(conversationId.toString());
     }
 
     public void deleteConversationMessages(Long conversationId) {
@@ -59,7 +58,8 @@ public class RedisChatMemeoryStore implements ChatMemoryStore {
 
         String indexKey = CONVERSATION_MEMORY_INDEX_PREFIX + conversationId;
         Set<String> memoryKeys = new HashSet<>();
-        Set<String> indexedKeys = redisTemplate.opsForSet().members(indexKey);
+        SetOperations<String, String> setOperations = redisTemplate.opsForSet();
+        Set<String> indexedKeys = setOperations.members(indexKey);
         if (indexedKeys != null) {
             memoryKeys.addAll(indexedKeys);
         }
@@ -80,11 +80,11 @@ public class RedisChatMemeoryStore implements ChatMemoryStore {
         redisTemplate.delete(indexKey);
     }
 
-    private String conversationMemoryIndexKey(String memoryId) {
+    private Optional<String> conversationMemoryIndexKey(String memoryId) {
         int separatorIndex = memoryId.indexOf(':');
         if (separatorIndex <= 0) {
-            return null;
+            return Optional.empty();
         }
-        return CONVERSATION_MEMORY_INDEX_PREFIX + memoryId.substring(0, separatorIndex);
+        return Optional.of(CONVERSATION_MEMORY_INDEX_PREFIX + memoryId.substring(0, separatorIndex));
     }
 }

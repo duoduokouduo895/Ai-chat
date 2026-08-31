@@ -11,6 +11,7 @@ import org.example.ai_agent.dto.knowledge.KnowledgeSearchDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeSearchResultDto;
 import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
 import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
 import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.repository.auth.UserRepository;
@@ -63,11 +64,13 @@ class KnowledgeControllerApiContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private KnowledgeController controller;
+    private KnowledgeDocumentController documentController;
 
     @BeforeEach
     void setUp() {
         KnowledgeAccessContextResolver accessContextResolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
         ReactiveMultipartFormReader formReader = new ReactiveMultipartFormReader();
         KnowledgeDocumentUploadFacade uploadFacade =
                 new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader,
@@ -75,12 +78,10 @@ class KnowledgeControllerApiContractTest {
         controller = new KnowledgeController(
                 ragService,
                 knowledgeBaseService,
-                documentService,
-                recordService,
-                documentChunkService,
                 knowledgeChunkSearchService,
-                accessContextResolver,
-                uploadFacade);
+                accessContextResolver);
+        documentController = new KnowledgeDocumentController(
+                documentService, documentChunkService, accessContextResolver, uploadFacade);
     }
 
     @Test
@@ -142,7 +143,7 @@ class KnowledgeControllerApiContractTest {
 
         when(documentService.getDocuments(1L, 0, 10, 11L, false)).thenReturn(Flux.just(document));
 
-        StepVerifier.create(controller.getDocuments(1L, 0, 10, userAuthentication(11L))
+        StepVerifier.create(documentController.getDocuments(1L, 0, 10, userAuthentication(11L))
                         .collectList()
                         .map(this::toJson))
                 .assertNext(json -> {
@@ -210,7 +211,7 @@ class KnowledgeControllerApiContractTest {
         when(documentService.getDocument(9L, 11L, false)).thenReturn(Mono.just(document));
         when(documentChunkService.getDocumentChunks(9L)).thenReturn(Flux.just(embeddedChunk, pendingChunk));
 
-        StepVerifier.create(controller.checkDocumentEmbeddingStatus(9L, userAuthentication(11L))
+        StepVerifier.create(documentController.checkDocumentEmbeddingStatus(9L, userAuthentication(11L))
                         .map(this::toJson))
                 .assertNext(json -> {
                     org.junit.jupiter.api.Assertions.assertEquals(9L, json.get("documentId").asLong());

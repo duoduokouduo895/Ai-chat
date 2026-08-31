@@ -3,7 +3,6 @@ package org.example.ai_agent.controller.support;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -12,23 +11,19 @@ public class KnowledgeAccessContextResolver {
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final UserRepository userRepository;
+    private final RequestActorResolver requestActorResolver;
 
     public KnowledgeAccessContextResolver(KnowledgeBaseService knowledgeBaseService,
-                                          UserRepository userRepository) {
+                                          UserRepository userRepository,
+                                          RequestActorResolver requestActorResolver) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.userRepository = userRepository;
+        this.requestActorResolver = requestActorResolver;
     }
 
     public Mono<AccessContext> resolve(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return Mono.error(new SecurityException("当前用户未认证"));
-        }
-
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch("ROLE_ADMIN"::equals);
-        Long actorId = extractActorId(authentication);
-        return Mono.just(new AccessContext(actorId, isAdmin));
+        return requestActorResolver.resolve(authentication)
+                .map(actor -> new AccessContext(actor.admin() ? actor.adminId() : actor.userId(), actor.admin()));
     }
 
     public Mono<AccessContext> requireUser(Authentication authentication) {
@@ -41,10 +36,18 @@ public class KnowledgeAccessContextResolver {
                         return Mono.error(new SecurityException("无法识别当前用户"));
                     }
                     return Mono.just(access);
-                });
+                })
+                .onErrorMap(error -> error instanceof SecurityException
+                                && "当前用户不存在".equals(error.getMessage()),
+                        error -> new SecurityException("无法识别当前用户"));
     }
 
     public Mono<Void> requireAdmin(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null
+                || authentication.getAuthorities().stream()
+                .noneMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()))) {
+            return Mono.error(new SecurityException("当前用户无权访问管理员资源"));
+        }
         return resolve(authentication)
                 .flatMap(access -> access.isAdmin()
                         ? Mono.<Void>empty()
@@ -76,24 +79,6 @@ public class KnowledgeAccessContextResolver {
             return null;
         }
         return Long.parseLong(value.trim());
-    }
-
-    private Long extractActorId(Authentication authentication) {
-        Object details = authentication.getDetails();
-        if (details instanceof Long id) {
-            return id;
-        }
-        if (details instanceof Number number) {
-            return number.longValue();
-        }
-        if (details instanceof String value && !value.isBlank()) {
-            try {
-                return Long.parseLong(value);
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
     }
 
     public record AccessContext(Long userId, boolean isAdmin) {

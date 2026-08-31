@@ -2,6 +2,7 @@ package org.example.ai_agent.handler;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingType;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.service.impl.document.DocumentParsingLimitExceededException;
 import org.springframework.stereotype.Component;
@@ -63,11 +64,10 @@ public class DocumentProcessingRetryPolicy {
     }
 
     public String retryRoutingKeyByProcessingType(String processingType) {
-        return switch (processingType) {
-            case "PARSE" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY;
-            case "CHUNK" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK_RETRY;
-            case "EMBED" -> DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY;
-            default -> throw new IllegalArgumentException("未知的处理类型: " + processingType);
+        return switch (DocumentProcessingType.fromValue(processingType)) {
+            case PARSE -> DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY;
+            case CHUNK -> DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK_RETRY;
+            case EMBED -> DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED_RETRY;
         };
     }
 }

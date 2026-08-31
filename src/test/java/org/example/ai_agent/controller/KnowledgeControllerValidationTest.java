@@ -3,6 +3,7 @@ package org.example.ai_agent.controller;
 import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
 import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
 import org.example.ai_agent.exception.GlobalExceptionHandler;
 import org.example.ai_agent.repository.auth.UserRepository;
@@ -45,19 +46,21 @@ class KnowledgeControllerValidationTest {
     @BeforeEach
     void setUp() {
         KnowledgeAccessContextResolver accessContextResolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
         KnowledgeDocumentUploadFacade uploadFacade = new KnowledgeDocumentUploadFacade(
                 documentService, accessContextResolver, new ReactiveMultipartFormReader(), new DocumentUploadProperties());
         KnowledgeController controller = new KnowledgeController(
                 ragService,
                 knowledgeBaseService,
-                documentService,
-                recordService,
-                documentChunkService,
                 knowledgeChunkSearchService,
-                accessContextResolver,
-                uploadFacade);
-        webTestClient = WebTestClient.bindToController(controller)
+                accessContextResolver);
+        KnowledgeDocumentController documentController = new KnowledgeDocumentController(
+                documentService, documentChunkService, accessContextResolver, uploadFacade);
+        DocumentProcessingRecordController processingRecordController = new DocumentProcessingRecordController(
+                documentService, recordService, accessContextResolver);
+        webTestClient = WebTestClient.bindToController(
+                        controller, documentController, processingRecordController, new LegacyRagController())
                 .controllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

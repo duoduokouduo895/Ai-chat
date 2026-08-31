@@ -18,26 +18,17 @@ export const SearchApiService = {
    * @returns {Promise} 搜索结果
    */
   async search(searchRequest, page = 0, size = 10) {
-    try {
-      // 清理空值参数，避免发送空的查询参数
-      const cleanedParams = {};
-      for (const key in searchRequest) {
-        if (searchRequest[key] !== null && searchRequest[key] !== '' && searchRequest[key] !== undefined) {
-          cleanedParams[key] = searchRequest[key];
-        }
+    // 清理空值参数，避免发送空的查询参数
+    const cleanedParams = {};
+    for (const key in searchRequest) {
+      if (searchRequest[key] !== null && searchRequest[key] !== '' && searchRequest[key] !== undefined) {
+        cleanedParams[key] = searchRequest[key];
       }
-
-      const response = await apiClient.get('/search', {
-        params: {
-          ...cleanedParams,
-          page,
-          size
-        }
-      });
-      return response.data;
-    } catch (error) {
-      throw error;
     }
+    const response = await apiClient.get('/search', {
+      params: { ...cleanedParams, page, size }
+    });
+    return response.data;
   },
 
   /**
@@ -48,18 +39,8 @@ export const SearchApiService = {
    * @returns {Promise} 搜索结果
    */
   async intelligentSearch(query, page = 0, size = 10) {
-    try {
-      const response = await apiClient.get('/search/intelligent', {
-        params: {
-          query,
-          page,
-          size
-        }
-      });
-      return response.data; // 统一返回 data
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.get('/search/intelligent', { params: { query, page, size } });
+    return response.data; // 统一返回 data
   },
 
   /**
@@ -69,17 +50,8 @@ export const SearchApiService = {
    * @returns {Promise} 搜索建议列表
    */
   async getSearchSuggestions(query, size = 5) {
-    try {
-      const response = await apiClient.get('/search/suggestions', {
-        params: {
-          prefix: query,
-          size
-        }
-      });
-      return response.data; // 统一返回 data
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.get('/search/suggestions', { params: { prefix: query, size } });
+    return response.data; // 统一返回 data
   },
 
   /**
@@ -89,16 +61,12 @@ export const SearchApiService = {
    * @returns {Promise} 记录结果
    */
   async recordSearchHistory(query, type = 'fulltext') {
-    try {
-      const response = await apiClient.post('/search/history', {
-        query,
-        type,
-        timestamp: new Date().toISOString()
-      });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.post('/search/history', {
+      query,
+      type,
+      timestamp: new Date().toISOString()
+    });
+    return response.data;
   },
 
   /**
@@ -107,14 +75,8 @@ export const SearchApiService = {
    * @returns {Promise} 搜索历史列表
    */
   async getSearchHistory(size = 20) {
-    try {
-      const response = await apiClient.get('/search/history', {
-        params: { size }
-      });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.get('/search/history', { params: { size } });
+    return response.data;
   },
 
   /**
@@ -122,12 +84,8 @@ export const SearchApiService = {
    * @returns {Promise} 清空结果
    */
   async clearSearchHistory() {
-    try {
-      const response = await apiClient.delete('/search/history');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.delete('/search/history');
+    return response.data;
   },
   
   /**
@@ -135,12 +93,8 @@ export const SearchApiService = {
    * @returns {Promise} 清理结果
    */
   async cleanupDuplicateSearchHistory() {
-    try {
-      const response = await apiClient.post('/search/history/cleanup');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await apiClient.post('/search/history/cleanup');
+    return response.data;
   },
 };
 

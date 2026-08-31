@@ -1,6 +1,8 @@
 package org.example.ai_agent.service.impl.document;
 
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.service.DocumentParserService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.ai_agent.repository.document.DocumentChunkBulkUpdateRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,14 +29,20 @@ class DocumentChunkServiceImplTest {
     private KnowledgeDocumentChunkRepository chunkRepository;
     @Mock
     private DocumentChunkBulkUpdateRepository chunkBulkUpdateRepository;
+    @Mock
+    private DocumentParserService documentParserService;
+    @Mock
+    private ObjectMapper objectMapper;
 
     private DocumentChunkServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new DocumentChunkServiceImpl();
-        ReflectionTestUtils.setField(service, "chunkRepository", chunkRepository);
-        ReflectionTestUtils.setField(service, "chunkBulkUpdateRepository", chunkBulkUpdateRepository);
+        service = new DocumentChunkServiceImpl(
+                chunkRepository,
+                chunkBulkUpdateRepository,
+                documentParserService,
+                objectMapper);
     }
 
     @Test

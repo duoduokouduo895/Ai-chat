@@ -2,6 +2,7 @@ package org.example.ai_agent.controller;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.service.DocumentIngestionService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
@@ -114,8 +115,8 @@ public class DiagnosticController {
                                     "hasParsing", hasParsing,
                                     "hasChunking", hasChunking,
                                     "hasEmbedding", hasEmbedding,
-                                    "isParsingCompleted", "COMPLETED".equals(document.getParseStatus()),
-                                    "shouldTriggerChunking", "COMPLETED".equals(document.getParseStatus()) && !hasChunking,
+                                    "isParsingCompleted", DocumentProcessingStatus.COMPLETED.value().equals(document.getParseStatus()),
+                                    "shouldTriggerChunking", DocumentProcessingStatus.COMPLETED.value().equals(document.getParseStatus()) && !hasChunking,
                                     "shouldTriggerEmbedding", hasChunking && !hasEmbedding && document.getChunkCount() != null && document.getChunkCount() > 0
                                 ));
 
@@ -125,7 +126,7 @@ public class DiagnosticController {
                                 if (hasChunking && !hasEmbedding && document.getChunkCount() != null && document.getChunkCount() > 0) {
                                     suggestions.add("分块已完成但未触发向量化，可能是消息队列处理异常");
                                 }
-                                if ("PENDING".equals(document.getEmbeddingStatus()) && document.getChunkCount() != null && document.getChunkCount() > 0) {
+                                if (DocumentProcessingStatus.PENDING.value().equals(document.getEmbeddingStatus()) && document.getChunkCount() != null && document.getChunkCount() > 0) {
                                     suggestions.add("文档块已创建但向量化状态为PENDING，建议手动触发向量化");
                                 }
 
@@ -160,7 +161,7 @@ public class DiagnosticController {
                     result.put("documentId", documentId);
 
                     // 检查文档是否已解析
-                    if (!"COMPLETED".equals(document.getParseStatus())) {
+                    if (!DocumentProcessingStatus.COMPLETED.value().equals(document.getParseStatus())) {
                         result.put("success", false);
                         result.put("error", "文档尚未解析完成，无法进行分块和向量化");
                         return Mono.just(result);

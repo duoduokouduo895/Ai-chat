@@ -37,6 +37,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -170,6 +171,8 @@ class DocumentProcessingServiceImplTest {
                 .thenReturn(Mono.just(true));
         when(recordService.completeProcessing(9L, "PARSE", "Content length: 14"))
                 .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+        when(recordService.createProcessingRecord(any(DocumentProcessingMessage.class)))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
 
         StepVerifier.create(service.processDocumentParsing(message))
                 .expectNext(true)
@@ -183,6 +186,22 @@ class DocumentProcessingServiceImplTest {
                 eq(org.example.ai_agent.constants.DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK));
         org.junit.jupiter.api.Assertions.assertEquals("CHUNK", messageCaptor.getValue().getProcessingType());
         org.junit.jupiter.api.Assertions.assertEquals(9L, messageCaptor.getValue().getDocumentId());
+    }
+
+    @Test
+    void processDocumentEmbedding_shouldRejectWrongStageBeforeCallingDependencies() {
+        DocumentProcessingMessage parseMessage =
+                DocumentProcessingMessage.createParseMessage(9L, 77L, "auto", true);
+        org.junit.jupiter.api.Assertions.assertEquals("PARSE", parseMessage.getProcessingType());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                org.example.ai_agent.constants.DocumentProcessingType.PARSE,
+                parseMessage.processingType());
+
+        StepVerifier.create(service.processDocumentEmbedding(parseMessage))
+                .expectError(IllegalArgumentException.class)
+                .verify();
+
+        verifyNoInteractions(recordService, documentRepository, documentChunkService, stages);
     }
 
     private DocumentChunkDto chunk(Long id) {

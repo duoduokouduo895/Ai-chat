@@ -1,6 +1,5 @@
 package org.example.ai_agent.config.security;
 
-import org.example.ai_agent.filter.TokenRefreshFilter;
 import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.TicketService;
@@ -41,7 +40,6 @@ import java.util.stream.Collectors;
 public class SecurityConfig {
 
     private final JwtUtil jwtUtil;
-    private final TokenRefreshFilter tokenRefreshFilter;
     private final UserRepository userRepository;
     private final AdminUserRepository adminUserRepository;
     private final TicketService ticketService;
@@ -49,14 +47,12 @@ public class SecurityConfig {
     private final List<String> corsAllowedOrigins;
 
     public SecurityConfig(JwtUtil jwtUtil,
-                          TokenRefreshFilter tokenRefreshFilter,
                           UserRepository userRepository,
                           AdminUserRepository adminUserRepository,
                           TicketService ticketService,
                           ReactiveStringRedisTemplate redisTemplate,
                           @Value("${app.security.cors.allowed-origins}") String corsAllowedOrigins) {
         this.jwtUtil = jwtUtil;
-        this.tokenRefreshFilter = tokenRefreshFilter;
         this.userRepository = userRepository;
         this.adminUserRepository = adminUserRepository;
         this.ticketService = ticketService;
@@ -94,7 +90,8 @@ public class SecurityConfig {
                         .anyExchange().authenticated()
                 )
                 .addFilterAt(authFilter, SecurityWebFiltersOrder.AUTHENTICATION)
-                .addFilterAfter(tokenRefreshFilter, SecurityWebFiltersOrder.AUTHENTICATION)
+                .addFilterBefore(new org.example.ai_agent.filter.TokenRefreshFilter(
+                        jwtUtil, redisTemplate, userRepository), SecurityWebFiltersOrder.AUTHENTICATION)
                 .build();
     }
 
@@ -103,31 +100,24 @@ public class SecurityConfig {
         return authentication -> {
             if ("jwt".equals(authentication.getPrincipal())) {
                 String token = (String) authentication.getCredentials();
-                String username = jwtUtil.getUsernameFromToken(token);
-                String jti = jwtUtil.getIdFromToken(token);
-                String principalType = jwtUtil.getPrincipalTypeFromToken(token);
-
-                if (username == null || jti == null) {
-                    return Mono.error(new BadCredentialsException("Invalid token format"));
+                JwtUtil.AuthenticationClaims claims;
+                try {
+                    claims = jwtUtil.parseAuthenticationClaims(token);
+                } catch (JwtUtil.InvalidAuthenticationTokenException error) {
+                    return Mono.error(new BadCredentialsException("Token is expired or invalid", error));
                 }
 
-                String redisKey = TokenRedisKeys.jti(jti);
+                String redisKey = TokenRedisKeys.jti(claims.jti());
                 return redisTemplate.hasKey(redisKey)
                         .flatMap(hasKey -> {
                             if (hasKey) {
-                                if ("ADMIN".equalsIgnoreCase(principalType)) {
-                                    Long adminId = jwtUtil.getAdminIdFromToken(token);
-                                    if (adminId != null) {
-                                        return Mono.just(createAdminAuthenticationToken(username, adminId, token));
-                                    }
-                                    return loadAuthenticatedAdmin(username, token);
+                                if ("ADMIN".equals(claims.principalType())) {
+                                    return Mono.just(createAdminAuthenticationToken(
+                                            claims.username(), claims.adminId(), token));
                                 }
 
-                                Long userId = jwtUtil.getUserIdFromToken(token);
-                                if (userId != null) {
-                                    return authenticateActiveUser(username, userId, token);
-                                }
-                                return loadAuthenticatedUser(username, token);
+                                return authenticateActiveUser(
+                                        claims.username(), claims.userId(), token, claims.guest());
                             }
                             return Mono.error(new BadCredentialsException("Token is invalid or revoked"));
                         });
@@ -151,12 +141,13 @@ public class SecurityConfig {
                         Boolean.TRUE.equals(user.getIsGuest())));
     }
 
-    private Mono<Authentication> authenticateActiveUser(String username, Long userId, String credentials) {
+    private Mono<Authentication> authenticateActiveUser(String username, Long userId, String credentials,
+                                                        boolean guest) {
         return redisTemplate.hasKey(TokenRedisKeys.userRevoked(userId))
                 .flatMap(revoked -> Boolean.TRUE.equals(revoked)
                         ? Mono.error(new BadCredentialsException("User token has been revoked"))
                         : Mono.just(createAuthenticatedToken(username, userId, credentials,
-                                Boolean.TRUE.equals(jwtUtil.getIsGuestFromToken(credentials)))));
+                                guest)));
     }
 
     private Mono<Authentication> loadAuthenticatedAdmin(String username, String credentials) {

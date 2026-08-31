@@ -11,11 +11,11 @@ import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
 import dev.langchain4j.store.embedding.filter.logical.Or;
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.exception.ExternalDependencyException;
 import org.example.ai_agent.service.EmbeddingService;
 import org.example.ai_agent.service.registry.AiModelRegistry;
 import org.example.ai_agent.service.registry.EmbeddingStoreRegistry;
 import org.example.ai_agent.service.registry.EmbeddingStoreRegistry.EmbeddingProfile;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -37,11 +37,15 @@ import java.util.stream.IntStream;
 @Service
 public class EmbeddingServiceImpl implements EmbeddingService {
     
-    @Autowired
-    private AiModelRegistry aiModelRegistry;
+    private final AiModelRegistry aiModelRegistry;
     
-    @Autowired
-    private EmbeddingStoreRegistry embeddingStoreRegistry;
+    private final EmbeddingStoreRegistry embeddingStoreRegistry;
+
+    public EmbeddingServiceImpl(AiModelRegistry aiModelRegistry,
+                                EmbeddingStoreRegistry embeddingStoreRegistry) {
+        this.aiModelRegistry = aiModelRegistry;
+        this.embeddingStoreRegistry = embeddingStoreRegistry;
+    }
     
     @Override
     public Mono<Embedding> embedText(TextSegment textSegment, String modelId) {
@@ -55,9 +59,9 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 
                 return response.content();
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("文本向量化失败: modelId={}, errorType={}", modelId, e.getClass().getSimpleName());
-                throw new RuntimeException("文本向量化失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("embedding", "embed text", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -75,10 +79,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 
                 return response.content();
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("批量文本向量化失败: modelId={}, textCount={}, errorType={}",
                         modelId, textSegments.size(), e.getClass().getSimpleName());
-                throw new RuntimeException("批量文本向量化失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("embedding", "embed texts", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -110,10 +114,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 
                 return embeddingId;
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("向量存储失败: knowledgeBaseId={}, documentId={}, chunkId={}, errorType={}",
                         knowledgeBaseId, documentId, chunkId, e.getClass().getSimpleName());
-                throw new RuntimeException("向量存储失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("embedding", "store embedding", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -151,10 +155,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                 
                 return embeddingIds;
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("批量向量存储失败: knowledgeBaseId={}, documentId={}, errorType={}",
                         knowledgeBaseId, documentId, e.getClass().getSimpleName());
-                throw new RuntimeException("批量向量存储失败: " + e.getMessage(), e);
+                throw new ExternalDependencyException("embedding", "store embeddings", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -162,9 +166,10 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     @Override
     public Mono<List<EmbeddingService.EmbeddingSearchResult>> searchSimilarEmbeddings(
             Embedding queryEmbedding, List<Long> knowledgeBaseIds, Integer maxResults, Double minScore,
-            String modelId, String indexName) {
+        String modelId, String indexName) {
         
         return Mono.fromCallable(() -> {
+            int knowledgeBaseCount = knowledgeBaseIds == null ? 0 : knowledgeBaseIds.size();
             try {
                 EmbeddingProfile profile = embeddingStoreRegistry.requireProfile(modelId, indexName);
                 EmbeddingStore<TextSegment> embeddingStore = embeddingStoreRegistry.getStore(profile);
@@ -195,19 +200,19 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                     .toList();
                 
                 log.info("向量搜索完成: queryDimension={}, knowledgeBaseCount={}, resultCount={}",
-                        queryEmbedding.dimension(), knowledgeBaseIds.size(), results.size());
+                        queryEmbedding.dimension(), knowledgeBaseCount, results.size());
                 
                 return results;
                 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 if (isIndexNotFound(e)) {
                     log.warn("向量索引不存在，返回空检索结果: knowledgeBaseCount={}, errorType={}",
-                            knowledgeBaseIds.size(), e.getClass().getSimpleName());
+                            knowledgeBaseCount, e.getClass().getSimpleName());
                     return List.<EmbeddingService.EmbeddingSearchResult>of();
                 }
                 log.error("向量搜索失败: knowledgeBaseCount={}, errorType={}",
-                        knowledgeBaseIds.size(), e.getClass().getSimpleName());
-                throw new RuntimeException("向量搜索失败: " + e.getMessage(), e);
+                        knowledgeBaseCount, e.getClass().getSimpleName());
+                throw new ExternalDependencyException("embedding", "search embeddings", e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -249,7 +254,7 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             embeddingStoreRegistry.getStore(profile).removeAll(filter);
             log.info("{}向量删除成功: resourceId={}, indexName={}", resourceType, resourceId, profile.indexName());
             return true;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             if (isIndexNotFound(e)) {
                 log.debug("向量索引不存在，清理视为完成: indexName={}", profile.indexName());
                 return true;

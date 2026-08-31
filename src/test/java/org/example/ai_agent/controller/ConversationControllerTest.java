@@ -4,6 +4,7 @@ import org.example.ai_agent.dto.chat.ConversationWithPreview;
 import org.example.ai_agent.dto.chat.MessageDto;
 import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.ConversationService;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,8 @@ class ConversationControllerTest {
                 new UsernamePasswordAuthenticationToken("alice", "token", List.of());
         authentication.setDetails(42L);
 
-        ConversationController controller = new ConversationController(conversationService, userRepository);
+        ConversationController controller = new ConversationController(conversationService,
+                new RequestActorResolver(userRepository));
 
         StepVerifier.create(controller.getRecentConversations(authentication))
                 .expectNext(preview)
@@ -69,7 +71,8 @@ class ConversationControllerTest {
                 new UsernamePasswordAuthenticationToken("alice", "token", List.of());
         authentication.setDetails(42L);
 
-        ConversationController controller = new ConversationController(conversationService, userRepository);
+        ConversationController controller = new ConversationController(conversationService,
+                new RequestActorResolver(userRepository));
 
         StepVerifier.create(controller.addMessage(10L, dto, authentication))
                 .assertNext(saved -> {

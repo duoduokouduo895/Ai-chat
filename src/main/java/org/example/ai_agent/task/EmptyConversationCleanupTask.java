@@ -1,6 +1,6 @@
 package org.example.ai_agent.task;
 
-import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.repository.chat.RedisChatMemoryStore;
 import org.example.ai_agent.service.SearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,14 +29,14 @@ public class EmptyConversationCleanupTask {
     private final DatabaseClient databaseClient;
     private final TransactionalOperator transactionalOperator;
     private final SearchService searchService;
-    private final RedisChatMemeoryStore chatMemoryStore;
+    private final RedisChatMemoryStore chatMemoryStore;
     private final int cleanupBatchSize;
     private final ScheduledTaskGuard cleanupGuard = new ScheduledTaskGuard();
 
     public EmptyConversationCleanupTask(DatabaseClient databaseClient,
                                         TransactionalOperator transactionalOperator,
                                         SearchService searchService,
-                                        RedisChatMemeoryStore chatMemoryStore,
+                                        RedisChatMemoryStore chatMemoryStore,
                                         @Value("${scheduled.cleanup.empty-conversations.batch-size:100}") int cleanupBatchSize) {
         this.databaseClient = databaseClient;
         this.transactionalOperator = transactionalOperator;

@@ -3,7 +3,6 @@ package org.example.ai_agent.config.performance;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,11 +14,14 @@ import java.time.Duration;
 @Configuration
 public class PerformanceConfig {
 
-    @Autowired
-    private MeterRegistry meterRegistry;
+    private final MeterRegistry meterRegistry;
 
     @Value("${performance.api.slow-threshold-ms:1000}")
     private long slowApiThresholdMs;
+
+    public PerformanceConfig(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
 
     @Bean
     public WebFilter apiPerformanceFilter() {

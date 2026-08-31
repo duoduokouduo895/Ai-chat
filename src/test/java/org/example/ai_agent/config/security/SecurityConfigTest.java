@@ -1,6 +1,5 @@
 package org.example.ai_agent.config.security;
 
-import org.example.ai_agent.filter.TokenRefreshFilter;
 import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.TicketService;
@@ -33,8 +32,6 @@ class SecurityConfigTest {
     @Mock
     private JwtUtil jwtUtil;
     @Mock
-    private TokenRefreshFilter tokenRefreshFilter;
-    @Mock
     private UserRepository userRepository;
     @Mock
     private AdminUserRepository adminUserRepository;
@@ -52,7 +49,6 @@ class SecurityConfigTest {
         }
         SecurityConfig securityConfig = new SecurityConfig(
                 jwtUtil,
-                tokenRefreshFilter,
                 userRepository,
                 adminUserRepository,
                 ticketService,
@@ -82,17 +78,14 @@ class SecurityConfigTest {
     void jwtAuthenticationUsesSignedUserIdWithoutLoadingUserRecord() {
         SecurityConfig securityConfig = new SecurityConfig(
                 jwtUtil,
-                tokenRefreshFilter,
                 userRepository,
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
                 "http://localhost:3000"
         );
-        when(jwtUtil.getUsernameFromToken("user-token")).thenReturn("alice");
-        when(jwtUtil.getIdFromToken("user-token")).thenReturn("jti-42");
-        when(jwtUtil.getPrincipalTypeFromToken("user-token")).thenReturn("USER");
-        when(jwtUtil.getUserIdFromToken("user-token")).thenReturn(42L);
+        when(jwtUtil.parseAuthenticationClaims("user-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("alice", "jti-42", "USER", 42L, null, false));
         when(redisTemplate.hasKey("token:jti:jti-42")).thenReturn(Mono.just(true));
         when(redisTemplate.hasKey("token:user-revoked:42")).thenReturn(Mono.just(false));
 
@@ -111,17 +104,14 @@ class SecurityConfigTest {
     void jwtAuthenticationRejectsDeletedUserMarker() {
         SecurityConfig securityConfig = new SecurityConfig(
                 jwtUtil,
-                tokenRefreshFilter,
                 userRepository,
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
                 "http://localhost:3000"
         );
-        when(jwtUtil.getUsernameFromToken("user-token")).thenReturn("alice");
-        when(jwtUtil.getIdFromToken("user-token")).thenReturn("jti-42");
-        when(jwtUtil.getPrincipalTypeFromToken("user-token")).thenReturn("USER");
-        when(jwtUtil.getUserIdFromToken("user-token")).thenReturn(42L);
+        when(jwtUtil.parseAuthenticationClaims("user-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("alice", "jti-42", "USER", 42L, null, false));
         when(redisTemplate.hasKey("token:jti:jti-42")).thenReturn(Mono.just(true));
         when(redisTemplate.hasKey("token:user-revoked:42")).thenReturn(Mono.just(true));
 
@@ -135,18 +125,14 @@ class SecurityConfigTest {
     void guestJwtAuthenticationAddsGuestAuthorityWithoutChangingUserRole() {
         SecurityConfig securityConfig = new SecurityConfig(
                 jwtUtil,
-                tokenRefreshFilter,
                 userRepository,
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
                 "http://localhost:3000"
         );
-        when(jwtUtil.getUsernameFromToken("guest-token")).thenReturn("guest");
-        when(jwtUtil.getIdFromToken("guest-token")).thenReturn("guest-jti");
-        when(jwtUtil.getPrincipalTypeFromToken("guest-token")).thenReturn("USER");
-        when(jwtUtil.getUserIdFromToken("guest-token")).thenReturn(99L);
-        when(jwtUtil.getIsGuestFromToken("guest-token")).thenReturn(true);
+        when(jwtUtil.parseAuthenticationClaims("guest-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("guest", "guest-jti", "USER", 99L, null, true));
         when(redisTemplate.hasKey("token:jti:guest-jti")).thenReturn(Mono.just(true));
         when(redisTemplate.hasKey("token:user-revoked:99")).thenReturn(Mono.just(false));
 
@@ -159,5 +145,26 @@ class SecurityConfigTest {
                             .anyMatch(authority -> "ROLE_GUEST".equals(authority.getAuthority())));
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    void jwtAuthenticationRejectsExpiredTokenBeforeRedisLookup() {
+        SecurityConfig securityConfig = new SecurityConfig(
+                jwtUtil,
+                userRepository,
+                adminUserRepository,
+                ticketService,
+                redisTemplate,
+                "http://localhost:3000"
+        );
+        when(jwtUtil.parseAuthenticationClaims("expired-token"))
+                .thenThrow(new JwtUtil.InvalidAuthenticationTokenException("Token已过期"));
+
+        StepVerifier.create(securityConfig.combinedAuthenticationManager()
+                        .authenticate(new UsernamePasswordAuthenticationToken("jwt", "expired-token")))
+                .expectError(org.springframework.security.authentication.BadCredentialsException.class)
+                .verify();
+
+        org.mockito.Mockito.verifyNoInteractions(redisTemplate);
     }
 }

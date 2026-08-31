@@ -1,5 +1,6 @@
 package org.example.ai_agent.service.impl.document;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.entity.DocumentProcessingRecord;
 import org.example.ai_agent.repository.document.DocumentProcessingRecordRepository;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,14 +32,17 @@ class DocumentProcessingRecordServiceImplTest {
     private DocumentProcessingRecordRepository recordRepository;
     @Mock
     private KnowledgeDocumentRepository knowledgeDocumentRepository;
+    @Mock
+    private ObjectMapper objectMapper;
 
     private DocumentProcessingRecordServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new DocumentProcessingRecordServiceImpl();
-        ReflectionTestUtils.setField(service, "recordRepository", recordRepository);
-        ReflectionTestUtils.setField(service, "knowledgeDocumentRepository", knowledgeDocumentRepository);
+        service = new DocumentProcessingRecordServiceImpl(
+                recordRepository,
+                knowledgeDocumentRepository,
+                objectMapper);
         ReflectionTestUtils.setField(service, "claimTimeoutMinutes", 30L);
     }
 
@@ -48,6 +53,10 @@ class DocumentProcessingRecordServiceImplTest {
         when(knowledgeDocumentRepository.existsById(9L)).thenReturn(Mono.just(true));
         when(recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(9L, "PARSE"))
                 .thenReturn(Mono.just(record));
+        when(recordRepository.claimProcessing(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(DocumentProcessingConstants.Status.PROCESSING),
+                any(), any(), any())).thenReturn(Mono.just(0));
+        when(recordRepository.findById(1L)).thenReturn(Mono.just(record));
 
         StepVerifier.create(service.startProcessing(9L, "PARSE"))
                 .expectError(DocumentProcessingAlreadyHandledException.class)
@@ -63,14 +72,18 @@ class DocumentProcessingRecordServiceImplTest {
         when(knowledgeDocumentRepository.existsById(9L)).thenReturn(Mono.just(true));
         when(recordRepository.findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(9L, "PARSE"))
                 .thenReturn(Mono.just(record));
-        when(recordRepository.save(record)).thenReturn(Mono.just(record));
+        when(recordRepository.claimProcessing(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(DocumentProcessingConstants.Status.PROCESSING),
+                any(), any(), any())).thenReturn(Mono.just(1));
+        when(recordRepository.findById(1L)).thenReturn(Mono.just(record));
 
         StepVerifier.create(service.startProcessing(9L, "PARSE"))
                 .expectNext(record)
                 .verifyComplete();
 
-        org.junit.jupiter.api.Assertions.assertNotNull(record.getStartTime());
-        org.junit.jupiter.api.Assertions.assertEquals(DocumentProcessingConstants.Status.PROCESSING, record.getStatus());
+        verify(recordRepository).claimProcessing(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(DocumentProcessingConstants.Status.PROCESSING),
+                any(), any(), any());
     }
 
     @Test
@@ -88,6 +101,15 @@ class DocumentProcessingRecordServiceImplTest {
 
         org.junit.jupiter.api.Assertions.assertEquals(2, record.getRetryCount());
         org.junit.jupiter.api.Assertions.assertEquals(DocumentProcessingConstants.Status.PENDING, record.getStatus());
+    }
+
+    @Test
+    void startProcessing_shouldRejectUnknownProcessingTypeBeforeRepositoryAccess() {
+        StepVerifier.create(service.startProcessing(9L, "UNKNOWN"))
+                .expectError(IllegalArgumentException.class)
+                .verify();
+
+        verifyNoInteractions(recordRepository, knowledgeDocumentRepository);
     }
 
     private DocumentProcessingRecord processingRecord(LocalDateTime updatedAt) {

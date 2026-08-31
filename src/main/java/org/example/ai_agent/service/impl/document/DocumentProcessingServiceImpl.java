@@ -2,6 +2,8 @@ package org.example.ai_agent.service.impl.document;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
+import org.example.ai_agent.constants.DocumentProcessingType;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.entity.KnowledgeDocument;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
@@ -68,20 +70,26 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         DocumentProcessingMessage message = DocumentProcessingMessage.createParseMessage(
             documentId, knowledgeBaseId, parseMode, enableVectorization);
         
-        return sendProcessingMessage(message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE);
+        return recordService.createProcessingRecord(message)
+                .then(sendProcessingMessage(message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE));
     }
     
     @Override
     public Mono<Boolean> processDocumentParsing(DocumentProcessingMessage message) {
-        return recordService.startProcessing(message.getDocumentId(), message.getProcessingType())
-            .then(documentRepository.findById(message.getDocumentId()))
+        return Mono.defer(() -> {
+            validateMessage(message, DocumentProcessingType.PARSE);
+            return recordService.startProcessing(message.getDocumentId(), message.getProcessingType());
+        })
+            .then(Mono.defer(() -> documentRepository.findById(message.getDocumentId())
+                    .switchIfEmpty(Mono.error(new IllegalArgumentException(
+                            "文档不存在: id=" + message.getDocumentId())))))
             .flatMap(document -> {
                 log.info("开始处理文档解析: documentId={}, parseMode={}", 
                         message.getDocumentId(), message.getParseMode());
                 
                 // 更新状态为处理中
                 return updateDocumentStatus(message.getDocumentId(), 
-                        DocumentProcessingConstants.Status.PROCESSING, null, null)
+                        DocumentProcessingStatus.PROCESSING.value(), null, null)
                     .then(stages.parseDocumentFromOss(document, message.getParseMode()))
                     .flatMap(parsedContent -> persistParsedContentAndQueueNextStage(document, message, parsedContent));
             })
@@ -93,8 +101,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     
     @Override
     public Mono<Boolean> processDocumentChunking(DocumentProcessingMessage message) {
-        return recordService.startProcessing(message.getDocumentId(), message.getProcessingType())
-            .then(documentRepository.findById(message.getDocumentId()))
+        return Mono.defer(() -> {
+            validateMessage(message, DocumentProcessingType.CHUNK);
+            return recordService.startProcessing(message.getDocumentId(), message.getProcessingType());
+        })
+            .then(Mono.defer(() -> documentRepository.findById(message.getDocumentId())
+                    .switchIfEmpty(Mono.error(new IllegalArgumentException(
+                            "文档不存在: id=" + message.getDocumentId())))))
             .flatMap(document -> {
                 log.info("开始处理文档分块: documentId={}", message.getDocumentId());
                 
@@ -118,8 +131,17 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     
     @Override
     public Mono<Boolean> processDocumentEmbedding(DocumentProcessingMessage message) {
-        return recordService.startProcessing(message.getDocumentId(), message.getProcessingType())
-            .thenMany(documentChunkService.getPendingEmbeddingChunks(message.getDocumentId()))
+        return Mono.defer(() -> {
+            validateMessage(message, DocumentProcessingType.EMBED);
+            return processDocumentEmbeddingAfterValidation(message);
+        });
+    }
+
+    private Mono<Boolean> processDocumentEmbeddingAfterValidation(DocumentProcessingMessage message) {
+        return Mono.defer(() -> {
+            return recordService.startProcessing(message.getDocumentId(), message.getProcessingType());
+        })
+            .thenMany(Flux.defer(() -> documentChunkService.getPendingEmbeddingChunks(message.getDocumentId())))
             .buffer(effectiveEmbeddingBatchSize())
             .switchOnFirst((signal, batches) -> {
                 if (!signal.hasValue()) {
@@ -131,7 +153,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                         message.getDocumentId(), effectiveEmbeddingBatchSize());
 
                 return updateDocumentStatus(message.getDocumentId(), null, 
-                        DocumentProcessingConstants.Status.PROCESSING, null)
+                        DocumentProcessingStatus.PROCESSING.value(), null)
                     .then(embeddingBatchProcessor.resolveEmbeddingProfile(message.getKnowledgeBaseId()))
                     .flatMapMany(profile -> batches.concatMap(batch ->
                             embeddingBatchProcessor.processChunkBatch(batch, message, profile)));
@@ -147,7 +169,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                     return Mono.just(false);
                 }
                 return updateDocumentStatus(message.getDocumentId(), null,
-                        DocumentProcessingConstants.Status.COMPLETED, null)
+                        DocumentProcessingStatus.COMPLETED.value(), null)
                     .then(embeddingBatchProcessor.completeDocumentEmbedding(message.getDocumentId()))
                     .then(recordService.completeProcessing(
                             message.getDocumentId(), message.getProcessingType(), "Embedding completed"))
@@ -166,7 +188,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                 log.info("重新解析文档: documentId={}, parseMode={}", documentId, parseMode);
                 
                 // 重置解析状态
-                document.setParseStatus(DocumentProcessingConstants.Status.PENDING);
+                document.setParseStatus(DocumentProcessingStatus.PENDING.value());
                 document.setContent(null);
                 document.setCharacterCount(0);
                 document.setUpdatedAt(LocalDateTime.now());
@@ -232,6 +254,22 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         return Math.max(1, embeddingBatchSize);
     }
 
+    private void validateMessage(DocumentProcessingMessage message, DocumentProcessingType expectedType) {
+        if (message == null) {
+            throw new IllegalArgumentException("处理消息不能为空");
+        }
+        DocumentProcessingType actualType = message.processingType();
+        log.debug("校验文档处理阶段: expected={}, actual={}, documentId={}",
+                expectedType, actualType, message.getDocumentId());
+        if (actualType != expectedType) {
+            throw new IllegalArgumentException(
+                    "文档处理阶段不匹配: expected=" + expectedType + ", actual=" + actualType);
+        }
+        if (message.getDocumentId() == null || message.getDocumentId() <= 0) {
+            throw new IllegalArgumentException("文档ID必须为正数");
+        }
+    }
+
     /**
      * 把解析结果、下一阶段 outbox 事件以及本阶段完成记录放在同一个本地事务中。
      * 即使进程在事务提交后宕机，outbox 投递器也会继续补发下一阶段消息。
@@ -241,15 +279,15 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
                                                                  String parsedContent) {
         document.setContent(parsedContent);
         document.setCharacterCount(parsedContent.length());
-        document.setParseStatus(DocumentProcessingConstants.Status.COMPLETED);
+        document.setParseStatus(DocumentProcessingStatus.COMPLETED.value());
         document.setUpdatedAt(LocalDateTime.now());
 
         DocumentProcessingMessage chunkMessage = DocumentProcessingMessage.createChunkMessage(
                 message.getDocumentId(), message.getKnowledgeBaseId(), message.getEnableVectorization());
 
         return documentRepository.save(document)
-                .flatMap(savedDocument -> sendProcessingMessage(
-                                chunkMessage, DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK)
+                .flatMap(savedDocument -> recordService.createProcessingRecord(chunkMessage)
+                        .then(sendProcessingMessage(chunkMessage, DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK))
                         .flatMap(queued -> Boolean.TRUE.equals(queued)
                                 ? recordService.completeProcessing(
                                                 message.getDocumentId(),
@@ -281,7 +319,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private Mono<Boolean> queueEmbeddingAndCompleteChunking(DocumentProcessingMessage message, Integer chunkCount) {
         DocumentProcessingMessage embedMessage = DocumentProcessingMessage.createEmbedMessage(
                 message.getDocumentId(), message.getKnowledgeBaseId());
-        return sendProcessingMessage(embedMessage, DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED)
+        return recordService.createProcessingRecord(embedMessage)
+                .then(sendProcessingMessage(embedMessage, DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED))
                 .flatMap(queued -> Boolean.TRUE.equals(queued)
                         ? recordService.completeProcessing(
                                         message.getDocumentId(),
@@ -298,12 +337,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     private Mono<Boolean> saveReEmbedStateAndQueue(KnowledgeDocument document) {
-        document.setEmbeddingStatus(DocumentProcessingConstants.Status.PENDING);
+        document.setEmbeddingStatus(DocumentProcessingStatus.PENDING.value());
         document.setIsEmbedded(false);
         document.setUpdatedAt(LocalDateTime.now());
         DocumentProcessingMessage message = DocumentProcessingMessage.createEmbedMessage(
                 document.getId(), document.getKnowledgeBaseId());
         return documentRepository.save(document)
+                .then(recordService.createProcessingRecord(message))
                 .then(sendProcessingMessage(message, DocumentProcessingConstants.RoutingKey.DOCUMENT_EMBED))
                 .as(transactionalOperator::transactional);
     }

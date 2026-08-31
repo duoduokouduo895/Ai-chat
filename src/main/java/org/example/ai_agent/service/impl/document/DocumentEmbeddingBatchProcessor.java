@@ -3,6 +3,7 @@ package org.example.ai_agent.service.impl.document;
 import dev.langchain4j.data.segment.TextSegment;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.dto.document.DocumentChunkDto;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
@@ -80,7 +81,7 @@ public class DocumentEmbeddingBatchProcessor {
                                 profile.modelAlias(),
                                 profile.indexName()))
                         .flatMap(embeddingIds -> documentChunkService.batchUpdateChunkEmbeddingStatus(
-                                chunkIds, embeddingIds, DocumentProcessingConstants.Status.COMPLETED)));
+                                chunkIds, embeddingIds, DocumentProcessingStatus.COMPLETED.value())));
     }
 
     public Mono<Boolean> completeDocumentEmbedding(Long documentId) {
@@ -102,7 +103,7 @@ public class DocumentEmbeddingBatchProcessor {
                 .concatMap(chunkIds -> documentChunkService.batchUpdateChunkEmbeddingStatus(
                         chunkIds,
                         chunkIds.stream().map(id -> (String) null).toList(),
-                        DocumentProcessingConstants.Status.PENDING))
+                        DocumentProcessingStatus.PENDING.value()))
                 .all(Boolean.TRUE::equals);
     }
 

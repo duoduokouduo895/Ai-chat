@@ -9,6 +9,14 @@ public final class TokenRedisKeys {
         return "token:jti:" + jti;
     }
 
+    /**
+     * One-time refresh-session key. Its lifetime extends through the configured
+     * refresh grace window, unlike the access-token JTI key.
+     */
+    public static String refreshJti(String jti) {
+        return "token:refresh-jti:" + jti;
+    }
+
     public static String userJtis(Long userId) {
         return "token:user:" + userId + ":jtis";
     }

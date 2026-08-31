@@ -1,6 +1,7 @@
 package org.example.ai_agent.controller;
 
 import org.example.ai_agent.exception.GlobalExceptionHandler;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.ConversationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +26,8 @@ class ConversationControllerValidationTest {
 
     @BeforeEach
     void setUp() {
-        webTestClient = WebTestClient.bindToController(new ConversationController(conversationService, userRepository))
+        webTestClient = WebTestClient.bindToController(new ConversationController(conversationService,
+                        new RequestActorResolver(userRepository)))
                 .controllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

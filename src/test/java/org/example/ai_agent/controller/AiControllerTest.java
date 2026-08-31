@@ -2,6 +2,7 @@ package org.example.ai_agent.controller;
 
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.config.ai.ChatModelRoutingPolicy;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.entity.User;
 import org.example.ai_agent.repository.auth.UserRepository;
 import org.example.ai_agent.service.AiChatService;
@@ -45,7 +46,8 @@ class AiControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AiController(aiModelRegistry, aiChatService, userRepository, chatAdmissionService,
+        controller = new AiController(aiModelRegistry, aiChatService,
+                new RequestActorResolver(userRepository), chatAdmissionService,
                 chatModelRoutingPolicy);
     }
 

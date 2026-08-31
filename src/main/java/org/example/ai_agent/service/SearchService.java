@@ -93,7 +93,7 @@ public interface SearchService {
      * @param size 建议数量
      * @return 建议列表
      */
-    Mono<List<String>> getSearchSuggestions(String prefix, int size);
+    Mono<List<String>> getSearchSuggestions(Long userId, String prefix, int size);
 
     /**
      * 重建所有索引

@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
+import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
@@ -11,7 +12,9 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Component
@@ -59,8 +62,16 @@ public class DocumentProcessingPublisher {
                 log.warn("等待 RabbitMQ 确认时被中断: routingKey={}, documentId={}",
                         routingKey, message.getDocumentId());
                 return false;
-            } catch (Exception e) {
+            } catch (TimeoutException | ExecutionException e) {
+                log.error("等待 RabbitMQ 确认超时或失败: routingKey={}, documentId={}, errorType={}",
+                        routingKey, message.getDocumentId(), e.getClass().getSimpleName());
+                return false;
+            } catch (AmqpException e) {
                 log.error("发送处理消息或等待确认失败: routingKey={}, documentId={}, errorType={}",
+                        routingKey, message.getDocumentId(), e.getClass().getSimpleName());
+                return false;
+            } catch (RuntimeException e) {
+                log.error("发送处理消息时发生未分类客户端异常: routingKey={}, documentId={}, errorType={}",
                         routingKey, message.getDocumentId(), e.getClass().getSimpleName());
                 return false;
             }

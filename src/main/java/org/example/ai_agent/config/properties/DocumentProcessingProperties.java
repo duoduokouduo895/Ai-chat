@@ -19,6 +19,7 @@ public class DocumentProcessingProperties {
 
     private Duration parseTimeout = Duration.ofSeconds(90);
     private Duration aiEnhancementTimeout = Duration.ofSeconds(90);
+    private Duration consumerTimeout = Duration.ofMinutes(5);
     private Duration publishConfirmTimeout = Duration.ofSeconds(5);
     private int parserMaxThreads = 2;
     private int parserQueueCapacity = 20;
@@ -35,6 +36,10 @@ public class DocumentProcessingProperties {
 
     public Duration effectiveAiEnhancementTimeout() {
         return boundedDuration(aiEnhancementTimeout, Duration.ofSeconds(1), Duration.ofMinutes(3));
+    }
+
+    public Duration effectiveConsumerTimeout() {
+        return boundedDuration(consumerTimeout, Duration.ofSeconds(1), Duration.ofMinutes(10));
     }
 
     public Duration effectivePublishConfirmTimeout() {

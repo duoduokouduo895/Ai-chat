@@ -5,6 +5,7 @@ import org.example.ai_agent.entity.AdminUser;
 import org.example.ai_agent.repository.auth.AdminUserRepository;
 import org.example.ai_agent.service.AdminAuthService;
 import org.example.ai_agent.util.JwtUtil;
+import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -64,7 +65,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
             return Mono.error(new IllegalArgumentException("从Token中无法解析出JTI"));
         }
 
-        return redisTemplate.delete("token:jti:" + jti).then();
+        return redisTemplate.delete(TokenRedisKeys.jti(jti), TokenRedisKeys.refreshJti(jti)).then();
     }
 
     @Override
@@ -93,8 +94,11 @@ public class AdminAuthServiceImpl implements AdminAuthService {
             return Mono.error(new IllegalStateException("管理员Token过期时间无效"));
         }
 
+        Duration refreshTtl = jwtUtil.refreshSessionTtl(token);
         return redisTemplate.opsForValue()
-                .set("token:jti:" + jti, "admin:" + admin.getUsername(), ttl)
+                .set(TokenRedisKeys.jti(jti), "admin:" + admin.getUsername(), ttl)
+                .then(redisTemplate.opsForValue()
+                        .set(TokenRedisKeys.refreshJti(jti), "admin:" + admin.getUsername(), refreshTtl))
                 .thenReturn(token);
     }
 }

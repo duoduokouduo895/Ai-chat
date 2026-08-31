@@ -3,6 +3,7 @@ package org.example.ai_agent.dto.document;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.example.ai_agent.constants.DocumentProcessingType;
 
 import java.time.LocalDateTime;
 
@@ -27,6 +28,10 @@ public class DocumentProcessingMessage {
     private LocalDateTime createdAt;
     private String errorMessage;
     private String extraParams;
+
+    public DocumentProcessingType processingType() {
+        return DocumentProcessingType.fromValue(processingType);
+    }
     
     /**
      * 创建解析消息
@@ -36,7 +41,7 @@ public class DocumentProcessingMessage {
         DocumentProcessingMessage message = new DocumentProcessingMessage();
         message.setDocumentId(documentId);
         message.setKnowledgeBaseId(knowledgeBaseId);
-        message.setProcessingType("PARSE");
+        message.setProcessingType(DocumentProcessingType.PARSE.name());
         message.setParseMode(parseMode);
         message.setEnableVectorization(enableVectorization);
         message.setRetryCount(0);
@@ -51,7 +56,7 @@ public class DocumentProcessingMessage {
         DocumentProcessingMessage message = new DocumentProcessingMessage();
         message.setDocumentId(documentId);
         message.setKnowledgeBaseId(knowledgeBaseId);
-        message.setProcessingType("CHUNK");
+        message.setProcessingType(DocumentProcessingType.CHUNK.name());
         message.setEnableVectorization(enableVectorization);
         message.setRetryCount(0);
         message.setCreatedAt(LocalDateTime.now());
@@ -65,7 +70,7 @@ public class DocumentProcessingMessage {
         DocumentProcessingMessage message = new DocumentProcessingMessage();
         message.setDocumentId(documentId);
         message.setKnowledgeBaseId(knowledgeBaseId);
-        message.setProcessingType("EMBED");
+        message.setProcessingType(DocumentProcessingType.EMBED.name());
         message.setRetryCount(0);
         message.setCreatedAt(LocalDateTime.now());
         return message;

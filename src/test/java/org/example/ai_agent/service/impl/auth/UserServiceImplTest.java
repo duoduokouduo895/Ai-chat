@@ -103,6 +103,7 @@ class UserServiceImplTest {
         when(jwtUtil.generateToken("alice", 42L, false)).thenReturn("new-token");
         when(jwtUtil.getIdFromToken("new-token")).thenReturn("new-jti");
         when(jwtUtil.getExpirationDateFromToken("new-token")).thenReturn(expiration);
+        when(jwtUtil.refreshSessionTtl("new-token")).thenReturn(Duration.ofHours(1));
         when(jwtUtil.getUserIdFromToken("old-token")).thenReturn(42L);
         when(jwtUtil.getIdFromToken("old-token")).thenReturn("old-jti");
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -111,7 +112,7 @@ class UserServiceImplTest {
         when(setOperations.add(anyString(), anyString())).thenReturn(Mono.just(1L));
         when(setOperations.remove(anyString(), anyString())).thenReturn(Mono.just(1L));
         when(redisTemplate.expire(anyString(), any(Duration.class))).thenReturn(Mono.just(true));
-        when(redisTemplate.delete("token:jti:old-jti")).thenReturn(Mono.just(1L));
+        when(redisTemplate.delete("token:jti:old-jti", "token:refresh-jti:old-jti")).thenReturn(Mono.just(1L));
 
         StepVerifier.create(service().upgradeGuestUser(registration, 42L, "Bearer old-token"))
                 .expectNext("new-token")
@@ -123,7 +124,7 @@ class UserServiceImplTest {
         org.junit.jupiter.api.Assertions.assertEquals("new-hash", guest.getPassword());
         org.junit.jupiter.api.Assertions.assertFalse(guest.getIsGuest());
         verify(userRepository).save(guest);
-        verify(redisTemplate).delete("token:jti:old-jti");
+        verify(redisTemplate).delete("token:jti:old-jti", "token:refresh-jti:old-jti");
         verify(setOperations).remove("token:user:42:jtis", "old-jti");
     }
 

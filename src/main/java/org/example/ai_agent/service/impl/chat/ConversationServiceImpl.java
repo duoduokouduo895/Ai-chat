@@ -7,7 +7,7 @@ import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.repository.chat.ConversationRepository;
 import org.example.ai_agent.repository.chat.MessageRepository;
-import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.repository.chat.RedisChatMemoryStore;
 import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.impl.search.ConversationSearchIndexQueue;
 import org.slf4j.Logger;
@@ -35,13 +35,13 @@ public class ConversationServiceImpl implements ConversationService {
     private final MessageRepository messageRepository;
     private final ConversationSearchIndexQueue searchIndexQueue;
     private final CacheManager cacheManager;
-    private final RedisChatMemeoryStore chatMemoryStore;
+    private final RedisChatMemoryStore chatMemoryStore;
 
     public ConversationServiceImpl(ConversationRepository conversationRepository,
                                    MessageRepository messageRepository,
                                    ConversationSearchIndexQueue searchIndexQueue,
                                    CacheManager cacheManager,
-                                   RedisChatMemeoryStore chatMemoryStore) {
+                                   RedisChatMemoryStore chatMemoryStore) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.searchIndexQueue = searchIndexQueue;

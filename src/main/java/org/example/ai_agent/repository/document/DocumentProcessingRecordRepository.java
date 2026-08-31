@@ -2,6 +2,8 @@ package org.example.ai_agent.repository.document;
 
 import org.example.ai_agent.entity.DocumentProcessingRecord;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.r2dbc.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
@@ -45,6 +47,17 @@ public interface DocumentProcessingRecordRepository extends ReactiveCrudReposito
      * @return 最新的处理记录
      */
     Mono<DocumentProcessingRecord> findFirstByDocumentIdAndProcessingTypeOrderByIdDesc(Long documentId, String processingType);
+
+    @Query("UPDATE document_processing_records " +
+           "SET status = :processingStatus, start_time = :startTime, updated_at = :updatedAt " +
+           "WHERE id = :recordId AND (" +
+           "status IN ('PENDING', 'FAILED') OR " +
+           "(status = 'PROCESSING' AND updated_at <= :claimExpiredBefore))")
+    Mono<Integer> claimProcessing(@Param("recordId") Long recordId,
+                                  @Param("processingStatus") String processingStatus,
+                                  @Param("startTime") java.time.LocalDateTime startTime,
+                                  @Param("updatedAt") java.time.LocalDateTime updatedAt,
+                                  @Param("claimExpiredBefore") java.time.LocalDateTime claimExpiredBefore);
     
     /**
      * 根据状态查询处理记录

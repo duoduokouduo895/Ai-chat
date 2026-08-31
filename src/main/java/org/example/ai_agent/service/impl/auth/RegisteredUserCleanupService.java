@@ -79,7 +79,7 @@ public class RegisteredUserCleanupService {
         return redisTemplate.opsForValue()
                 .set(TokenRedisKeys.userRevoked(userId), "1", markerTtl)
                 .thenMany(redisTemplate.opsForSet().members(userJtisKey))
-                .flatMap(jti -> redisTemplate.delete(TokenRedisKeys.jti(jti)))
+                .flatMap(jti -> redisTemplate.delete(TokenRedisKeys.jti(jti), TokenRedisKeys.refreshJti(jti)))
                 .then(redisTemplate.delete(userJtisKey))
                 .then();
     }

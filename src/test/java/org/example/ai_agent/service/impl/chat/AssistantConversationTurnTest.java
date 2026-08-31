@@ -16,6 +16,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class AssistantConversationTurnTest {
@@ -113,5 +114,26 @@ class AssistantConversationTurnTest {
                 .verifyComplete();
 
         verify(conversationService, never()).addMessageToConversation(any());
+    }
+
+    @Test
+    void saveAiMessage_shouldPropagateNonTransientPersistenceFailure() {
+        AssistantConversationTurn turn = new AssistantConversationTurn(conversationService);
+        ChatRequest request = ChatRequest.builder()
+                .userId(42L)
+                .conversationId(99L)
+                .prompt("你好")
+                .model("test-model")
+                .clientMessageId("request-1")
+                .build();
+        RuntimeException failure = new RuntimeException("database unavailable");
+        when(conversationService.addMessageToConversation(any(Message.class)))
+                .thenReturn(Mono.error(failure));
+
+        StepVerifier.create(turn.saveAiMessage(request, "回答"))
+                .expectErrorSatisfies(error -> org.junit.jupiter.api.Assertions.assertSame(failure, error))
+                .verify();
+
+        verify(conversationService, times(1)).addMessageToConversation(any(Message.class));
     }
 }

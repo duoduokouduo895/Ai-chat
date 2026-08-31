@@ -3,6 +3,8 @@ package org.example.ai_agent.handler;
 import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
+import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
@@ -12,6 +14,8 @@ import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+
+import java.time.Duration;
 
 /**
  * 文档处理异步消息处理器
@@ -28,15 +32,18 @@ public class DocumentProcessingHandler {
     private final DocumentProcessingRecordService recordService;
     private final DocumentProcessingRetryPolicy retryPolicy;
     private final DocumentProcessingAckHandler ackHandler;
+    private final DocumentProcessingProperties processingProperties;
 
     public DocumentProcessingHandler(DocumentProcessingService documentProcessingService,
                                      DocumentProcessingRecordService recordService,
                                      DocumentProcessingRetryPolicy retryPolicy,
-                                     DocumentProcessingAckHandler ackHandler) {
+                                     DocumentProcessingAckHandler ackHandler,
+                                     DocumentProcessingProperties processingProperties) {
         this.documentProcessingService = documentProcessingService;
         this.recordService = recordService;
         this.retryPolicy = retryPolicy;
         this.ackHandler = ackHandler;
+        this.processingProperties = processingProperties;
     }
     
     /**
@@ -47,6 +54,7 @@ public class DocumentProcessingHandler {
                                      @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档解析消息: documentId={}, parseMode={}", 
                 message.getDocumentId(), message.getParseMode());
+        validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
                 documentProcessingService.processDocumentParsing(message),
@@ -60,6 +68,7 @@ public class DocumentProcessingHandler {
     public void handleDocumentChunking(DocumentProcessingMessage message, Channel channel, 
                                       @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档分块消息: documentId={}", message.getDocumentId());
+        validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
                 documentProcessingService.processDocumentChunking(message),
@@ -73,6 +82,7 @@ public class DocumentProcessingHandler {
     public void handleDocumentEmbedding(DocumentProcessingMessage message, Channel channel, 
                                        @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
         log.info("接收到文档向量化消息: documentId={}", message.getDocumentId());
+        validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
                 documentProcessingService.processDocumentEmbedding(message),
@@ -88,10 +98,11 @@ public class DocumentProcessingHandler {
                 message.getDocumentId(), message.getProcessingType(), message.getRetryCount());
         
         try {
-            recordProcessingFailure(message).block();
+            recordProcessingFailure(message).block(processingTimeout());
         } catch (RuntimeException error) {
-                log.error("保存死信处理记录失败: documentId={}, errorType={}",
-                        message.getDocumentId(), error.getClass().getSimpleName());
+            log.error("保存死信处理记录失败，交由监听容器处理: documentId={}, errorType={}",
+                    message.getDocumentId(), error.getClass().getSimpleName());
+            throw error;
         }
     }
     
@@ -109,7 +120,8 @@ public class DocumentProcessingHandler {
                 message.getDocumentId(),
                 message.getProcessingType(),
                 errorMessage,
-                null))
+                null)
+                .switchIfEmpty(Mono.error(new IllegalStateException("未能保存文档处理失败记录"))))
             .then();
     }
     
@@ -120,12 +132,14 @@ public class DocumentProcessingHandler {
         String parseStatus = null;
         String embeddingStatus = null;
         
-        switch (message.getProcessingType()) {
-            case "PARSE":
-                parseStatus = DocumentProcessingConstants.Status.FAILED;
+        switch (message.processingType()) {
+            case PARSE:
+                parseStatus = DocumentProcessingStatus.FAILED.value();
                 break;
-            case "EMBED":
-                embeddingStatus = DocumentProcessingConstants.Status.FAILED;
+            case EMBED:
+                embeddingStatus = DocumentProcessingStatus.FAILED.value();
+                break;
+            case CHUNK:
                 break;
         }
         
@@ -145,6 +159,7 @@ public class DocumentProcessingHandler {
                 message.getProcessingType(),
                 message.getErrorMessage(),
                 null)
+            .switchIfEmpty(Mono.error(new IllegalStateException("未能保存文档处理失败记录")))
             .doOnNext(record -> log.info("文档处理失败记录已保存: documentId={}, processingType={}, recordId={}",
                     message.getDocumentId(), message.getProcessingType(), record.getId()))
             .doOnSubscribe(subscription -> log.error("文档处理最终失败记录开始保存: documentId={}, processingType={}",
@@ -154,7 +169,9 @@ public class DocumentProcessingHandler {
     
     private void processMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
                                 reactor.core.publisher.Mono<Boolean> processingMono, String failureMessage) {
-        processingMono
+        Mono<Void> processingFlow = processingMono
+            .switchIfEmpty(Mono.error(new IllegalStateException("文档处理未返回结果")))
+            .timeout(processingTimeout())
             .flatMap(result -> {
                 if (Boolean.TRUE.equals(result)) {
                     log.info("文档处理成功: documentId={}, processingType={}",
@@ -200,7 +217,9 @@ public class DocumentProcessingHandler {
 
                 return scheduleRetryOrFail(message, error.getMessage(), channel, deliveryTag);
             })
-            .block();
+            .timeout(processingTimeout().plusSeconds(5));
+
+        processingFlow.block(processingTimeout().plusSeconds(10));
     }
 
     private Mono<Void> scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,
@@ -214,7 +233,9 @@ public class DocumentProcessingHandler {
 
         String retryRoutingKey = retryPolicy.retryRoutingKeyByProcessingType(message.getProcessingType());
         return recordService.incrementRetryCount(message.getDocumentId(), message.getProcessingType())
-            .then(documentProcessingService.sendProcessingMessage(message, retryRoutingKey))
+            .switchIfEmpty(Mono.error(new IllegalStateException("未能更新文档处理重试次数")))
+            .then(documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
+                    .defaultIfEmpty(false))
                 .flatMap(result -> {
                     if (Boolean.TRUE.equals(result)) {
                         log.info("重试消息发送成功: documentId={}, processingType={}, retryCount={}",
@@ -236,6 +257,7 @@ public class DocumentProcessingHandler {
     private Mono<Void> deferInFlightMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag) {
         String retryRoutingKey = retryPolicy.retryRoutingKeyByProcessingType(message.getProcessingType());
         return documentProcessingService.sendProcessingMessage(message, retryRoutingKey)
+                .defaultIfEmpty(false)
                 .flatMap(sent -> sent
                         ? ackMessage(channel, deliveryTag, message, "处理中消息延迟重投")
                         : nackMessage(channel, deliveryTag, message, true, "处理中消息延迟重投失败"));
@@ -263,11 +285,22 @@ public class DocumentProcessingHandler {
                 "文档不存在: " + errorMessage,
                 null
         )
+        .switchIfEmpty(Mono.error(new IllegalStateException("未能保存文档不存在失败记录")))
         .doOnNext(record -> log.info("文档不存在失败记录已保存: documentId={}, recordId={}",
                 message.getDocumentId(), record != null ? record.getId() : "null"))
                 .doOnError(error -> log.error("保存文档不存在失败记录失败: documentId={}, errorType={}",
                         message.getDocumentId(), error.getClass().getSimpleName()))
-        .onErrorResume(error -> Mono.empty())
         .then();
+    }
+
+    private Duration processingTimeout() {
+        return processingProperties.effectiveConsumerTimeout();
+    }
+
+    private void validateMessage(DocumentProcessingMessage message) {
+        if (message == null || message.getDocumentId() == null || message.getDocumentId() <= 0) {
+            throw new IllegalArgumentException("文档处理消息缺少有效文档ID");
+        }
+        message.processingType();
     }
 }

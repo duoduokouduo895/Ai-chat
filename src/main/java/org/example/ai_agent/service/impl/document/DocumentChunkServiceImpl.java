@@ -5,13 +5,13 @@ import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.segment.TextSegment;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.dto.document.DocumentChunkDto;
 import org.example.ai_agent.entity.KnowledgeDocumentChunk;
 import org.example.ai_agent.repository.document.DocumentChunkBulkUpdateRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentChunkRepository;
 import org.example.ai_agent.service.DocumentChunkService;
 import org.example.ai_agent.service.DocumentParserService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -32,17 +32,23 @@ import java.util.stream.IntStream;
 @Service
 public class DocumentChunkServiceImpl implements DocumentChunkService {
     
-    @Autowired
-    private KnowledgeDocumentChunkRepository chunkRepository;
+    private final KnowledgeDocumentChunkRepository chunkRepository;
 
-    @Autowired
-    private DocumentChunkBulkUpdateRepository chunkBulkUpdateRepository;
+    private final DocumentChunkBulkUpdateRepository chunkBulkUpdateRepository;
     
-    @Autowired
-    private DocumentParserService documentParserService;
+    private final DocumentParserService documentParserService;
     
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
+
+    public DocumentChunkServiceImpl(KnowledgeDocumentChunkRepository chunkRepository,
+                                   DocumentChunkBulkUpdateRepository chunkBulkUpdateRepository,
+                                   DocumentParserService documentParserService,
+                                   ObjectMapper objectMapper) {
+        this.chunkRepository = chunkRepository;
+        this.chunkBulkUpdateRepository = chunkBulkUpdateRepository;
+        this.documentParserService = documentParserService;
+        this.objectMapper = objectMapper;
+    }
     
     @Override
     public Mono<List<DocumentChunkDto>> createDocumentChunks(Long documentId, Long knowledgeBaseId, String content) {
@@ -86,7 +92,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
                     }
                     
                     chunk.setIsEmbedded(false);
-                    chunk.setEmbeddingStatus(DocumentProcessingConstants.Status.PENDING);
+                    chunk.setEmbeddingStatus(DocumentProcessingStatus.PENDING.value());
                     
                     LocalDateTime now = LocalDateTime.now();
                     chunk.setCreatedAt(now);
@@ -121,7 +127,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
     @Override
     public Flux<DocumentChunkDto> getPendingEmbeddingChunks(Long documentId) {
         return chunkRepository.findByDocumentIdAndEmbeddingStatus(
-                documentId, DocumentProcessingConstants.Status.PENDING)
+                documentId, DocumentProcessingStatus.PENDING.value())
             .map(this::toDto)
             .doOnSubscribe(s -> log.debug("查询待向量化文档块: documentId={}", documentId));
     }
@@ -133,7 +139,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
             .flatMap(chunk -> {
                 chunk.setEmbeddingId(embeddingId);
                 chunk.setEmbeddingStatus(status);
-                chunk.setIsEmbedded(DocumentProcessingConstants.Status.COMPLETED.equals(status));
+                chunk.setIsEmbedded(DocumentProcessingStatus.COMPLETED.value().equals(status));
                 chunk.setEmbeddingError(errorMessage);
                 chunk.setUpdatedAt(LocalDateTime.now());
                 

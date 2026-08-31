@@ -5,7 +5,7 @@ import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.repository.chat.ConversationRepository;
 import org.example.ai_agent.repository.chat.MessageRepository;
-import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.repository.chat.RedisChatMemoryStore;
 import org.example.ai_agent.service.impl.search.ConversationSearchIndexQueue;
 import org.springframework.cache.Cache;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,7 +43,7 @@ class ConversationServiceImplTest {
     private Cache conversationsCache;
 
     @Mock
-    private RedisChatMemeoryStore chatMemoryStore;
+    private RedisChatMemoryStore chatMemoryStore;
 
     @Test
     void getRecentConversationsUsesSingleAggregateRepositoryQuery() {

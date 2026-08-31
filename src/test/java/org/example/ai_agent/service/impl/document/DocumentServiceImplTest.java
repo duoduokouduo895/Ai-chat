@@ -62,15 +62,15 @@ class DocumentServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new DocumentServiceImpl();
-        ReflectionTestUtils.setField(service, "documentRepository", documentRepository);
-        ReflectionTestUtils.setField(service, "knowledgeBaseService", knowledgeBaseService);
-        ReflectionTestUtils.setField(service, "ossService", ossService);
-        ReflectionTestUtils.setField(service, "documentIngestionService", documentIngestionService);
-        ReflectionTestUtils.setField(service, "userRepository", userRepository);
-        ReflectionTestUtils.setField(service, "knowledgeAssetCleanupService", knowledgeAssetCleanupService);
-        ReflectionTestUtils.setField(service, "documentUploadValidator", documentUploadValidator);
-        ReflectionTestUtils.setField(service, "transactionalOperator", transactionalOperator);
+        service = new DocumentServiceImpl(
+                documentRepository,
+                knowledgeBaseService,
+                ossService,
+                documentIngestionService,
+                userRepository,
+                knowledgeAssetCleanupService,
+                documentUploadValidator,
+                transactionalOperator);
         ReflectionTestUtils.setField(service, "supportedTypes", new String[]{"md"});
     }
 

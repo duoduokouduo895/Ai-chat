@@ -221,9 +221,21 @@ public class SearchServiceImpl implements SearchService {
 
 
     @Override
-    public Mono<List<String>> getSearchSuggestions(String prefix, int size) {
-        // Placeholder implementation
-        return Mono.just(List.of());
+    public Mono<List<String>> getSearchSuggestions(Long userId, String prefix, int size) {
+        if (userId == null || userId <= 0 || prefix == null || prefix.isBlank() || size <= 0) {
+            return Mono.just(List.of());
+        }
+
+        return searchHistoryRepository.findSuggestionQueriesByUserId(userId, escapeLikePrefix(prefix.trim()), size)
+                .distinct()
+                .take(size)
+                .collectList();
+    }
+
+    private String escapeLikePrefix(String prefix) {
+        return prefix.replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_");
     }
 
     @Override

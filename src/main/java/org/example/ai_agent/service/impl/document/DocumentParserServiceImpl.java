@@ -20,7 +20,9 @@ import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 文档解析服务实现类
@@ -82,9 +84,9 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("文档解析失败: errorType={}", e.getClass().getSimpleName());
-                throw new RuntimeException("文档解析失败: " + e.getMessage(), e);
+                throw new DocumentParsingException("parse document", e);
             }
         }).subscribeOn(documentParsingScheduler);
     }
@@ -104,9 +106,9 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("文档分割失败: errorType={}", e.getClass().getSimpleName());
-                throw new RuntimeException("文档分割失败: " + e.getMessage(), e);
+                throw new DocumentParsingException("split document", e);
             }
         }).subscribeOn(documentParsingScheduler);
     }
@@ -156,9 +158,9 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                 
             } catch (DocumentParsingLimitExceededException error) {
                 throw error;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("AI文档解析失败: errorType={}", e.getClass().getSimpleName());
-                throw new RuntimeException("AI文档解析失败: " + e.getMessage(), e);
+                throw new DocumentParsingException("parse document with AI", e);
             }
         }).subscribeOn(documentParsingScheduler);
     }
@@ -236,8 +238,15 @@ public class DocumentParserServiceImpl implements DocumentParserService {
                     processingProperties.effectiveAiEnhancementTimeout().toMillis(), TimeUnit.MILLISECONDS);
             return enhancedText.length() > originalText.length() ? enhancedText : originalText;
             
-        } catch (Exception e) {
-            log.error("AI增强解析失败，使用原始解析结果: errorType={}", e.getClass().getSimpleName());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            log.warn("AI增强解析被中断，使用原始解析结果");
+            return originalText;
+        } catch (TimeoutException | ExecutionException error) {
+            log.warn("AI增强解析失败，使用原始解析结果: errorType={}", error.getClass().getSimpleName());
+            return originalText;
+        } catch (RuntimeException error) {
+            log.error("AI增强解析失败，使用原始解析结果: errorType={}", error.getClass().getSimpleName());
             return originalText;
         }
     }

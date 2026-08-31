@@ -1,6 +1,7 @@
 package org.example.ai_agent.service.impl.document;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.dto.admin.AdminPageDto;
 import org.example.ai_agent.dto.document.AdminDocumentSummaryProjection;
 import org.example.ai_agent.dto.document.DocumentDto;
@@ -16,7 +17,6 @@ import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
 import org.example.ai_agent.service.document.DocumentUploadValidator;
 import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -47,32 +47,35 @@ import java.util.Map;
 @Service
 public class DocumentServiceImpl implements DocumentService {
     
-    @Autowired
-    private KnowledgeDocumentRepository documentRepository;
-    
-    @Autowired
-    private KnowledgeBaseService knowledgeBaseService;
-    
-    @Autowired
-    private OssService ossService;
-    
-    @Autowired
-    private DocumentIngestionService documentIngestionService;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
-
-    @Autowired
-    private DocumentUploadValidator documentUploadValidator;
-
-    @Autowired
-    private TransactionalOperator transactionalOperator;
+    private final KnowledgeDocumentRepository documentRepository;
+    private final KnowledgeBaseService knowledgeBaseService;
+    private final OssService ossService;
+    private final DocumentIngestionService documentIngestionService;
+    private final UserRepository userRepository;
+    private final KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private final DocumentUploadValidator documentUploadValidator;
+    private final TransactionalOperator transactionalOperator;
     
     @Value("${knowledge-base.document.supported-types:pdf,docx,doc,txt,md,pptx,xlsx}")
     private String[] supportedTypes;
+
+    public DocumentServiceImpl(KnowledgeDocumentRepository documentRepository,
+                               KnowledgeBaseService knowledgeBaseService,
+                               OssService ossService,
+                               DocumentIngestionService documentIngestionService,
+                               UserRepository userRepository,
+                               KnowledgeAssetCleanupService knowledgeAssetCleanupService,
+                               DocumentUploadValidator documentUploadValidator,
+                               TransactionalOperator transactionalOperator) {
+        this.documentRepository = documentRepository;
+        this.knowledgeBaseService = knowledgeBaseService;
+        this.ossService = ossService;
+        this.documentIngestionService = documentIngestionService;
+        this.userRepository = userRepository;
+        this.knowledgeAssetCleanupService = knowledgeAssetCleanupService;
+        this.documentUploadValidator = documentUploadValidator;
+        this.transactionalOperator = transactionalOperator;
+    }
     
     @Override
     public Mono<DocumentDto> uploadDocument(MultipartFile file, Long knowledgeBaseId, String parseMode,
@@ -247,7 +250,7 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public DocumentDto toDto(KnowledgeDocument entity) {
         if (entity == null) {
-            return null;
+            throw new IllegalArgumentException("文档实体不能为空");
         }
         
         DocumentDto dto = new DocumentDto();
@@ -367,12 +370,12 @@ public class DocumentServiceImpl implements DocumentService {
         }
         
         // 如果向量化状态为COMPLETED，则认为已向量化
-        if ("COMPLETED".equals(embeddingStatus)) {
+        if (DocumentProcessingStatus.COMPLETED.value().equals(embeddingStatus)) {
             return true;
         }
         
         // 如果向量化状态为FAILED，则认为未向量化
-        if ("FAILED".equals(embeddingStatus)) {
+        if (DocumentProcessingStatus.FAILED.value().equals(embeddingStatus)) {
             return false;
         }
         
@@ -442,11 +445,11 @@ public class DocumentServiceImpl implements DocumentService {
             document.setFileSize(file.getSize());
             document.setOssPath(ossPath);
             document.setOssUrl(ossUrl);
-            document.setParseStatus("PENDING");
+            document.setParseStatus(DocumentProcessingStatus.PENDING.value());
             document.setCharacterCount(0);
             document.setChunkCount(0);
             document.setIsEmbedded(false);
-            document.setEmbeddingStatus("PENDING");
+            document.setEmbeddingStatus(DocumentProcessingStatus.PENDING.value());
             document.setUploaderId(uploaderId);
             
             LocalDateTime now = LocalDateTime.now();

@@ -8,7 +8,6 @@ import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Set;
@@ -18,7 +17,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class RedisChatMemeoryStoreTest {
+class RedisChatMemoryStoreTest {
 
     @Mock
     private StringRedisTemplate redisTemplate;
@@ -36,8 +35,7 @@ class RedisChatMemeoryStoreTest {
         when(cursor.hasNext()).thenReturn(true, false);
         when(cursor.next()).thenReturn("42:model-b");
 
-        RedisChatMemeoryStore store = new RedisChatMemeoryStore();
-        ReflectionTestUtils.setField(store, "redisTemplate", redisTemplate);
+        RedisChatMemoryStore store = new RedisChatMemoryStore(redisTemplate);
 
         store.deleteConversationMessages(42L);
 

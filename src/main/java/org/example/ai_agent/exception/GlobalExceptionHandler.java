@@ -109,6 +109,16 @@ public class GlobalExceptionHandler {
                 .body(buildError(500, "服务器内部错误，请稍后重试", exchange, "INTERNAL_ERROR")));
     }
 
+    @ExceptionHandler(ExternalDependencyException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleExternalDependencyException(
+            ExternalDependencyException ex, ServerWebExchange exchange) {
+
+        log.error("外部依赖调用失败: dependency={}, operation={}, path={}",
+                ex.dependency(), ex.operation(), exchange.getRequest().getPath().value());
+        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(buildError(500, "服务器内部错误，请稍后重试", exchange, "INTERNAL_ERROR")));
+    }
+
     @ExceptionHandler(Exception.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleException(
             Exception ex, ServerWebExchange exchange) {

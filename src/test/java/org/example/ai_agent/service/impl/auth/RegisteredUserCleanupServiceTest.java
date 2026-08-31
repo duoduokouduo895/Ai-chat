@@ -65,7 +65,8 @@ class RegisteredUserCleanupServiceTest {
         when(valueOperations.set(org.mockito.ArgumentMatchers.eq(TokenRedisKeys.userRevoked(42L)),
                 org.mockito.ArgumentMatchers.eq("1"), any(Duration.class))).thenReturn(Mono.just(true));
         when(setOperations.members(TokenRedisKeys.userJtis(42L))).thenReturn(Flux.just("jti-1"));
-        when(redisTemplate.delete(TokenRedisKeys.jti("jti-1"))).thenReturn(Mono.just(1L));
+        when(redisTemplate.delete(TokenRedisKeys.jti("jti-1"), TokenRedisKeys.refreshJti("jti-1")))
+                .thenReturn(Mono.just(1L));
         when(redisTemplate.delete(TokenRedisKeys.userJtis(42L))).thenReturn(Mono.just(1L));
         when(conversationRepository.findByUserIdOrderByUpdatedAtDesc(42L)).thenReturn(Flux.just(conversation));
         when(conversationService.deleteConversationAsAdmin(10L)).thenReturn(Mono.empty());
@@ -78,7 +79,7 @@ class RegisteredUserCleanupServiceTest {
 
         verify(valueOperations).set(org.mockito.ArgumentMatchers.eq(TokenRedisKeys.userRevoked(42L)),
                 org.mockito.ArgumentMatchers.eq("1"), any(Duration.class));
-        verify(redisTemplate).delete(TokenRedisKeys.jti("jti-1"));
+        verify(redisTemplate).delete(TokenRedisKeys.jti("jti-1"), TokenRedisKeys.refreshJti("jti-1"));
         verify(conversationService).deleteConversationAsAdmin(10L);
         verify(knowledgeBaseService).deleteKnowledgeBase(20L, 42L, true);
         verify(searchService).clearSearchHistory(42L);

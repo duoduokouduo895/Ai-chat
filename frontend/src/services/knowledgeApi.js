@@ -22,23 +22,19 @@ const isKnowledgeBaseCacheFresh = (key) => (
 export const knowledgeApiService = {
   // 获取知识库列表
   async getKnowledgeBases(params = {}) {
-    try {
-      const cacheKey = cacheKeyFor(params)
-      if (!params.noCache && isKnowledgeBaseCacheFresh(cacheKey)) {
-        return knowledgeBaseCache.response
-      }
-      const response = await apiClient.get('/knowledge/bases', { params })
-      if (!params.noCache) {
-        knowledgeBaseCache = {
-          key: cacheKey,
-          response,
-          createdAt: Date.now()
-        }
-      }
-      return response
-    } catch (error) {
-      throw error
+    const cacheKey = cacheKeyFor(params)
+    if (!params.noCache && isKnowledgeBaseCacheFresh(cacheKey)) {
+      return knowledgeBaseCache.response
     }
+    const response = await apiClient.get('/knowledge/bases', { params })
+    if (!params.noCache) {
+      knowledgeBaseCache = {
+        key: cacheKey,
+        response,
+        createdAt: Date.now()
+      }
+    }
+    return response
   },
 
   invalidateKnowledgeBaseCache() {
@@ -60,151 +56,92 @@ export const knowledgeApiService = {
 
   // 创建知识库
   async createKnowledgeBase(data) {
-    try {
-      const response = await apiClient.post('/knowledge/bases', data)
-      this.invalidateKnowledgeBaseCache()
-      return response
-    } catch (error) {
-      throw error
-    }
+    const response = await apiClient.post('/knowledge/bases', data)
+    this.invalidateKnowledgeBaseCache()
+    return response
   },
 
   // 更新知识库
   async updateKnowledgeBase(id, data) {
-    try {
-      const response = await apiClient.put(`/knowledge/bases/${id}`, data)
-      this.invalidateKnowledgeBaseCache()
-      return response
-    } catch (error) {
-      throw error
-    }
+    const response = await apiClient.put(`/knowledge/bases/${id}`, data)
+    this.invalidateKnowledgeBaseCache()
+    return response
   },
 
   // 删除知识库
   async deleteKnowledgeBase(id) {
-    try {
-      const response = await apiClient.delete(`/knowledge/bases/${id}`)
-      this.invalidateKnowledgeBaseCache()
-      return response
-    } catch (error) {
-      throw error
-    }
+    const response = await apiClient.delete(`/knowledge/bases/${id}`)
+    this.invalidateKnowledgeBaseCache()
+    return response
   },
 
   // 获取知识库详情
   async getKnowledgeBase(id) {
-    try {
-      const response = await apiClient.get(`/knowledge/bases/${id}`)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/bases/${id}`)
   },
 
   // 获取知识库文档列表
   async getDocuments(knowledgeBaseId, params = {}) {
-    try {
-      const response = await apiClient.get(`/knowledge/bases/${knowledgeBaseId}/documents`, { params })
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/bases/${knowledgeBaseId}/documents`, { params })
   },
 
   // 上传文档
   async uploadDocument(formData, onProgress) {
-    try {
-      const response = await apiClient.post('/knowledge/documents/upload', formData, {
-        // 注意：使用FormData时不要手动设置Content-Type，让浏览器自动设置
-        onUploadProgress: (progressEvent) => {
-          if (onProgress && progressEvent.total) {
-            const progress = progressEvent.loaded / progressEvent.total
-            onProgress(progress)
-          }
+    return apiClient.post('/knowledge/documents/upload', formData, {
+      // 注意：使用FormData时不要手动设置Content-Type，让浏览器自动设置
+      onUploadProgress: (progressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const progress = progressEvent.loaded / progressEvent.total
+          onProgress(progress)
         }
-      })
-      return response
-    } catch (error) {
-      throw error
-    }
+      }
+    })
   },
 
   // 批量上传文档
   async batchUploadDocuments(files, knowledgeBaseId, options = {}) {
-    try {
-      const uploadPromises = files.map(async (file) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('knowledgeBaseId', knowledgeBaseId)
-        
-        // 添加可选参数
-        if (options.parseMode) {
-          formData.append('parseMode', options.parseMode)
-        }
-        if (options.enableVectorization !== undefined) {
-          formData.append('enableVectorization', options.enableVectorization)
-        }
-        
-        return this.uploadDocument(formData, options.onProgress)
-      })
+    const uploadPromises = files.map(async (file) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('knowledgeBaseId', knowledgeBaseId)
+
+      // 添加可选参数
+      if (options.parseMode) {
+        formData.append('parseMode', options.parseMode)
+      }
+      if (options.enableVectorization !== undefined) {
+        formData.append('enableVectorization', options.enableVectorization)
+      }
       
-      const results = await Promise.allSettled(uploadPromises)
-      return results
-    } catch (error) {
-      throw error
-    }
+      return this.uploadDocument(formData, options.onProgress)
+    })
+
+    return Promise.allSettled(uploadPromises)
   },
 
   // 删除文档
   async deleteDocument(id) {
-    try {
-      const response = await apiClient.delete(`/knowledge/documents/${id}`)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.delete(`/knowledge/documents/${id}`)
   },
 
   // 获取文档详情
   async getDocument(id) {
-    try {
-      const response = await apiClient.get(`/knowledge/documents/${id}`)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/documents/${id}`)
   },
 
   // 下载文档
   async downloadDocument(id) {
-    try {
-      const response = await apiClient.get(`/knowledge/documents/${id}/download`, {
-        responseType: 'blob'
-      })
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/documents/${id}/download`, { responseType: 'blob' })
   },
 
   // 重新解析文档
   async reparseDocument(id, options = {}) {
-    try {
-      const response = await apiClient.post(`/knowledge/documents/${id}/reparse`, options)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.post(`/knowledge/documents/${id}/reparse`, options)
   },
 
   // 重新向量化文档
   async reEmbedDocument(id) {
-    try {
-      const response = await apiClient.post(`/knowledge/documents/${id}/re-embed`)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.post(`/knowledge/documents/${id}/re-embed`)
   },
 
   async revectorizeDocument(id) {
@@ -213,22 +150,12 @@ export const knowledgeApiService = {
 
   // 搜索知识库
   async searchKnowledge(searchData) {
-    try {
-      const response = await apiClient.post('/knowledge/search', searchData)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.post('/knowledge/search', searchData)
   },
 
   // 获取文档向量化状态
   async getDocumentEmbeddingStatus(id) {
-    try {
-      const response = await apiClient.get(`/knowledge/documents/${id}/embedding-status`)
-      return response
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/documents/${id}/embedding-status`)
   },
 
   async getDocumentStatus(id) {
@@ -237,11 +164,7 @@ export const knowledgeApiService = {
 
   // 获取知识库统计信息
   async getKnowledgeBaseStats(id) {
-    try {
-      return await apiClient.get(`/knowledge/bases/${id}/stats`)
-    } catch (error) {
-      throw error
-    }
+    return apiClient.get(`/knowledge/bases/${id}/stats`)
   }
 }
 

@@ -79,12 +79,8 @@ export const aiApiService = {
 
     // 新增：删除整个对话及消息
     async deleteConversation(conversationId) {
-        try {
-            await apiClient.delete(`/conversations/${conversationId}`);
-            // 返回无内容响应状态
-            return true;
-        } catch (error) {
-            throw error;
-        }
+        await apiClient.delete(`/conversations/${conversationId}`);
+        // 返回无内容响应状态
+        return true;
     }
 };

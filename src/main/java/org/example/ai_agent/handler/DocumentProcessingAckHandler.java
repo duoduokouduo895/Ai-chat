@@ -13,16 +13,17 @@ import java.io.IOException;
 public class DocumentProcessingAckHandler {
 
     public Mono<Void> ack(Channel channel, long deliveryTag, DocumentProcessingMessage message, String scene) {
-        try {
-            channel.basicAck(deliveryTag, false);
-            log.debug("消息确认成功: documentId={}, processingType={}, scene={}",
-                    message.getDocumentId(), message.getProcessingType(), scene);
-            return Mono.empty();
-        } catch (IOException e) {
-            log.error("消息确认失败: documentId={}, processingType={}, scene={}, errorType={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
-            return Mono.error(e);
-        }
+        return Mono.fromRunnable(() -> {
+            try {
+                channel.basicAck(deliveryTag, false);
+                log.debug("消息确认成功: documentId={}, processingType={}, scene={}",
+                        message.getDocumentId(), message.getProcessingType(), scene);
+            } catch (IOException e) {
+                log.error("消息确认失败: documentId={}, processingType={}, scene={}, errorType={}",
+                        message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
+                throw new MessageAcknowledgementException("消息确认失败", e);
+            }
+        });
     }
 
     public Mono<Void> nack(Channel channel,
@@ -30,15 +31,22 @@ public class DocumentProcessingAckHandler {
                            DocumentProcessingMessage message,
                            boolean requeue,
                            String scene) {
-        try {
-            channel.basicNack(deliveryTag, false, requeue);
-            log.debug("消息拒绝成功: documentId={}, processingType={}, scene={}, requeue={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, requeue);
-            return Mono.empty();
-        } catch (IOException e) {
-            log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, errorType={}",
-                    message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
-            return Mono.error(e);
+        return Mono.fromRunnable(() -> {
+            try {
+                channel.basicNack(deliveryTag, false, requeue);
+                log.debug("消息拒绝成功: documentId={}, processingType={}, scene={}, requeue={}",
+                        message.getDocumentId(), message.getProcessingType(), scene, requeue);
+            } catch (IOException e) {
+                log.error("消息拒绝失败: documentId={}, processingType={}, scene={}, errorType={}",
+                        message.getDocumentId(), message.getProcessingType(), scene, e.getClass().getSimpleName());
+                throw new MessageAcknowledgementException("消息拒绝失败", e);
+            }
+        });
+    }
+
+    private static final class MessageAcknowledgementException extends RuntimeException {
+        private MessageAcknowledgementException(String message, IOException cause) {
+            super(message, cause);
         }
     }
 }

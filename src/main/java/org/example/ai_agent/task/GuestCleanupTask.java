@@ -1,6 +1,6 @@
 package org.example.ai_agent.task;
 
-import org.example.ai_agent.repository.chat.RedisChatMemeoryStore;
+import org.example.ai_agent.repository.chat.RedisChatMemoryStore;
 import org.example.ai_agent.service.SearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +31,14 @@ public class GuestCleanupTask {
     private final TransactionalOperator transactionalOperator;
     private final Duration guestSessionTtl;
     private final SearchService searchService;
-    private final RedisChatMemeoryStore chatMemoryStore;
+    private final RedisChatMemoryStore chatMemoryStore;
     private final int cleanupBatchSize;
     private final ScheduledTaskGuard taskGuard = new ScheduledTaskGuard();
 
     public GuestCleanupTask(DatabaseClient databaseClient,
                             TransactionalOperator transactionalOperator,
                             SearchService searchService,
-                            RedisChatMemeoryStore chatMemoryStore,
+                            RedisChatMemoryStore chatMemoryStore,
                             @Value("${scheduled.cleanup.expired-guests.ttl-hours:3}") long guestSessionTtlHours,
                             @Value("${scheduled.cleanup.expired-guests.batch-size:100}") int cleanupBatchSize) {
         this.databaseClient = databaseClient;

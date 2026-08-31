@@ -5,6 +5,7 @@ import org.example.ai_agent.dto.knowledge.KnowledgeBaseCreateDto;
 import org.example.ai_agent.dto.knowledge.KnowledgeBaseDto;
 import org.example.ai_agent.controller.support.KnowledgeAccessContextResolver;
 import org.example.ai_agent.controller.support.KnowledgeDocumentUploadFacade;
+import org.example.ai_agent.controller.support.RequestActorResolver;
 import org.example.ai_agent.controller.support.ReactiveMultipartFormReader;
 import org.example.ai_agent.config.properties.DocumentUploadProperties;
 import org.example.ai_agent.entity.User;
@@ -62,11 +63,13 @@ class KnowledgeControllerAdminTest {
     private UserRepository userRepository;
 
     private KnowledgeController controller;
+    private KnowledgeDocumentController documentController;
 
     @BeforeEach
     void setUp() {
         KnowledgeAccessContextResolver accessContextResolver =
-                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository);
+                new KnowledgeAccessContextResolver(knowledgeBaseService, userRepository,
+                        new RequestActorResolver(userRepository));
         ReactiveMultipartFormReader formReader = new ReactiveMultipartFormReader();
         KnowledgeDocumentUploadFacade uploadFacade =
                 new KnowledgeDocumentUploadFacade(documentService, accessContextResolver, formReader,
@@ -74,12 +77,10 @@ class KnowledgeControllerAdminTest {
         controller = new KnowledgeController(
                 ragService,
                 knowledgeBaseService,
-                documentService,
-                recordService,
-                documentChunkService,
                 knowledgeChunkSearchService,
-                accessContextResolver,
-                uploadFacade);
+                accessContextResolver);
+        documentController = new KnowledgeDocumentController(
+                documentService, documentChunkService, accessContextResolver, uploadFacade);
     }
 
     @Test
@@ -155,7 +156,7 @@ class KnowledgeControllerAdminTest {
         when(documentService.uploadDocument(any(), eq(66L), eq("auto"), eq(true), eq(501L), eq(true)))
                 .thenReturn(Mono.just(uploaded));
 
-        StepVerifier.create(controller.uploadDocumentDirectForAdmin(exchange, admin))
+        StepVerifier.create(documentController.uploadDocumentDirectForAdmin(exchange, admin))
                 .expectNext(uploaded)
                 .verifyComplete();
 

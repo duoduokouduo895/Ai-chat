@@ -26,6 +26,14 @@ public interface SearchHistoryRepository extends R2dbcRepository<SearchHistory, 
            ") " +
            "ORDER BY s1.`timestamp` DESC LIMIT :limit")
     Flux<SearchHistory> findDistinctByUserIdOrderByTimestampDesc(Long userId, int limit);
+
+    @Query("SELECT query FROM search_history " +
+           "WHERE user_id = :userId AND query LIKE CONCAT(:prefix, '%') ESCAPE '!' " +
+           "GROUP BY query " +
+           "ORDER BY MAX(`timestamp`) DESC, MAX(id) DESC LIMIT :limit")
+    Flux<String> findSuggestionQueriesByUserId(@Param("userId") Long userId,
+                                               @Param("prefix") String prefix,
+                                               @Param("limit") int limit);
     
     /**
      * 删除指定查询的旧记录
