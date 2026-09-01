@@ -1,0 +1,8 @@
+# Emergency release fallback: the standard Dockerfile remains the source-build path.
+# Use only after the same commit has passed Maven verification and a pinned base image
+# is already available on the target host.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG APP_JAR=ai-chat-app/target/ai-chat-app-1.0.0.jar
+COPY --chown=10001:10001 ${APP_JAR} /opt/aichat/application.jar
