@@ -1,6 +1,7 @@
 package org.example.ai_agent.repository.chat;
 
 import org.example.ai_agent.entity.ChatTurnRow;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import reactor.core.publisher.Mono;
@@ -17,6 +18,7 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
     Mono<ChatTurnRow> findByActorAndConversationAndClientRequestId(String actorType, Long actorId,
                                                                      Long conversationId, String clientRequestId);
 
+    @Modifying
     @Query("""
             UPDATE chat_turn
             SET status = 'STREAMING', updated_at = CURRENT_TIMESTAMP
@@ -24,6 +26,7 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
             """)
     Mono<Integer> markStreaming(String id);
 
+    @Modifying
     @Query("""
             UPDATE chat_turn
             SET status = 'COMPLETED', assistant_message_id = :assistantMessageId,
@@ -32,6 +35,7 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
             """)
     Mono<Integer> markCompleted(String id, Long assistantMessageId);
 
+    @Modifying
     @Query("""
             UPDATE chat_turn
             SET status = 'FAILED', error_code = :errorCode,
@@ -40,6 +44,7 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
             """)
     Mono<Integer> markFailed(String id, String errorCode);
 
+    @Modifying
     @Query("""
             UPDATE chat_turn
             SET status = 'CANCELLED', error_code = 'CHAT_CANCELLED',
