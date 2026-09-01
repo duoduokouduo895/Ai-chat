@@ -145,7 +145,7 @@ public class AiChatServiceImpl implements AiChatService {
                                     .then(Mono.<ServerSentEvent<String>>empty());
                         }
                         return chatTurnLifecycle.markEmptyResponse(claim)
-                                .then(Mono.error(ChatStreamClientException.emptyResponse()));
+                                .then(Mono.<ServerSentEvent<String>>empty());
                     }))
                     .doOnComplete(() -> {
                         log.info("Assistant对话完成: conversationId={}, ragMode={}, durationMs={}, chunks={}, nonEmptyChunks={}",

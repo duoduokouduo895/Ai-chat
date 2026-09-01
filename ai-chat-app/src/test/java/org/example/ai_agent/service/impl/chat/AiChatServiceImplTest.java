@@ -216,6 +216,28 @@ class AiChatServiceImplTest {
         verify(chatTurnLifecycle, org.mockito.Mockito.never()).markFailed(eq(claim), any());
     }
 
+    @Test
+    void chat_shouldKeepEmptyAnswerSseBehaviorButMarkTurnFailed() {
+        ChatRequest request = request(99L, "request-empty");
+        ChatTurnLifecycle.Claim claim = ownedClaim("turn-empty");
+
+        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation(99L)));
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markEmptyResponse(claim)).thenReturn(Mono.empty());
+        when(generalAssistantFactory.createAssistant(any(ChatRequest.class))).thenReturn(generalAssistant);
+        when(generalAssistant.chat("99:test-model", "早上好")).thenReturn(Flux.empty());
+
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals(
+                        List.of("metadata", "status", "status"),
+                        events.stream().map(ServerSentEvent::event).toList()))
+                .verifyComplete();
+
+        verify(chatTurnLifecycle).markEmptyResponse(claim);
+        verify(chatTurnLifecycle, org.mockito.Mockito.never()).markCompleted(eq(claim), any());
+    }
+
     private ChatRequest request(Long conversationId, String clientMessageId) {
         return ChatRequest.builder()
                 .userId(42L)
