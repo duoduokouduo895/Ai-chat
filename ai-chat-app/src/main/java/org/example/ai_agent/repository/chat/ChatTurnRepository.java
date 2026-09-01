@@ -16,4 +16,35 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
             """)
     Mono<ChatTurnRow> findByActorAndConversationAndClientRequestId(String actorType, Long actorId,
                                                                      Long conversationId, String clientRequestId);
+
+    @Query("""
+            UPDATE chat_turn
+            SET status = 'STREAMING', updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id AND status = 'STARTED'
+            """)
+    Mono<Integer> markStreaming(String id);
+
+    @Query("""
+            UPDATE chat_turn
+            SET status = 'COMPLETED', assistant_message_id = :assistantMessageId,
+                error_code = NULL, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id AND status = 'STREAMING'
+            """)
+    Mono<Integer> markCompleted(String id, Long assistantMessageId);
+
+    @Query("""
+            UPDATE chat_turn
+            SET status = 'FAILED', error_code = :errorCode,
+                completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id AND status IN ('STARTED', 'STREAMING')
+            """)
+    Mono<Integer> markFailed(String id, String errorCode);
+
+    @Query("""
+            UPDATE chat_turn
+            SET status = 'CANCELLED', error_code = 'CHAT_CANCELLED',
+                completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id AND status IN ('STARTED', 'STREAMING')
+            """)
+    Mono<Integer> markCancelled(String id);
 }

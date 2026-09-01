@@ -14,6 +14,19 @@ public final class ChatStreamClientException extends RuntimeException {
         return new ChatStreamClientException("CHAT_TIMEOUT", "模型响应超时，请稍后重试或切换模型。");
     }
 
+    public static ChatStreamClientException requestInProgress() {
+        return new ChatStreamClientException("CHAT_REQUEST_IN_PROGRESS", "相同请求正在处理中，请等待当前回答完成。");
+    }
+
+    public static ChatStreamClientException previousRequestFailed(String errorCode) {
+        return new ChatStreamClientException(errorCode == null || errorCode.isBlank()
+                ? "CHAT_REQUEST_FAILED" : errorCode, "该请求已失败，请使用新的客户端消息 ID 重试。");
+    }
+
+    public static ChatStreamClientException emptyResponse() {
+        return new ChatStreamClientException("CHAT_EMPTY_RESPONSE", "模型未返回有效回答，请稍后重试或切换模型。");
+    }
+
     public String getErrorCode() {
         return errorCode;
     }

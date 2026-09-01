@@ -60,6 +60,7 @@ public class AiController {
                     }
                     chatRequest.setUserId(userId);
                     chatRequest.setAdminRequest(actor.admin());
+                    chatRequest.setActorType(actor.admin() ? "ADMIN" : actor.guest() ? "GUEST" : "USER");
                     chatRequest.setModel(chatModelRoutingPolicy.resolve(chatRequest));
 
                     log.info("Chat request accepted: model={}, knowledgeBaseCount={}",
@@ -77,5 +78,4 @@ public class AiController {
     }
 
 }
-
 

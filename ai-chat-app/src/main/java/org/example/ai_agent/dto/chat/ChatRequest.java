@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -121,6 +122,13 @@ public class ChatRequest {
      */
     @Builder.Default
     private Boolean adminRequest = false;
+
+    /**
+     * 强类型认证信息在 Web Adapter 解析后写入；客户端不能指定该值。
+     * ChatTurn 使用它避免 USER、GUEST、ADMIN 的相同数值 ID 发生幂等冲突。
+     */
+    @JsonIgnore
+    private String actorType;
     
     /**
      * 知识库ID列表
