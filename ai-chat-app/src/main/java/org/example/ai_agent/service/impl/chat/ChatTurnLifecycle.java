@@ -49,12 +49,15 @@ public class ChatTurnLifecycle {
         return transactionalOperator.transactional(Mono.defer(() -> {
                     ChatTurnRow started = newStartedTurn(request, clientRequestId);
                     return chatTurnRepository.save(started)
-                            .flatMap(savedTurn -> conversationTurn.saveUserMessage(request)
+                            .flatMap(savedTurn -> {
+                                savedTurn.markPersisted();
+                                return conversationTurn.saveUserMessage(request)
                                     .flatMap(savedUserMessage -> {
                                         savedTurn.setUserMessageId(savedUserMessage.getId());
                                         return chatTurnRepository.save(savedTurn)
                                                 .thenReturn(Claim.owned(savedTurn, savedUserMessage));
-                                    }));
+                                    });
+                            });
                 }))
                 .onErrorResume(this::isDuplicateClaim,
                         ignored -> findExistingClaim(request, clientRequestId));
@@ -147,6 +150,7 @@ public class ChatTurnLifecycle {
         turn.setAttempt(1);
         turn.setStartedAt(now);
         turn.setUpdatedAt(now);
+        turn.markNew();
         return turn;
     }
 

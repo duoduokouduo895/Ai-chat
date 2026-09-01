@@ -17,6 +17,9 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -47,9 +50,14 @@ class ChatTurnLifecycleTest {
         ChatRequest request = request(null);
         Message savedUserMessage = new Message();
         savedUserMessage.setId(101L);
+        List<Boolean> entityNewStates = new ArrayList<>();
 
         when(chatTurnRepository.save(any(ChatTurnRow.class)))
-                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+                .thenAnswer(invocation -> {
+                    ChatTurnRow row = invocation.getArgument(0);
+                    entityNewStates.add(row.isNew());
+                    return Mono.just(row);
+                });
         when(conversationService.addMessageToConversation(any(Message.class))).thenReturn(Mono.just(savedUserMessage));
 
         StepVerifier.create(lifecycle.claim(request))
@@ -62,6 +70,7 @@ class ChatTurnLifecycleTest {
                     org.junit.jupiter.api.Assertions.assertEquals(request.getClientMessageId(), claim.row().getClientRequestId());
                     org.junit.jupiter.api.Assertions.assertEquals(101L, claim.row().getUserMessageId());
                     org.junit.jupiter.api.Assertions.assertEquals("STARTED", claim.row().getStatus());
+                    org.junit.jupiter.api.Assertions.assertFalse(claim.row().isNew());
                 })
                 .verifyComplete();
 
@@ -70,6 +79,7 @@ class ChatTurnLifecycleTest {
         org.junit.jupiter.api.Assertions.assertEquals(
                 "user:42:99:" + request.getClientMessageId(), messageCaptor.getValue().getDeduplicationKey());
         verify(chatTurnRepository, org.mockito.Mockito.times(2)).save(any(ChatTurnRow.class));
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(true, false), entityNewStates);
     }
 
     @Test
