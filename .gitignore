@@ -61,8 +61,11 @@ build/
 /rag-eval/results/
 
 ### Local agent, design, and acceptance artifacts ###
+/AGENTS.md
+/CONTEXT.md
+/DESIGN.md
+/PRODUCT.md
+/docs/
 /work/
 /artifacts/
-/docs/handoffs/
-/docs/study/
 frontend/wrangler-login.cmd
