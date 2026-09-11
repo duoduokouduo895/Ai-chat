@@ -69,7 +69,7 @@ const visibleModels = computed(() => {
 
 .model-pill.active {
   background: var(--accent-soft);
-  border-color: oklch(0.55 0.13 285);
+  border-color: var(--border-strong);
   color: var(--text-accent);
 }
 

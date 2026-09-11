@@ -72,8 +72,8 @@ summary { cursor: pointer; padding: 4px 0; color: var(--text-primary); }
 ul { padding: 0; margin: 8px 0 0; list-style: none; }
 li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; overflow-wrap: anywhere; }
 small { display: block; }
-button { background: transparent; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 8px; color: var(--accent-color); cursor: pointer; flex-shrink: 0; font: inherit; min-height: 36px; }
+button { background: transparent; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 6px 8px; color: var(--text-primary); cursor: pointer; flex-shrink: 0; font: inherit; min-height: 36px; }
 button:hover { background: var(--accent-soft); }
-button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
 @media (max-width: 480px) { li { align-items: flex-start; flex-direction: column; gap: 4px; } button { min-height: 44px; } }
 </style>

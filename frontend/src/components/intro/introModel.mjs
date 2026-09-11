@@ -1,27 +1,31 @@
 export const INTRO_SESSION_KEY = 'dduo:intro:seen:v1';
-export const MORPH_SECONDS = 1.6;
-export const FIELD_EXPAND_SECONDS = 0.5;
-export const END_SECONDS = 10;
-export const FIELD_START = 0;
-export const FIELD_LOCK_START = 1.5;
-export const LOCK_HOLD = 0.45;
-export const LOCK_FADE = 0.2;
-export const REVEAL_START = 8;
-export const REVEAL_SPAN = 0.75;
-export const FIELD_REVEAL_TIMEOUT = 6.5;
-export const MID_FADE_START = 1.6;
-export const MID_FADE_SPAN = 1.2;
+export const MORPH_SECONDS = 0.35;
+export const MORPH_HOLD_SECONDS = 0.5;
+export const RASTER_SCAN_SECONDS = 0.5;
+export const RASTER_HOLD_SECONDS = 0.1;
+export const REVEAL_FADE_SECONDS = 0.7;
+export const DISPERSE_SECONDS = 0.6;
+export const MORPH_END = MORPH_SECONDS + MORPH_HOLD_SECONDS;
+export const RASTER_END = MORPH_END + RASTER_SCAN_SECONDS + RASTER_HOLD_SECONDS;
+export const REVEAL_DELAY_SECONDS = RASTER_END;
+export const INTRO_SECONDS = RASTER_END + REVEAL_FADE_SECONDS;
+export const DISPERSE_GRAVITY = 1.6;
+export const DISPERSE_OUTWARD = 0.8;
+export const DISPERSE_JITTER = 0.4;
+export const DISPERSE_LIFT = 0.5;
+export const PHYSICS_DT = 1 / 60;
+export const MAX_PHYSICS_STEPS = 4;
+export const DECRYPT_DURATION = 0.6;
+export const DECRYPT_HZ = 30;
+export const GLITCH_CHARS = '$MBNQØW@&R8GD6S9ÖOH#ÉE5UK0ÄÅA2XP34ZC%VIF17YTJL*';
+export const REVEAL_EASING = [1, 0.02, 0.37, 0.97];
 export const SURFACE_CYCLE = 8.4;
 export const TARGET_FRAME_MS = 1000 / 60;
 export const AXIS_PERIOD = 2;
-export const STRUCTURE_SCAN_START = 2.2;
-export const STRUCTURE_SCAN_SPAN = 1.4;
-export const STRUCTURE_RELEASE = 4.2;
 export const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 export const smooth = (value) => { const t = clamp(value); return t * t * (3 - 2 * t); };
 export const ASCII_RAMP = 'NOA86?<>/=+!:.';
 export const ASCII_RAMP_LAST = ASCII_RAMP.length - 1;
-export const FIELD_RAMP = 'NOA86?<>/=+!:';
 export const SPRING_RAMP = 'NOA8694523?!<>=+/:.';
 export const SPRING_RAMP_LAST = SPRING_RAMP.length - 1;
 export const SPRING_SWEEP_PERIOD = 6.4;
@@ -171,8 +175,6 @@ export function stepSpringGlyph(p, clock, cols, rows) {
   return idx;
 }
 
-// Four circulating envelopes. Travel only slides the periodic profile through a
-// stable screen grid; it must not translate the whole body off-screen.
 export const SURFACE_MAX_COVERAGE = 0.68;
 export const SURFACE_KEYS = [
   { radial: 0.30, height: 1.46, waist: 0.42, turn: 0.00 },
@@ -227,7 +229,6 @@ export function radiusSlope(v, pose, eps = 0.04) {
   return (radiusFromAxis(axis + eps, pose) - radiusFromAxis(axis - eps, pose)) / (2 * eps);
 }
 
-// Dark centre, bright shoulders: projected-normal fresnel of a surface of revolution.
 export function surfaceShade(u, coverage, slope, pose) {
   const radius = Math.max(1e-4, coverage);
   const xn = clamp(u / radius, -0.999, 0.999);
@@ -291,53 +292,6 @@ export function introGridMetrics(width, height, quality = 0, glyphWidth = 0) {
   };
 }
 
-export function fieldGridMetrics(width, height, fontSize = 13, maxCount = 1400) {
-  const w = Math.max(32, width);
-  const h = Math.max(32, height);
-  let cols = Math.max(12, Math.floor(w / Math.max(7, fontSize * 0.52)));
-  let rows = Math.max(10, Math.floor(h / Math.max(9, fontSize * 0.82)));
-  while (cols * rows > maxCount && (cols > 14 || rows > 10)) {
-    if (cols / Math.max(1, rows) > w / h && cols > 14) cols -= 1;
-    else if (rows > 10) rows -= 1;
-    else cols -= 1;
-  }
-  const stepX = w / cols;
-  const stepY = h / rows;
-  return {
-    cols,
-    rows,
-    stepX,
-    stepY,
-    count: cols * rows,
-    drawSize: Math.min(stepX / 0.56, stepY * 0.98)
-  };
-}
-
-export function selectMaskSamples(points, cellX, cellY, maxCount = 1600) {
-  if (!points?.length) return [];
-  const gx = Math.max(4, cellX || 8);
-  const gy = Math.max(6, cellY || 10);
-  const buckets = new Map();
-  for (const point of points) {
-    const key = `${Math.round(point.x / gx)}:${Math.round(point.y / gy)}`;
-    if (!buckets.has(key)) buckets.set(key, point);
-  }
-  const unique = [...buckets.values()];
-  if (unique.length <= maxCount) return unique;
-  const picked = [];
-  const step = unique.length / maxCount;
-  for (let i = 0; i < maxCount; i++) {
-    picked.push(unique[Math.min(unique.length - 1, Math.floor(i * step))]);
-  }
-  return picked;
-}
-
-export function isLocalStructure(p, height) {
-  if (p.structX == null || p.structY == null) return false;
-  if (p.y - p.structY > Math.max(40, height * 0.2)) return false;
-  return Math.hypot(p.x - p.structX, p.y - p.structY) <= Math.max(64, height * 0.26);
-}
-
 export function stepSpring(p, dt, stiffness = 28, damping = 9.5) {
   const t = Math.min(Math.max(dt, 0), 0.04);
   p.vx += ((p.targetX - p.x) * stiffness - p.vx * damping) * t;
@@ -357,175 +311,216 @@ export function applyCursorImpulse(p, mouseX, mouseY, radius, strength, dt) {
   p.vy += (dy / dist) * mag;
 }
 
-export function burstOffset(seedA, seedB, radius) {
-  const angle = seedA * Math.PI * 2;
-  const dist = (0.2 + seedB * 0.8) * radius;
-  return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.82 };
-}
-
-function lerpPoint(a, b, t) {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-}
-
-export const LOGO_GLYPHS = 'O08M';
-
-export function logoGlyphFor(light) {
-  const t = clamp(light ?? 0.7);
-  if (t > 0.8) return 'M';
-  if (t > 0.6) return '8';
-  if (t > 0.44) return '0';
-  return 'O';
-}
-
-export function layoutLogoLetters(inkWidths, gap) {
-  const widths = inkWidths.map((w) => Math.max(0, w));
-  const total = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, widths.length - 1);
-  const starts = [];
-  let x = 0;
-  for (const w of widths) {
-    starts.push(x);
-    x += w + gap;
+export function physicsSteps(elapsedSeconds) {
+  const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+  const steps = [];
+  let remaining = elapsed;
+  for (let i = 0; i < MAX_PHYSICS_STEPS && remaining > 0; i++) {
+    const dt = Math.min(PHYSICS_DT, remaining);
+    steps.push(dt);
+    remaining -= dt;
   }
-  return { total, starts, gap };
+  return steps;
 }
 
-export function logoGridMetrics(wordHeight, wordWidth, maxCount = 1100) {
-  const h = Math.max(24, wordHeight);
-  const w = Math.max(24, wordWidth);
-  let rows = 18;
-  for (let i = 0; i < 10; i++) {
-    const stepY = h / rows;
-    const stepX = stepY * 0.62;
-    const cols = Math.max(1, Math.ceil(w / stepX));
-    if (rows * cols <= maxCount * 2.2) {
-      return {
-        stepX,
-        stepY,
-        drawSize: Math.min(stepX / 0.56, stepY * 1.02),
-        rows,
-        cols
-      };
-    }
-    rows -= 1;
-  }
-  const stepY = h / 8;
-  const stepX = stepY * 0.62;
-  return { stepX, stepY, drawSize: Math.min(stepX / 0.56, stepY * 1.02), rows: 8, cols: Math.ceil(w / stepX) };
+export function morphArrive(progress) {
+  return smooth(clamp(progress));
 }
 
-export function snapToLattice(x, y, stepX, stepY) {
-  const ox = stepX / 2;
-  const oy = stepY / 2;
+export function morphPoint(from, to, progress) {
+  const t = morphArrive(progress);
   return {
-    x: ox + Math.round((x - ox) / stepX) * stepX,
-    y: oy + Math.round((y - oy) / stepY) * stepY
+    x: from.x + (to.x - from.x) * t,
+    y: from.y + (to.y - from.y) * t
   };
 }
 
-export function sampleLatticeCoverage(alphaAt, width, height, stepX, stepY, minCoverage = 0.36) {
-  const points = [];
-  const insetX = stepX * 0.28;
-  const insetY = stepY * 0.28;
-  for (let y = stepY / 2; y < height; y += stepY) {
-    for (let x = stepX / 2; x < width; x += stepX) {
-      let sum = 0;
-      let n = 0;
-      for (const dy of [-insetY, 0, insetY]) {
-        for (const dx of [-insetX, 0, insetX]) {
-          const a = alphaAt(x + dx, y + dy);
-          if (a == null) continue;
-          sum += a;
-          n++;
-        }
-      }
-      const light = n ? sum / n : 0;
-      if (light >= minCoverage) {
-        const snapped = snapToLattice(x, y, stepX, stepY);
-        points.push({ x: snapped.x, y: snapped.y, light });
-      }
+export function matchMorphTargets(sources, targets) {
+  const src = [...(sources || [])].sort((a, b) => a.x - b.x || a.y - b.y);
+  const dst = [...(targets || [])].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (!dst.length) {
+    return src.map((s) => ({
+      from: s,
+      to: { x: s.x, y: s.y, glyph: s.glyph, alpha: 0, light: s.light },
+      role: 'fade'
+    }));
+  }
+  if (!src.length) {
+    const origin = { x: 0.5, y: 0.5, glyph: 'N', alpha: 0, light: 0.6 };
+    return dst.map((t) => ({ from: origin, to: t, role: 'spawn' }));
+  }
+  const pairs = [];
+  const assigned = new Array(src.length).fill(false);
+  for (let k = 0; k < dst.length; k++) {
+    const si = Math.round(k * (src.length - 1) / Math.max(1, dst.length - 1));
+    const role = assigned[si] ? 'spawn' : 'land';
+    assigned[si] = true;
+    pairs.push({ from: src[si], to: dst[k], role });
+  }
+  for (let i = 0; i < src.length; i++) {
+    if (assigned[i]) continue;
+    const ti = Math.round(i * (dst.length - 1) / Math.max(1, src.length - 1));
+    pairs.push({ from: src[i], to: dst[ti], role: 'fade' });
+  }
+  return pairs;
+}
+
+export function playPhaseAt(elapsed) {
+  if (elapsed < MORPH_END) return 'morph';
+  if (elapsed < RASTER_END) return 'raster';
+  if (elapsed < INTRO_SECONDS) return 'fade';
+  return 'done';
+}
+
+export function createDisperseParticle({ x, y, glyph, light, alpha, randA, randB }) {
+  const nx = Number(x) || 0;
+  const ny = Number(y) || 0;
+  const a = Number.isFinite(randA) ? randA : 0.5;
+  const b = Number.isFinite(randB) ? randB : 0.5;
+  const startAlpha = Number.isFinite(alpha) ? alpha : 1;
+  return {
+    x: nx,
+    y: ny,
+    glyph: glyph || 'N',
+    light: Number.isFinite(light) ? light : 0.6,
+    startAlpha,
+    alpha: startAlpha,
+    vx: (nx - 0.5) * DISPERSE_OUTWARD + (a - 0.5) * DISPERSE_JITTER,
+    vy: -b * DISPERSE_LIFT,
+    visible: startAlpha >= 0.04
+  };
+}
+
+export function stepDisperseParticle(p, dt, elapsed) {
+  if (!p || p.visible === false) return p;
+  const step = Math.min(PHYSICS_DT, Math.max(0, dt));
+  p.vy += DISPERSE_GRAVITY * step;
+  p.x += p.vx * step;
+  p.y += p.vy * step;
+  const life = clamp(elapsed / DISPERSE_SECONDS);
+  p.alpha = p.startAlpha * (1 - life);
+  if (p.alpha < 0.04 || p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) p.visible = false;
+  return p;
+}
+
+function sampleBezierX(t, x1, x2) {
+  const ax = 3 * x1 - 3 * x2 + 1;
+  const bx = 3 * x2 - 6 * x1;
+  const cx = 3 * x1;
+  return ((ax * t + bx) * t + cx) * t;
+}
+
+function sampleBezierY(t, y1, y2) {
+  const ay = 3 * y1 - 3 * y2 + 1;
+  const by = 3 * y2 - 6 * y1;
+  const cy = 3 * y1;
+  return ((ay * t + by) * t + cy) * t;
+}
+
+function sampleBezierDX(t, x1, x2) {
+  const ax = 3 * x1 - 3 * x2 + 1;
+  const bx = 3 * x2 - 6 * x1;
+  const cx = 3 * x1;
+  return (3 * ax * t + 2 * bx) * t + cx;
+}
+
+export function cubicBezierEase(x1, y1, x2, y2) {
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const err = sampleBezierX(t, x1, x2) - x;
+      const dx = sampleBezierDX(t, x1, x2);
+      if (Math.abs(err) < 1e-6 || Math.abs(dx) < 1e-6) break;
+      t = clamp(t - err / dx);
     }
-  }
-  return points;
+    return sampleBezierY(t, y1, y2);
+  };
 }
 
-// Burst, then one coalesce onto the glyph. A mid-path rest at a contracted
-// letter region reads as a stuttered second formation.
-export function morphSample(progress, from, along, region, target) {
-  const p = clamp(progress);
-  const end = target || region;
-  if (p <= 0.22) return lerpPoint(from, along, smooth(p / 0.22));
-  return lerpPoint(along, end, smooth((p - 0.22) / 0.78));
+export const revealEase = cubicBezierEase(...REVEAL_EASING);
+
+export function revealProgress(elapsed) {
+  const t = (Number(elapsed) - REVEAL_DELAY_SECONDS) / REVEAL_FADE_SECONDS;
+  return revealEase(clamp(t));
 }
 
-export function clusterLetterTargets(word) {
-  if (!word.length) return [];
-  const sorted = [...word].sort((a, b) => a.x - b.x || a.y - b.y);
-  const minX = sorted[0].x;
-  const maxX = sorted[sorted.length - 1].x;
-  const span = Math.max(1, maxX - minX);
-  const bins = Math.max(24, Math.min(160, Math.round(span / 4)));
-  const hist = new Array(bins).fill(0);
-  const byBin = Array.from({ length: bins }, () => []);
-  for (const point of sorted) {
-    const b = Math.min(bins - 1, Math.floor(((point.x - minX) / span) * bins));
-    hist[b]++;
-    byBin[b].push(point);
-  }
-  const valley = Math.max(...hist, 1) * 0.12;
-  const groups = [];
-  let current = [];
-  let inLetter = false;
-  for (let b = 0; b < bins; b++) {
-    if (hist[b] > valley) {
-      current.push(...byBin[b]);
-      inLetter = true;
-    } else if (inLetter) {
-      if (current.length) groups.push(current);
-      current = [];
-      inLetter = false;
+export function isDecryptKept(ch) {
+  return ch == null || ch === '' || /\s/u.test(ch);
+}
+
+export function sampleDecryptText(text, progress, random = Math.random) {
+  const chars = Array.from(text ?? '');
+  if (!(progress < 1)) return chars.join('');
+  const payload = chars.filter((ch) => !isDecryptKept(ch));
+  const total = payload.length;
+  let seen = 0;
+  return chars.map((ch) => {
+    if (isDecryptKept(ch)) return ch;
+    const threshold = total ? (seen + 1) / total : 1;
+    seen += 1;
+    if (progress >= threshold) return ch;
+    const idx = Math.floor(random() * GLITCH_CHARS.length) % GLITCH_CHARS.length;
+    return GLITCH_CHARS.charAt(Math.max(0, idx)) || ch;
+  }).join('');
+}
+
+export function createDecryptPlayback({
+  text,
+  duration = DECRYPT_DURATION,
+  interval = 1 / DECRYPT_HZ,
+  random = Math.random,
+  getPaused = () => false,
+  onUpdate,
+  onComplete
+} = {}) {
+  const source = String(text ?? '');
+  let raf = 0;
+  let cancelled = false;
+  let startedAt = null;
+  let lastGlyphAt = -Infinity;
+  let pauseAt = null;
+
+  function frame(now) {
+    if (cancelled) return;
+    raf = 0;
+    if (getPaused?.()) {
+      if (pauseAt == null) pauseAt = now;
+      raf = requestAnimationFrame(frame);
+      return;
     }
+    if (pauseAt != null) {
+      const held = now - pauseAt;
+      if (startedAt != null) startedAt += held;
+      if (Number.isFinite(lastGlyphAt)) lastGlyphAt += held;
+      pauseAt = null;
+    }
+    if (startedAt == null) startedAt = now;
+    const progress = clamp((now - startedAt) / (Math.max(1e-4, duration) * 1000));
+    if (progress >= 1) {
+      onUpdate?.(source);
+      onComplete?.();
+      return;
+    }
+    if (now - lastGlyphAt >= Math.max(1, interval * 1000)) {
+      lastGlyphAt = now;
+      onUpdate?.(sampleDecryptText(source, progress, random));
+    }
+    raf = requestAnimationFrame(frame);
   }
-  if (current.length) groups.push(current);
-  return groups.length ? groups : [sorted];
-}
 
-export function fillSampleQuota(points, quota) {
-  if (!points.length || quota <= 0) return [];
-  if (points.length <= quota) return points.slice();
-  const out = [];
-  for (let i = 0; i < quota; i++) {
-    out.push(points[Math.min(points.length - 1, Math.floor(i * points.length / quota))]);
-  }
-  return out;
-}
-
-export function balanceLetterTargets(word) {
-  const groups = clusterLetterTargets(word);
-  if (!groups.length) return [];
-  if (groups.length === 1) return groups;
-  const peak = Math.max(...groups.map((group) => group.length));
-  const quota = Math.max(12, Math.round(peak * 0.94));
-  return groups.map((group) => fillSampleQuota(group, quota));
-}
-
-export function mapMorphTargets(sources, word, noiseFn = () => 0.5) {
-  void noiseFn;
-  if (!sources.length || !word.length) return [];
-  const dst = word.map((point) => ({
-    target: point,
-    region: { x: point.x, y: point.y, light: point.light }
-  })).sort((a, b) => a.target.x - b.target.x || a.target.y - b.target.y);
-  const srcOrder = sources.map((_, i) => i).sort((a, b) => sources[a].x - sources[b].x || sources[a].y - sources[b].y);
-  const assigned = new Array(sources.length);
-  for (let k = 0; k < sources.length; k++) {
-    const sample = dst[Math.min(dst.length - 1, Math.floor(k * dst.length / sources.length))];
-    assigned[srcOrder[k]] = sample;
-  }
-  return assigned;
-}
-
-export function fieldFront(time, height) {
-  return smooth(clamp((time - FIELD_EXPAND_SECONDS) / 1.7)) * height * 1.05;
+  return {
+    start() {
+      if (cancelled) return;
+      raf = requestAnimationFrame(frame);
+    },
+    cancel() {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
+  };
 }
 
 export function createFrameGate(targetMs = TARGET_FRAME_MS) {
@@ -569,416 +564,35 @@ export function createIntroSession(storage = () => globalThis.sessionStorage) {
 }
 
 export const introSession = createIntroSession();
-export const phaseAt = (seconds) => seconds < 0.2 ? 'falling'
-  : seconds < 8 ? 'field'
-    : seconds < 8.75 ? 'reveal'
-      : seconds < END_SECONDS ? 'clearing' : 'done';
-export const workspaceOpacity = (seconds) => smooth((seconds - REVEAL_START) / REVEAL_SPAN);
-export const revealProgress = (elapsed, span = REVEAL_SPAN) => elapsed <= 0 ? 0 : smooth(elapsed / span);
-
-export function fieldFrontY(particles) {
-  let max = -Infinity;
-  if (!particles) return max;
-  for (const p of particles) {
-    if (p.state === 'dead') continue;
-    if (p.y > max) max = p.y;
-  }
-  return max;
-}
-
-export function lockWipeAlpha(y, revealElapsed, lockTop, lockBottom, base = 0.5) {
-  if (!(revealElapsed > 0)) return base;
-  const top = Number.isFinite(lockTop) ? lockTop : y;
-  const bottom = Number.isFinite(lockBottom) && lockBottom > top ? lockBottom : top + 8;
-  const span = Math.max(8, bottom - top);
-  const rowT = clamp((y - top) / span);
-  const soft = 0.22;
-  const front = clamp(revealElapsed / LOCK_FADE) * (1 + soft);
-  return base * clamp(1 + (rowT - front) / soft);
-}
-
-export function shouldEnableLock(frontY, inputBottom, height) {
-  const gate = Number.isFinite(inputBottom) ? inputBottom : height * 0.45;
-  return frontY >= gate;
-}
-
-export function shouldStartReveal({
-  frontY, height, stepY, lockCount, lockCellCount, firstLockAt, time, timeout = FIELD_REVEAL_TIMEOUT
-}) {
-  if (time >= timeout) return true;
-  const filled = frontY >= height - 2 * Math.max(4, stepY || 12);
-  const locksOk = (lockCount || 0) > 0 || !(lockCellCount > 0);
-  const held = firstLockAt == null ? filled : (time - firstLockAt) >= LOCK_HOLD;
-  return filled && locksOk && held;
-}
 
 export function createIntroTimeline() {
-  let phase = 'sculpture';
+  let phase = 'idle';
   let elapsed = 0;
+  function syncPhase() {
+    if (phase === 'idle') return;
+    phase = playPhaseAt(elapsed);
+  }
   return {
     get phase() { return phase; },
     get elapsed() { return elapsed; },
     advance() {
-      if (phase !== 'sculpture' && phase !== 'word') return false;
-      phase = phase === 'sculpture' ? 'morph' : 'falling';
+      if (phase !== 'idle') return false;
+      phase = 'morph';
       elapsed = 0;
       return true;
     },
     tick(delta) {
-      if (phase === 'sculpture' || phase === 'word' || phase === 'done') return;
+      if (phase === 'idle' || phase === 'done') return;
       elapsed += Math.max(0, delta);
-      if (phase === 'morph') {
-        if (elapsed >= MORPH_SECONDS) { phase = 'word'; elapsed = 0; }
-      } else if (phase === 'reveal' || phase === 'clearing') {
-        if (elapsed >= REVEAL_SPAN + 1.8) phase = 'done';
-        else if (elapsed >= REVEAL_SPAN) phase = 'clearing';
-      } else {
-        phase = elapsed < 0.2 ? 'falling' : 'field';
-      }
+      if (elapsed >= INTRO_SECONDS) elapsed = INTRO_SECONDS;
+      syncPhase();
     },
-    unveil() {
-      if (phase === 'done' || phase === 'reveal' || phase === 'clearing') return false;
-      phase = 'reveal';
-      elapsed = 0;
-      return true;
+    setElapsed(value) {
+      if (phase === 'idle') return;
+      elapsed = Math.max(0, Number(value) || 0);
+      if (elapsed >= INTRO_SECONDS) elapsed = INTRO_SECONDS;
+      syncPhase();
     },
-    skip() { phase = 'done'; }
+    skip() { phase = 'done'; elapsed = INTRO_SECONDS; }
   };
-}
-
-export function assignStructureTargets(particles, outline, height) {
-  if (!particles?.length || !outline?.length) return;
-  const maxLift = Math.max(48, height * 0.28);
-  const candidates = [];
-  for (let i = 0; i < particles.length; i++) {
-    const p = particles[i];
-    if (p.state === 'dead' || p.state === 'perched' || p.role === 'structure') continue;
-    candidates.push(p);
-  }
-  candidates.sort((a, b) => a.y - b.y || a.x - b.x);
-  const points = [...outline].sort((a, b) => a.y - b.y || a.x - b.x);
-  const cap = Math.min(points.length, Math.floor(particles.length * 0.42), 900);
-  const used = new Set();
-  let ci = 0;
-  for (let i = 0; i < cap; i++) {
-    const point = points[Math.floor(i * points.length / cap)];
-    let best = -1;
-    let bestDist = Infinity;
-    const start = Math.max(0, ci - 8);
-    for (let k = start; k < candidates.length; k++) {
-      if (used.has(k)) continue;
-      const p = candidates[k];
-      if (p.y - point.y > maxLift) continue;
-      const dist = Math.hypot(p.x - point.x, p.y - point.y);
-      if (dist < bestDist) { bestDist = dist; best = k; if (k > ci) ci = k; }
-      if (p.y > point.y + maxLift) break;
-    }
-    if (best < 0 || bestDist > height * 0.42) continue;
-    used.add(best);
-    const p = candidates[best];
-    p.role = 'structure';
-    p.structX = point.x;
-    p.structY = point.y;
-    p.convergeFromX = null;
-    p.convergeFromY = null;
-    p.convergeStart = null;
-  }
-}
-
-export function stepStructureParticle(p, time, bounds) {
-  if (p.role !== 'structure' || p.state === 'dead') return false;
-  if (p.state !== 'waiting' && p.state !== 'converging' && !isLocalStructure(p, bounds.height)) {
-    p.role = 'rain';
-    p.catchable = false;
-    return false;
-  }
-  if (time >= STRUCTURE_RELEASE) {
-    const residual = (p.seed || 0) < 0.18;
-    p.role = 'rain';
-    p.catchable = false;
-    p.convergeFromX = p.convergeFromY = p.convergeStart = null;
-    if (!residual) {
-      p.state = 'dead';
-      p.alpha = 0;
-      return true;
-    }
-    p.state = 'falling';
-    p.vy = Math.max(p.vy || 0, 55 + (p.seed || 0) * 40);
-    p.vx = ((p.seed || 0) - 0.5) * 28;
-    p.alpha = Math.max(p.alpha, 0.35);
-    return false;
-  }
-  const scan = smooth((time - STRUCTURE_SCAN_START) / STRUCTURE_SCAN_SPAN) * bounds.height;
-  const beforeScan = time < STRUCTURE_SCAN_START || (p.structY ?? p.y) > scan;
-  if (beforeScan && time < 3.6) {
-    p.state = 'waiting';
-    if (p.convergeFromX == null) {
-      p.convergeFromX = p.structX ?? p.x;
-      p.convergeFromY = (p.structY ?? p.y) - Math.max(6, (bounds.glyphHeight || 10) * 0.45);
-    }
-    p.x = p.convergeFromX;
-    p.y = p.convergeFromY;
-    p.vx = 0;
-    p.vy = 0;
-    p.alpha = 0;
-    p.convergeStart = null;
-    return true;
-  }
-  if (p.convergeStart == null || Number.isNaN(p.convergeStart)) {
-    if (p.convergeFromX == null) {
-      p.convergeFromX = p.x;
-      p.convergeFromY = p.y;
-    }
-    p.convergeStart = time;
-    p.state = 'converging';
-  }
-  const local = smooth((time - p.convergeStart) / Math.max(0.12, 3.6 - p.convergeStart));
-  p.x = p.convergeFromX + (p.structX - p.convergeFromX) * local;
-  p.y = p.convergeFromY + (p.structY - p.convergeFromY) * local;
-  p.vx = 0;
-  p.vy = 0;
-  p.state = 'converging';
-  if (time >= 3.6) {
-    p.x = p.structX;
-    p.y = p.structY;
-    p.alpha = 1 - workspaceOpacity(time);
-  } else {
-    p.alpha = local;
-  }
-  return true;
-}
-
-export function thinParticlesSpatially(particles, surfaces, bounds) {
-  const seen = new Set();
-  const gx = Math.max(4, bounds.glyphWidth || 8);
-  const gy = Math.max(6, bounds.glyphHeight || 10);
-  return particles.filter((p) => {
-    if (p.state === 'dead') return false;
-    if (p.role === 'structure' || p.state === 'perched') return true;
-    const key = `${Math.round(p.x / gx)}:${Math.round(p.y / gy)}`;
-    if (seen.has(key)) {
-      releasePerchedOccupancy(p, surfaces, bounds);
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-}
-
-export function beginExit(p, time, bounds) {
-  if (p.state === 'exiting' || p.state === 'dead') return;
-  p.state = 'exiting';
-  p.exitAt = time;
-  p.exitSpeed = 28 + (p.seed || 0) * 27;
-  p.vx *= 0.12;
-  p.vy = p.exitSpeed;
-  p.angle = 0;
-  p.catchable = false;
-  const hold = Math.max(2, (bounds.glyphHeight || 10) * 0.2);
-  p.y = Math.min(p.y, bounds.height - hold);
-}
-
-export function suppressMidBand(p, time, bounds) {
-  if (p.state === 'dead' || p.state === 'perched' || p.state === 'exiting') return;
-  if (p.role === 'structure' || p.role === 'field' || p.role === 'lock' || p.edgeId != null) return;
-  if (time < MID_FADE_START) return;
-  const fade = smooth((time - MID_FADE_START) / MID_FADE_SPAN);
-  if (fade <= 0) return;
-  const y0 = bounds.height * 0.22;
-  const y1 = bounds.height * 0.72;
-  if (p.y < y0 || p.y > y1) return;
-  p.alpha = Math.min(p.alpha, 1 - fade);
-  p.catchable = false;
-  if (fade > 0.45) p.vy = Math.max(p.vy || 0, 80);
-  if (p.alpha <= 0.02) {
-    p.state = 'dead';
-    p.alpha = 0;
-  }
-}
-
-// Swept feet-to-edge collision prevents tunnelling even at reduced frame rates.
-export function stepFallingParticle(p, dt, time, surfaces, bounds) {
-  if (time < p.delay || p.state === 'dead') return;
-  const half = bounds.glyphHeight / 2;
-  if (p.state === 'perched') {
-    const edge = surfaces.find((item) => item.id === p.edgeId);
-    if (edge && time < p.releaseAt) {
-      p.x = edge.left + p.edgeFraction * (edge.right - edge.left);
-      p.y = edge.y - half - (p.edgeLevel || 0) * bounds.glyphHeight * 0.85 - Math.abs(Math.sin((time - p.landedAt) * 14))
-        * 5 * Math.exp(-(time - p.landedAt) * 8);
-      return;
-    }
-    releasePerchedOccupancy(p, surfaces, bounds);
-    p.state = 'falling';
-    p.vx = (p.seed < 0.5 ? -1 : 1) * (10 + p.seed * 16);
-    p.vy = 40;
-  }
-  if (p.state === 'exiting') {
-    p.vy = p.exitSpeed || 40;
-    p.vx *= Math.max(0, 1 - dt * 8);
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    const gone = Math.max(0, (p.y - (bounds.height - bounds.glyphHeight)) / Math.max(12, bounds.glyphHeight * 2.4));
-    const timed = (time - (p.exitAt || time)) / (0.95 + (p.seed || 0) * 0.3);
-    p.alpha = 1 - smooth(Math.max(gone, timed));
-    if (p.y > bounds.height + bounds.glyphHeight || p.alpha <= 0) {
-      p.state = 'dead';
-      p.alpha = 0;
-    }
-    return;
-  }
-  const previousFeet = p.y + half;
-  p.vy += bounds.gravity * dt;
-  if (p.y > bounds.height * 0.72) p.vy = Math.max(p.vy, 0);
-  if (p.y > bounds.height - bounds.glyphHeight * 3.5) p.vy = Math.min(p.vy, 140);
-  p.x += p.vx * dt;
-  p.y += p.vy * dt;
-  p.angle += p.spin * dt;
-  p.x = clamp(p.x, half, bounds.width - half);
-  if (p.catchable) {
-    let landing = null;
-    for (const edge of surfaces) {
-      if (edge.id !== p.edgeId && p.x >= edge.left && p.x <= edge.right
-        && previousFeet <= edge.y && p.y + half >= edge.y
-        && (!landing || edge.y < landing.y)) {
-        const slot = occupancySlot(p, edge, bounds);
-        if ((edge.occupancy?.get(slot) || 0) < 2) landing = edge;
-      }
-    }
-    if (landing) {
-      p.state = 'perched'; p.edgeId = landing.id;
-      const slot = occupancySlot(p, landing, bounds);
-      landing.occupancy ??= new Map();
-      p.edgeLevel = landing.occupancy.get(slot) || 0;
-      landing.occupancy.set(slot, p.edgeLevel + 1);
-      p.edgeFraction = (p.x - landing.left) / Math.max(1, landing.right - landing.left);
-      p.y = landing.y - half - p.edgeLevel * bounds.glyphHeight * 0.85; p.landedAt = time;
-      p.releaseAt = time + 0.25 + p.seed * 0.3;
-      p.angle = 0; p.vy = 0;
-      p.catchable = false;
-      return;
-    }
-  }
-  if (p.y >= bounds.height - bounds.glyphHeight * 2.2) beginExit(p, time, bounds);
-}
-
-export function fieldCellKey(x, y, cellX, cellY) {
-  const gx = Math.max(1, cellX || 8);
-  const gy = Math.max(1, cellY || 10);
-  return `${Math.floor(x / gx)}:${Math.floor(y / gy)}`;
-}
-
-export function lockCellsInRoundRect(left, top, width, height, radius, stepX, stepY) {
-  const cells = [];
-  const gx = Math.max(1, stepX || 8);
-  const gy = Math.max(1, stepY || 10);
-  const right = left + Math.max(0, width);
-  const bottom = top + Math.max(0, height);
-  const r = Math.max(0, Math.min(radius || 0, width / 2, height / 2));
-  const col0 = Math.floor(left / gx);
-  const col1 = Math.floor((right - 1e-6) / gx);
-  const row0 = Math.floor(top / gy);
-  const row1 = Math.floor((bottom - 1e-6) / gy);
-  for (let row = row0; row <= row1; row++) {
-    for (let col = col0; col <= col1; col++) {
-      const cx = (col + 0.5) * gx;
-      const cy = (row + 0.5) * gy;
-      if (cx < left || cx > right || cy < top || cy > bottom) continue;
-      const dx = cx < left + r ? left + r - cx : cx > right - r ? cx - (right - r) : 0;
-      const dy = cy < top + r ? top + r - cy : cy > bottom - r ? cy - (bottom - r) : 0;
-      if (dx && dy && dx * dx + dy * dy > r * r) continue;
-      cells.push(`${col}:${row}`);
-    }
-  }
-  return cells;
-}
-
-export function recycleFieldParticle(p, bounds, aboveY = 0) {
-  if (p.role === 'lock') return false;
-  const gy = bounds.glyphHeight || 10;
-  p.role = 'field';
-  p.state = 'falling';
-  p.vy = (bounds.height || 800) * (0.5 + (p.seed || 0) * 0.06);
-  p.y = aboveY - gy;
-  p.vx = 0;
-  p.alpha = p.targetAlpha ?? 0.62;
-  p.delay = 0;
-  p.lockX = p.lockY = p.lockAt = p.lockKey = null;
-  return true;
-}
-
-export function stepFieldParticle(p, dt, time, bounds, lock = null) {
-  if (p.state === 'dead') return;
-  if (time < (p.delay || 0)) {
-    p.alpha = 0;
-    return;
-  }
-  const cellX = bounds.glyphWidth || 8;
-  const cellY = bounds.glyphHeight || 10;
-  if (p.role === 'lock') {
-    p.x = p.lockX ?? p.x;
-    p.y = p.lockY ?? p.y;
-    p.vx = 0;
-    p.vy = 0;
-    const base = p.baseAlpha ?? 0.5;
-    p.alpha = lockWipeAlpha(p.y, lock?.revealElapsed ?? 0, lock?.lockTop, lock?.lockBottom, base);
-    if (p.alpha <= 0.02) {
-      p.state = 'dead';
-      p.alpha = 0;
-    }
-    return;
-  }
-  if (p.state === 'exiting') {
-    p.vy = p.exitSpeed || 40;
-    p.y += p.vy * dt;
-    const gone = Math.max(0, (p.y - (bounds.height - cellY)) / Math.max(12, cellY * 2.4));
-    const timed = (time - (p.exitAt || time)) / (0.8 + (p.seed || 0) * 0.3);
-    p.alpha = Math.min(p.alpha || 1, 1 - smooth(Math.max(gone, timed)));
-    if (p.y > bounds.height + cellY || p.alpha <= 0) {
-      p.state = 'dead';
-      p.alpha = 0;
-    }
-    return;
-  }
-  p.x = p.colX != null ? p.colX : p.x;
-  p.y += (p.vy || 110) * dt;
-  const target = p.targetAlpha ?? 0.62;
-  if (p.y < 0) p.alpha = Math.min(target, (p.alpha || 0) + dt * 4);
-  else p.alpha = target;
-  if (lock?.enabled && lock.cells?.size) {
-    const key = fieldCellKey(p.x, p.y, cellX, cellY);
-    if (lock.cells.has(key) && !lock.occupied.has(key)) {
-      lock.occupied.add(key);
-      const col = Math.floor(p.x / cellX);
-      const row = Math.floor(p.y / cellY);
-      p.role = 'lock';
-      p.lockKey = key;
-      p.lockX = (col + 0.5) * cellX;
-      p.lockY = (row + 0.5) * cellY;
-      p.lockAt = time;
-      p.x = p.lockX;
-      p.y = p.lockY;
-      p.baseAlpha = 0.5;
-      p.alpha = 0.5;
-      return;
-    }
-  }
-  if (p.y > bounds.height + cellY) {
-    p.state = 'dead';
-    p.alpha = 0;
-  }
-}
-
-export function occupancySlot(p, edge, bounds) {
-  return Math.floor((p.x - edge.left) / (bounds.glyphWidth || bounds.glyphHeight * 0.6));
-}
-
-export function releasePerchedOccupancy(p, surfaces, bounds) {
-  if (p.state !== 'perched' || p.edgeId == null) return;
-  const edge = surfaces.find((item) => item.id === p.edgeId);
-  if (!edge?.occupancy) return;
-  const slot = occupancySlot(p, edge, bounds);
-  const count = edge.occupancy.get(slot) || 0;
-  if (count <= 1) edge.occupancy.delete(slot);
-  else edge.occupancy.set(slot, count - 1);
 }

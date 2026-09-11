@@ -26,49 +26,47 @@
 
 .btn-primary {
   background-color: var(--primary-color);
-  color: var(--text-white);
-  box-shadow: var(--shadow-primary);
+  color: var(--text-on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
   background-color: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(24, 144, 255, 0.3);
+  color: var(--text-on-accent);
+}
+
+.btn-primary:disabled {
+  background-color: var(--surface-3);
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 .btn-success {
   background-color: var(--success-color);
-  color: var(--text-white);
-  box-shadow: var(--shadow-success);
+  color: var(--text-on-accent);
 }
 
 .btn-success:hover:not(:disabled) {
   background-color: var(--success-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
 }
 
 .btn-danger {
   background-color: var(--danger-color);
-  color: var(--text-white);
-  box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
+  color: var(--text-primary);
 }
 
 .btn-danger:hover:not(:disabled) {
   background-color: var(--danger-text);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
 }
 
 .btn-outline {
   background-color: transparent;
-  border: 1px solid var(--primary-color);
-  color: var(--primary-color);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
 }
 
 .btn-outline:hover:not(:disabled) {
-  background-color: var(--primary-color);
-  color: var(--text-white);
+  background-color: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .btn-sm {
@@ -96,13 +94,13 @@
 /* 输入框基础样式 */
 .input-base {
   border: 1px solid var(--border-light);
-  border-radius: var(--border-radius-md);
+  border-radius: 4px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-size: var(--font-size-base);
   font-family: var(--font-family);
   padding: var(--spacing-sm) var(--spacing-md);
-  transition: var(--transition-base);
+  transition: border-color var(--transition-base);
   width: 100%;
   box-sizing: border-box;
 }
@@ -113,8 +111,12 @@
 
 .input-base:focus {
   outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  border-color: var(--text-secondary);
+}
+
+.input-base:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 /* 卡片样式 */
@@ -122,13 +124,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-light);
   border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-sm);
   padding: var(--spacing-xl);
-  transition: var(--transition-base);
-}
-
-.card:hover {
-  box-shadow: var(--shadow-md);
 }
 
 .card-header {
@@ -169,7 +165,7 @@
   max-height: 80vh;
   width: 100%;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-subtle);
   transform: scale(0.9);
   opacity: 0;
   transition: var(--transition-base);
@@ -245,8 +241,8 @@
 }
 
 .list-item.active {
-  background-color: var(--primary-color);
-  color: var(--text-white);
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
 }
 
 /* 工具栏样式 */
@@ -313,7 +309,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: oklch(0.145 0.012 285 / 0.84);
+  background-color: color-mix(in srgb, var(--canvas) 84%, transparent);
   z-index: 10;
 }
 

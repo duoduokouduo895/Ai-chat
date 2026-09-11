@@ -60,7 +60,7 @@
 .sort-select {
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--border-radius-md);
+  border-radius: 4px;
   color: var(--text-primary);
   font: inherit;
   min-height: 40px;
@@ -77,9 +77,17 @@
 .filter-input-small:focus,
 .filter-select:focus,
 .sort-select:focus {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px oklch(0.68 0.18 285 / 0.12);
+  border-color: var(--text-secondary);
   outline: none;
+}
+
+.search-input:focus-visible,
+.filter-input:focus-visible,
+.filter-input-small:focus-visible,
+.filter-select:focus-visible,
+.sort-select:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .search-btn,
@@ -87,7 +95,7 @@
 .page-btn {
   background: var(--accent-color);
   border: 0;
-  color: var(--text-white);
+  color: var(--text-on-accent);
   padding: 0 14px;
 }
 
@@ -102,7 +110,6 @@
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--border-radius-md);
-  box-shadow: var(--shadow-md);
   left: max(20px, calc((100% - 920px) / 2));
   max-height: 220px;
   overflow-y: auto;

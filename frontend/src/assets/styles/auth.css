@@ -17,20 +17,24 @@
 .auth-input {
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--border-radius-md);
+  border-radius: 4px;
   color: var(--text-primary);
   font: inherit;
   font-size: 16px;
   min-height: 48px;
   padding: 0 13px;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--transition-fast);
   width: 100%;
 }
 
 .auth-input:focus {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px oklch(0.68 0.18 285 / 0.13);
+  border-color: var(--text-secondary);
   outline: none;
+}
+
+.auth-input:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .auth-input.error {
@@ -63,7 +67,7 @@
   background: var(--accent-color);
   border: 0;
   border-radius: var(--border-radius-md);
-  color: var(--text-white);
+  color: var(--text-on-accent);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -78,6 +82,7 @@
 
 .auth-submit:hover:not(:disabled) {
   background: var(--accent-hover);
+  color: var(--text-on-accent);
 }
 
 .auth-submit:disabled {
@@ -88,9 +93,9 @@
 
 .auth-spinner {
   animation: auth-spin 0.8s linear infinite;
-  border: 2px solid oklch(0.98 0.005 285 / 0.28);
+  border: 2px solid color-mix(in srgb, var(--text-on-accent) 28%, transparent);
   border-radius: 50%;
-  border-top-color: var(--text-white);
+  border-top-color: var(--text-on-accent);
   height: 15px;
   width: 15px;
 }

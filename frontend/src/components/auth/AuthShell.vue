@@ -2,7 +2,7 @@
   <main class="auth-shell">
     <section class="auth-panel" :aria-labelledby="titleId">
       <header class="auth-brand">
-        <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
+        <span class="brand-wordmark" aria-hidden="true">dduo</span>
         <div>
           <p>Dduo Workspace</p>
           <h1 :id="titleId">{{ title }}</h1>
@@ -57,11 +57,12 @@ defineProps({
   gap: 14px;
 }
 
-.auth-brand img {
-  border-radius: 14px;
-  height: 48px;
-  object-fit: cover;
-  width: 48px;
+.brand-wordmark {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 
 .auth-brand p,

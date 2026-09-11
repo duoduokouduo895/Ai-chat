@@ -138,8 +138,8 @@ export default {
 }
 
 :deep(.el-select__wrapper) {
-  background: oklch(0.185 0.014 285);
-  border-radius: var(--border-radius-md);
+  background: var(--surface-2);
+  border-radius: 4px;
   box-shadow: 0 0 0 1px var(--border-subtle) inset;
   min-height: 34px;
   padding: 3px 8px;
@@ -148,8 +148,8 @@ export default {
 
 :deep(.el-select__wrapper:hover),
 :deep(.el-select__wrapper.is-focused) {
-  background: var(--surface-3);
-  box-shadow: 0 0 0 1px var(--accent-color) inset;
+  background: var(--surface-hover);
+  box-shadow: 0 0 0 1px var(--border-strong) inset;
 }
 
 :deep(.el-select__placeholder),
@@ -173,9 +173,9 @@ export default {
 
 :deep(.el-tag) {
   align-items: center;
-  background: oklch(0.28 0.045 285);
-  border: 1px solid oklch(0.43 0.055 285);
-  border-radius: 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
   color: var(--text-primary);
   display: inline-flex;
   height: 22px;
@@ -198,15 +198,14 @@ export default {
 }
 
 :deep(.el-tag__close:hover) {
-  background: oklch(0.38 0.07 285);
-  color: var(--text-white);
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 :global(.knowledge-select-popper.el-popper) {
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -237,7 +236,7 @@ export default {
 }
 
 :global(.knowledge-select-popper .el-select-dropdown__item.is-selected) {
-  background: oklch(0.28 0.055 285);
+  background: var(--accent-soft);
   color: var(--text-primary);
   font-weight: 600;
 }

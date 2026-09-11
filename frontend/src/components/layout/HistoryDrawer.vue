@@ -128,7 +128,7 @@ h2 {
   background: var(--accent-color);
   border: 0;
   border-radius: var(--border-radius-md);
-  color: var(--text-white);
+  color: var(--text-on-accent);
   cursor: pointer;
   display: flex;
   font: inherit;
@@ -182,7 +182,7 @@ h2 {
 
 .conversation-row.active {
   background: var(--accent-soft);
-  border-color: oklch(0.5 0.11 285 / 0.75);
+  border-color: var(--border-strong);
 }
 
 .conversation-main {

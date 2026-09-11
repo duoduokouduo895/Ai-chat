@@ -3,7 +3,6 @@ import { createAsciiIntroEngine } from '../src/components/intro/asciiIntroEngine
 
 const windowListeners = new Map();
 const documentListeners = new Map();
-const workspaceListeners = new Map();
 const mediaListeners = new Set();
 const rafCallbacks = new Map();
 const observers = [];
@@ -37,17 +36,6 @@ function drawingContext() {
     roundRect() {},
     stroke() {},
     measureText: () => ({ width: 120, actualBoundingBoxAscent: 20, actualBoundingBoxDescent: 6 }),
-    getImageData: (_x, _y, w = 1, h = 1) => {
-      const width = Math.max(1, w);
-      const height = Math.max(1, h);
-      const data = new Uint8ClampedArray(width * height * 4);
-      const top = Math.floor(height * 0.4);
-      const left = Math.floor(width * 0.4);
-      for (let y = top; y < top + 48 && y < height; y++) {
-        for (let x = left; x < left + 48 && x < width; x++) data[(y * width + x) * 4 + 3] = 255;
-      }
-      return { data };
-    },
     font: '', textAlign: '', textBaseline: '', fillStyle: '', strokeStyle: '', globalAlpha: 1, lineWidth: 1
   };
 }
@@ -71,7 +59,6 @@ function installDom() {
   rafCallbacks.clear();
   windowListeners.clear();
   documentListeners.clear();
-  workspaceListeners.clear();
   mediaListeners.clear();
   observers.length = 0;
   globalThis.performance = { now: () => now };
@@ -109,15 +96,9 @@ function installDom() {
       '--font-mono': 'monospace'
     }[name] || ''),
     visibility: 'visible',
-    display: 'block',
-    borderTopLeftRadius: '0',
-    fontWeight: '400',
-    fontSize: '14px',
-    fontFamily: 'sans-serif',
-    textAlign: 'left'
+    display: 'block'
   });
   globalThis.ResizeObserver = TrackingObserver;
-  globalThis.MutationObserver = TrackingObserver;
 }
 
 function canvasStub() {
@@ -132,18 +113,8 @@ function canvasStub() {
   };
 }
 
-function workspaceStub(overrides = {}) {
-  return {
-    querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600 }),
-    addEventListener: (type, fn) => listen(workspaceListeners, type, fn),
-    removeEventListener: (type, fn) => unlisten(workspaceListeners, type, fn),
-    ...overrides
-  };
-}
-
 function listenerCount() {
-  return [...windowListeners.values(), ...documentListeners.values(), ...workspaceListeners.values()]
+  return [...windowListeners.values(), ...documentListeners.values()]
     .reduce((sum, set) => sum + set.size, 0) + mediaListeners.size;
 }
 
@@ -169,9 +140,8 @@ let errorCount = 0;
 let completeCount = 0;
 const engine = createAsciiIntroEngine({
   canvas: canvasStub(),
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete: () => { completeCount++; },
   onError: () => { errorCount++; }
 });
@@ -200,9 +170,8 @@ completeCount = 0;
 observers.length = 0;
 const skipping = createAsciiIntroEngine({
   canvas: canvasStub(),
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete: () => { completeCount++; },
   onError: () => { errorCount++; }
 });
@@ -214,6 +183,8 @@ assert.equal(completeCount, 1, 'reduced-motion change exits through skip');
 assert.equal(listenerCount(), 0);
 assert.equal(rafCallbacks.size, 0, 'skip drains the animation queue');
 assertObserversDisconnected();
+skipping.skip();
+assert.equal(completeCount, 1, 'skip is idempotent');
 
 errorCount = 0;
 observers.length = 0;
@@ -221,9 +192,8 @@ const failingCanvas = canvasStub();
 failingCanvas.getBoundingClientRect = () => { throw new Error('layout failed'); };
 const failing = createAsciiIntroEngine({
   canvas: failingCanvas,
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete() {},
   onError: () => { errorCount++; }
 });
@@ -233,22 +203,6 @@ assert.equal(listenerCount(), 0, 'start failure disposes listeners');
 assert.equal(rafCallbacks.size, 0);
 assertObserversDisconnected();
 
-errorCount = 0;
-observers.length = 0;
-assert.throws(() => createAsciiIntroEngine({
-  canvas: canvasStub(),
-  workspace: workspaceStub({
-    addEventListener() { throw new Error('bind failed'); }
-  }),
-  onPhase() {},
-  onReveal() {},
-  onComplete() {},
-  onError: () => { errorCount++; }
-}), /bind failed/);
-assert.equal(listenerCount(), 0, 'constructor bind failure disposes partial listeners');
-assert.equal(errorCount, 0, 'constructor throw is not an onError path');
-assertObserversDisconnected();
-
 observers.length = 0;
 const ObserveFail = class extends TrackingObserver {
   observe() { throw new Error('observe failed'); }
@@ -256,9 +210,8 @@ const ObserveFail = class extends TrackingObserver {
 globalThis.ResizeObserver = ObserveFail;
 assert.throws(() => createAsciiIntroEngine({
   canvas: canvasStub(),
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete() {},
   onError() {}
 }), /observe failed/);
@@ -266,23 +219,29 @@ assertObserversDisconnected();
 globalThis.ResizeObserver = TrackingObserver;
 
 let phase = '';
+let revealCount = 0;
 errorCount = 0;
 completeCount = 0;
 observers.length = 0;
+hidden = false;
+reduced = false;
 const paced = createAsciiIntroEngine({
   canvas: canvasStub(),
-  workspace: workspaceStub(),
   onPhase: (value) => { phase = value; },
-  onReveal() {},
+  onRevealStart: () => { revealCount++; },
   onComplete: () => { completeCount++; },
   onError: () => { errorCount++; }
 });
 paced.start();
 flushRaf(2);
+assert.equal(phase, 'idle');
 paced.advance();
 assert.equal(phase, 'morph');
-flushRaf(80);
-assert.equal(phase, 'morph', 'morph still waiting after ~1.3s of drawn frames');
+paced.advance();
+assert.equal(phase, 'morph', 'second click is ignored by the engine');
+flushRaf(20);
+assert.equal(phase, 'morph', '200ms is still gathering');
+assert.equal(revealCount, 0, 'reveal-start waits until 1450ms');
 hidden = true;
 fire(documentListeners, 'visibilitychange');
 assert.equal(rafCallbacks.size, 0);
@@ -290,7 +249,8 @@ now += 5000;
 hidden = false;
 fire(documentListeners, 'visibilitychange');
 flushRaf(1);
-assert.equal(phase, 'morph', 'hidden wall-clock gap must not finish morph into word');
+assert.equal(phase, 'morph', 'hidden wall-clock gap must not skip morph');
+assert.equal(completeCount, 0);
 paced.skip();
 assert.equal(completeCount, 1);
 assert.equal(rafCallbacks.size, 0, 'skip after driven frames drains the queue');
@@ -299,36 +259,42 @@ assertObserversDisconnected();
 
 phase = '';
 completeCount = 0;
+revealCount = 0;
 observers.length = 0;
+hidden = false;
 const finishing = createAsciiIntroEngine({
   canvas: canvasStub(),
-  workspace: workspaceStub(),
   onPhase: (value) => { phase = value; },
-  onReveal() {},
+  onRevealStart: () => { revealCount++; },
   onComplete: () => { completeCount++; },
   onError: () => { errorCount++; }
 });
 finishing.start();
 flushRaf(1);
 finishing.advance();
-for (let i = 0; i < 40 && phase !== 'word' && phase !== 'done'; i++) flushRaf(1, 100);
-assert.equal(phase, 'word');
-finishing.advance();
-for (let i = 0; i < 120 && phase !== 'done'; i++) flushRaf(1, 100);
+for (let i = 0; i < 50 && phase === 'morph'; i++) flushRaf(1);
+assert.equal(phase, 'morph', 'wordmark hold lasts through 840ms');
+assert.equal(revealCount, 0);
+for (let i = 0; i < 40 && revealCount === 0; i++) flushRaf(1);
+assert.equal(revealCount, 1, 'reveal-start fires once after crossing 1450ms');
+for (let i = 0; i < 80 && phase !== 'done'; i++) flushRaf(1);
 assert.equal(phase, 'done');
+assert.equal(revealCount, 1);
 assert.equal(completeCount, 1, 'timeline completion notifies onComplete');
 assert.equal(rafCallbacks.size, 0, 'completion drains the animation queue');
+finishing.skip();
+assert.equal(completeCount, 1, 'complete fires once');
 assertObserversDisconnected();
 
 errorCount = 0;
 completeCount = 0;
 observers.length = 0;
+hidden = false;
 const throwing = canvasStub();
 const drawing = createAsciiIntroEngine({
   canvas: throwing,
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete: () => { completeCount++; },
   onError: () => { errorCount++; }
 });
@@ -360,9 +326,8 @@ clickCtx.fillText = (text, x, y) => {
 let clickErrors = 0;
 const clickEngine = createAsciiIntroEngine({
   canvas: clickCanvas,
-  workspace: workspaceStub(),
   onPhase() {},
-  onReveal() {},
+  onRevealStart() {},
   onComplete() {},
   onError: () => { clickErrors++; }
 });
@@ -380,4 +345,27 @@ assert.ok(nearCentre.length > 0, `no 32px excavated hole near=${nearCentre.lengt
 assert.equal(clickErrors, 0);
 clickEngine.dispose();
 
-console.log('intro_engine_test=PASS start, visibility, dispose, reduced-motion skip, start-error, init-bind-failure, raf-drive, hidden-morph, complete-queue, draw-throw, observer-disconnect, click-over-glyphs');
+installDom();
+hidden = false;
+errorCount = 0;
+let skipPhase = '';
+let skipComplete = 0;
+const skippingPhase = createAsciiIntroEngine({
+  canvas: canvasStub(),
+  getLayout: () => { throw new Error('layout failed'); },
+  onPhase: (value) => { skipPhase = value; },
+  onRevealStart() {},
+  onComplete: () => { skipComplete++; },
+  onError: () => { errorCount++; }
+});
+skippingPhase.start();
+flushRaf(2);
+skippingPhase.advance();
+assert.equal(skipPhase, 'morph');
+flushRaf(40);
+assert.ok(skipPhase === 'morph' || skipPhase === 'raster');
+skippingPhase.skip();
+assert.equal(skipComplete, 1, 'skip during play completes once');
+assert.equal(errorCount, 0, 'layout snapshot failure does not abort the engine');
+
+console.log('intro_engine_test=PASS start, visibility, dispose, reduced-motion skip, start-error, raf-drive, hidden-morph, complete-once, draw-throw, observer-disconnect, click-over-glyphs, skip-any-phase');

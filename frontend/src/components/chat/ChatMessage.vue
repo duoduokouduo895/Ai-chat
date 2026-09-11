@@ -1,8 +1,7 @@
 <template>
   <article class="message" :class="message.sender">
     <div class="avatar" aria-hidden="true">
-      <span v-if="message.sender === 'user'">你</span>
-      <img v-else src="/icon/OIP-C.webp" alt="">
+      <span>{{ message.sender === 'user' ? '[YOU]' : '[AI]' }}</span>
     </div>
     <div class="message-body">
       <div v-if="!message.text && message.completed === false" class="message-status" role="status" aria-live="polite">
@@ -50,13 +49,16 @@ defineProps({
   align-items: center;
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: 4px;
   color: var(--text-secondary);
   display: flex;
   flex: 0 0 34px;
-  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
   height: 34px;
   justify-content: center;
+  letter-spacing: 0.02em;
   position: absolute;
   right: calc(100% + 10px);
   top: 0;
@@ -68,17 +70,10 @@ defineProps({
   right: auto;
 }
 
-.avatar img {
-  border-radius: 8px;
-  height: 26px;
-  object-fit: cover;
-  width: 26px;
-}
-
 .message-body {
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: 4px;
   color: var(--text-primary);
   line-height: 1.65;
   min-width: 0;
@@ -92,7 +87,7 @@ defineProps({
 
 .user .message-body {
   background: var(--accent-soft);
-  border-color: oklch(0.49 0.1 285 / 0.75);
+  border-color: var(--border-strong);
 }
 
 time {
@@ -114,9 +109,8 @@ time {
 
 .status-dot {
   animation: statusPulse 1s ease-in-out infinite;
-  background: var(--accent-color);
+  background: var(--text-primary);
   border-radius: 999px;
-  box-shadow: 0 0 0 4px oklch(0.68 0.18 285 / 0.12);
   height: 7px;
   width: 7px;
 }

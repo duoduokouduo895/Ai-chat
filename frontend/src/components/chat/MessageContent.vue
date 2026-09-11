@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
 
 .message-content::selection,
 .message-content :deep(::selection) {
-  background-color: var(--accent-color);
-  color: var(--text-white);
+  background-color: var(--text-primary);
+  color: var(--canvas);
 }
 </style>

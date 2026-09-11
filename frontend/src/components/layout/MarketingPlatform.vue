@@ -1,7 +1,9 @@
 <template>
-  <div ref="workspaceRoot" class="ai-platform" :inert="introBlocked || undefined"
+  <div ref="workspaceRoot" class="ai-platform"
+    :class="{ 'is-intro-held': introHeld, 'is-intro-revealing': introRevealing }"
+    :inert="introBlocked || undefined"
     :aria-hidden="introBlocked || undefined" :data-intro-phase="introVisible ? introPhase : undefined"
-    :style="{ opacity: workspaceVisibility }" tabindex="-1">
+    tabindex="-1">
     <ActivityRail
       :current-view="currentView"
       :history-open="isHistoryDrawerOpen"
@@ -24,12 +26,12 @@
     />
 
     <main class="main-content">
-      <header class="mobile-workspace-header" data-intro="frame">
+      <header class="mobile-workspace-header" data-intro="nav" data-intro-text="Dduo AI-Chat">
         <button type="button" aria-label="打开菜单" @click="isMobileDrawerOpen = true">
           <font-awesome-icon icon="bars" aria-hidden="true" />
         </button>
-        <strong>Dduo AI-Chat</strong>
-        <span>{{ viewLabel }}</span>
+        <strong><DecryptText text="Dduo AI-Chat" /></strong>
+        <span><DecryptText :text="viewLabel" /></span>
       </header>
 
       <ChatPanel
@@ -72,15 +74,19 @@
       @auth-action="handleAuthAction"
     />
   </div>
-  <AsciiIntro v-if="introVisible" :key="introRun" :workspace="workspaceRoot"
-    @phase="introPhase = $event" @reveal="workspaceVisibility = $event"
-    @interactive="unlockWorkspace" @complete="finishIntro" />
+  <AsciiIntro v-if="introVisible" :key="introRun"
+    :get-layout="collectIntroLayout"
+    @phase="introPhase = $event" @reveal-start="startReveal"
+    @complete="finishIntro" />
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import AsciiIntro from '../intro/AsciiIntro.vue';
+import DecryptText from '../intro/DecryptText.vue';
 import { introSession } from '../intro/introModel.mjs';
+import { provideIntroReveal } from '../intro/introReveal.mjs';
+import { readIntroLayout } from '../intro/workspaceRaster.mjs';
 import { useChatWorkspace } from '@/composables/useChatWorkspace.js';
 import ActivityRail from './ActivityRail.vue';
 import HistoryDrawer from './HistoryDrawer.vue';
@@ -93,34 +99,65 @@ const SearchPanel = defineAsyncComponent(() => import('../search/SearchPanel.vue
 const workspaceRoot = ref(null);
 const introVisible = ref(introSession.shouldPlay(window.matchMedia('(prefers-reduced-motion: reduce)').matches));
 const introBlocked = ref(introVisible.value);
-const workspaceVisibility = ref(introVisible.value ? 0 : 1);
-const introPhase = ref('sculpture');
+const workspaceRevealed = ref(!introVisible.value);
+const decrypting = ref(false);
+const introPhase = ref('idle');
 const introRun = ref(0);
+const introPaused = ref(false);
 let replayFocus = null;
 
-const unlockWorkspace = async () => {
-  const focusWasInIntro = Boolean(document.activeElement?.closest('.ascii-intro'));
-  introBlocked.value = false;
-  await nextTick();
-  if (focusWasInIntro) {
-    const target = replayFocus?.isConnected ? replayFocus : workspaceRoot.value;
-    target?.focus({ preventScroll: true });
-  }
+provideIntroReveal({
+  decrypting: computed(() => decrypting.value),
+  paused: computed(() => introPaused.value)
+});
+
+const collectIntroLayout = (rect) => readIntroLayout(workspaceRoot.value, rect);
+
+const introHeld = computed(() => introVisible.value && !workspaceRevealed.value);
+const introRevealing = computed(() => introVisible.value && workspaceRevealed.value);
+
+const startReveal = () => {
+  workspaceRevealed.value = true;
+  decrypting.value = true;
 };
-const finishIntro = () => {
-  if (document.activeElement?.closest('.ascii-intro')) unlockWorkspace();
+
+const restoreFocus = async () => {
+  await nextTick();
+  const mobile = window.matchMedia('(max-width: 768px)').matches;
+  if (replayFocus?.isConnected) {
+    replayFocus.focus({ preventScroll: true });
+    replayFocus = null;
+    return;
+  }
+  if (!mobile && currentView.value === 'chat') {
+    const input = workspaceRoot.value?.querySelector('textarea.composer-input');
+    if (input) {
+      input.focus({ preventScroll: true });
+      return;
+    }
+  }
+  workspaceRoot.value?.focus({ preventScroll: true });
+};
+
+const finishIntro = async () => {
+  decrypting.value = false;
+  introPaused.value = false;
+  workspaceRevealed.value = true;
+  introBlocked.value = false;
   introSession.finish();
-  workspaceVisibility.value = 1;
   introVisible.value = false;
   introPhase.value = 'done';
+  await restoreFocus();
 };
+
 const replayIntro = () => {
   if (introVisible.value || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   replayFocus = document.activeElement;
   introRun.value++;
   introBlocked.value = true;
-  workspaceVisibility.value = 0;
-  introPhase.value = 'sculpture';
+  workspaceRevealed.value = false;
+  decrypting.value = false;
+  introPhase.value = 'idle';
   introVisible.value = true;
 };
 
@@ -172,7 +209,17 @@ const openConversation = async (conversation) => {
   isMobileDrawerOpen.value = false;
 };
 
-onMounted(initWorkspace);
+const syncIntroPause = () => {
+  introPaused.value = Boolean(introVisible.value && document.hidden);
+};
+
+onMounted(() => {
+  initWorkspace();
+  document.addEventListener('visibilitychange', syncIntroPause);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', syncIntroPause);
+});
 </script>
 
 <style scoped>
@@ -186,6 +233,16 @@ onMounted(initWorkspace);
 }
 
 .ai-platform:focus { outline: none; }
+
+.ai-platform.is-intro-held {
+  opacity: 0;
+  transition: none;
+}
+
+.ai-platform.is-intro-revealing {
+  opacity: 1;
+  transition: opacity 700ms cubic-bezier(1, 0.02, 0.37, 0.97);
+}
 
 .main-content {
   background: var(--canvas);
@@ -229,38 +286,10 @@ onMounted(initWorkspace);
   }
 
   .mobile-workspace-header span {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--font-size-xs);
     min-width: 44px;
     text-align: right;
-  }
-}
-
-.ai-platform[data-intro-phase='falling'] :deep(.composer),
-.ai-platform[data-intro-phase='field'] :deep(.composer),
-.ai-platform[data-intro-phase='lock'] :deep(.composer),
-.ai-platform[data-intro-phase='outline'] :deep(.composer) {
-  transform: translateY(16px);
-}
-
-.ai-platform[data-intro-phase='reveal'] :deep(.composer),
-.ai-platform[data-intro-phase='clearing'] :deep(.composer) {
-  transform: none;
-}
-
-.ai-platform[data-intro-phase='reveal'] :deep(.composer) {
-  animation: introComposerRise 0.7s ease both;
-}
-
-@keyframes introComposerRise {
-  from { transform: translateY(16px); }
-  to { transform: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-platform :deep(.composer) {
-    animation: none;
-    transform: none;
   }
 }
 </style>

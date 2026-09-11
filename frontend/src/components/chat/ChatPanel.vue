@@ -1,9 +1,9 @@
 <template>
   <section class="chat-panel">
     <header class="chat-toolbar" data-intro="frame">
-      <div>
-        <span class="toolbar-eyebrow" data-intro="text">Chat</span>
-        <strong data-intro="text">{{ conversationTitle }}</strong>
+      <div data-intro="title" :data-intro-text="conversationTitle">
+        <span class="toolbar-eyebrow"><DecryptText text="Chat" /></span>
+        <strong><DecryptText :text="conversationTitle" /></strong>
       </div>
       <button class="new-chat-action" type="button" @click="$emit('new-conversation')">
         <span aria-hidden="true">+</span>
@@ -13,9 +13,9 @@
 
     <div v-if="isEmptyConversation" class="empty-chat">
       <div class="empty-chat-content">
-        <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
-        <h1 data-intro="text">Dduo AI-Chat</h1>
-        <p data-intro="text">选择模型，开始一段新的对话。</p>
+        <span class="brand-wordmark" aria-hidden="true">dduo</span>
+        <h1 data-intro="title" data-intro-text="Dduo AI-Chat"><DecryptText text="Dduo AI-Chat" /></h1>
+        <p data-intro="title" data-intro-text="选择模型，开始一段新的对话。"><DecryptText text="选择模型，开始一段新的对话。" /></p>
         <ChatInput
           v-model:message="inputMessage"
           v-model:selected-model="selectedModel"
@@ -56,7 +56,7 @@
         </div>
       </div>
 
-      <footer class="chat-composer-area">
+      <footer class="chat-composer-area" data-intro="divider">
         <ChatInput
           v-model:message="inputMessage"
           v-model:selected-model="selectedModel"
@@ -80,6 +80,7 @@ import ChatInput from './ChatInput.vue';
 import ChatMessage from './ChatMessage.vue';
 import SystemMessage from './SystemMessage.vue';
 import StateBlock from '../common/StateBlock.vue';
+import DecryptText from '../intro/DecryptText.vue';
 
 const props = defineProps({
   messages: { type: Array, required: true },
@@ -162,7 +163,7 @@ onBeforeUnmount(() => {
 }
 .intro-replay span { margin-left: 6px; }
 .intro-replay:hover { color: var(--text-primary); }
-.intro-replay:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.intro-replay:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .intro-replay { display: none; } }
 
 .chat-panel {
@@ -229,12 +230,14 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.empty-chat img {
-  border-radius: 18px;
-  height: 58px;
+.brand-wordmark {
+  color: var(--text-primary);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   margin-bottom: 12px;
-  object-fit: cover;
-  width: 58px;
 }
 
 .empty-chat h1 {
@@ -284,7 +287,7 @@ onBeforeUnmount(() => {
   animation: spin 0.8s linear infinite;
   border: 2px solid var(--border-subtle);
   border-radius: 50%;
-  border-top-color: var(--accent-color);
+  border-top-color: var(--text-primary);
   height: 16px;
   width: 16px;
 }
@@ -324,9 +327,8 @@ onBeforeUnmount(() => {
   .empty-chat {
     padding: 12px 20px 16px;
   }
-  .empty-chat img {
-    height: 40px;
-    width: 40px;
+  .brand-wordmark {
+    font-size: 22px;
     margin-bottom: 6px;
   }
   .empty-chat p {

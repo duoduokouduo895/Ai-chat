@@ -1,17 +1,19 @@
 <template>
-  <section data-intro="input" data-intro-surface class="composer" :class="{ immersive }" aria-label="消息输入">
+  <section data-intro="input" class="composer" :class="{ immersive }" aria-label="消息输入">
     <textarea
       ref="textareaRef"
       v-model="localMessage"
       class="composer-input"
-      placeholder="开始新的聊天"
+      :placeholder="displayPlaceholder"
       aria-label="聊天消息"
       rows="1"
+      @focus="onFocus"
+      @blur="onBlur"
       @keydown.enter.ctrl="handleSend"
       @keydown.enter.exact="handleEnterKey"
     ></textarea>
 
-    <div class="composer-footer" data-intro="frame" data-intro-surface>
+    <div class="composer-footer">
       <div class="composer-tools">
         <ModelPills
           v-model="localSelectedModel"
@@ -52,9 +54,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import ModelPills from './ModelPills.vue';
 import KnowledgeSelector from '../knowledge/KnowledgeSelector.vue';
+import { createDecryptPlayback } from '../intro/introModel.mjs';
+import { useIntroReveal } from '../intro/introReveal.mjs';
 
 const props = defineProps({
   message: { type: String, default: '' },
@@ -75,8 +79,57 @@ const emit = defineEmits([
   'stop'
 ]);
 
+const FINAL_PLACEHOLDER = '开始新的聊天';
 const textareaRef = ref(null);
 const knowledgeBaseIds = ref(props.selectedKnowledgeBaseIds || []);
+const intro = useIntroReveal();
+const displayPlaceholder = ref(FINAL_PLACEHOLDER);
+const focused = ref(false);
+let placeholderPlayback = null;
+
+function stopPlaceholder(showFinal = true) {
+  placeholderPlayback?.cancel();
+  placeholderPlayback = null;
+  if (showFinal) displayPlaceholder.value = FINAL_PLACEHOLDER;
+}
+
+function startPlaceholder() {
+  stopPlaceholder(false);
+  if (props.message.trim() || focused.value) {
+    displayPlaceholder.value = FINAL_PLACEHOLDER;
+    return;
+  }
+  placeholderPlayback = createDecryptPlayback({
+    text: FINAL_PLACEHOLDER,
+    getPaused: () => Boolean(intro.paused?.value),
+    onUpdate: (value) => { displayPlaceholder.value = value; },
+    onComplete: () => {
+      displayPlaceholder.value = FINAL_PLACEHOLDER;
+      placeholderPlayback = null;
+    }
+  });
+  placeholderPlayback.start();
+}
+
+function onFocus() {
+  focused.value = true;
+  stopPlaceholder(true);
+}
+
+function onBlur() {
+  focused.value = false;
+}
+
+watch(() => intro.decrypting.value, (active) => {
+  if (active) startPlaceholder();
+  else stopPlaceholder(true);
+}, { immediate: true });
+
+watch(() => props.message, (value) => {
+  if (String(value || '').trim()) stopPlaceholder(true);
+});
+
+onBeforeUnmount(() => stopPlaceholder(false));
 
 const localMessage = computed({
   get: () => props.message,
@@ -115,8 +168,7 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
 .composer {
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  box-shadow: var(--shadow-sm);
+  border-radius: 4px;
   margin: 0 auto;
   max-width: var(--chat-column-width);
   padding: 13px;
@@ -124,8 +176,12 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
 }
 
 .composer:focus-within {
-  border-color: oklch(0.57 0.14 285);
-  box-shadow: 0 0 0 3px oklch(0.68 0.18 285 / 0.12);
+  border-color: var(--text-secondary);
+}
+
+.composer:focus-within:has(:focus-visible) {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .composer-input {
@@ -198,7 +254,6 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
 .send-action,
 .stop-action {
   border: 0;
-  color: var(--text-white);
   font-size: 18px;
   height: 36px;
   width: 36px;
@@ -206,6 +261,7 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
 
 .send-action {
   background: var(--accent-color);
+  color: var(--text-on-accent);
 }
 
 .send-action:disabled {
@@ -216,12 +272,13 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
 
 .stop-action {
   background: var(--danger-color);
+  color: var(--text-primary);
   font-size: var(--font-size-xs);
 }
 
 @media (max-width: 768px) {
   .composer {
-    border-radius: 12px;
+    border-radius: 4px;
     padding: 10px;
   }
 

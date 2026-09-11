@@ -4,7 +4,7 @@
     <aside class="mobile-drawer" aria-label="移动端菜单">
       <header>
         <div class="mobile-brand">
-          <img src="/icon/OIP-C.webp" alt="">
+          <span class="brand-wordmark" aria-hidden="true">dduo</span>
           <strong>Dduo AI-Chat</strong>
         </div>
         <button class="icon-button" type="button" aria-label="关闭菜单" @click="$emit('close')">
@@ -99,7 +99,7 @@ const openView = (view) => {
   }
 
   .drawer-backdrop {
-    background: oklch(0.06 0.01 285 / 0.68);
+    background: color-mix(in srgb, var(--canvas) 68%, #000);
     border: 0;
     inset: 0;
     position: absolute;
@@ -129,10 +129,11 @@ const openView = (view) => {
     gap: 10px;
   }
 
-  .mobile-brand img {
-    border-radius: 8px;
-    height: 30px;
-    width: 30px;
+  .brand-wordmark {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
   }
 
   .icon-button {
@@ -171,7 +172,7 @@ const openView = (view) => {
 
   .mobile-nav button.active {
     background: var(--accent-soft);
-    border-color: oklch(0.5 0.11 285 / 0.75);
+    border-color: var(--border-strong);
     color: var(--text-accent);
   }
 

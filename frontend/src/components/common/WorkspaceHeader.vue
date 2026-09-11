@@ -1,9 +1,9 @@
 <template>
   <header class="workspace-header">
     <div>
-      <span class="workspace-kicker">{{ kicker }}</span>
-      <h1>{{ title }}</h1>
-      <p v-if="description">{{ description }}</p>
+      <span class="workspace-kicker"><DecryptText :text="kicker" /></span>
+      <h1 data-intro="title" :data-intro-text="title"><DecryptText :text="title" /></h1>
+      <p v-if="description" data-intro="title" :data-intro-text="description"><DecryptText :text="description" /></p>
     </div>
     <div class="workspace-actions">
       <slot />
@@ -12,6 +12,8 @@
 </template>
 
 <script setup>
+import DecryptText from '../intro/DecryptText.vue';
+
 defineProps({
   kicker: { type: String, default: 'Workspace' },
   title: { type: String, required: true },

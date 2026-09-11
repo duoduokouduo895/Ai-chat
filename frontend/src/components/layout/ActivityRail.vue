@@ -1,7 +1,7 @@
 <template>
-  <aside data-intro="frame" class="activity-rail" aria-label="主导航">
+  <aside class="activity-rail" data-intro="frame" aria-label="主导航">
     <button class="brand-mark" type="button" aria-label="Dduo AI-Chat 首页" @click="$emit('switch-view', 'chat')">
-      <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
+      <span class="brand-wordmark" aria-hidden="true">dduo</span>
     </button>
 
     <nav class="rail-nav" aria-label="工作区">
@@ -9,7 +9,7 @@
         v-for="item in primaryItems"
         :key="item.id"
         class="rail-button"
-        data-intro="frame" data-intro-surface
+        data-intro="nav"
         :class="{ active: item.id === currentView || (item.id === 'history' && historyOpen) }"
         type="button"
         :title="item.label"
@@ -102,11 +102,11 @@ const openRepository = () => {
   margin-bottom: 18px;
 }
 
-.brand-mark img {
-  border-radius: 10px;
-  height: 30px;
-  object-fit: cover;
-  width: 30px;
+.brand-wordmark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .rail-nav,
@@ -133,7 +133,7 @@ const openRepository = () => {
 
 .rail-button.active {
   background: var(--accent-soft);
-  border-color: oklch(0.5 0.11 285);
+  border-color: var(--border-strong);
   color: var(--text-accent);
 }
 
