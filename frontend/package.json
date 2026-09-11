@@ -1,8 +1,9 @@
 {
-  "name": "your-project-name",
+  "name": "dduo-ai-chat-frontend",
   "version": "1.0.0",
-  "description": "A description of your project",
-  "main": "index.js",
+  "private": true,
+  "type": "module",
+  "description": "Dduo AI-Chat user workspace",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node tests/productionBundle.test.mjs",
@@ -29,6 +30,5 @@
     "vite": "^8.0.14",
     "vite-plugin-compression": "^0.5.1"
   },
-  "author": "Your Name",
-  "license": "MIT"
+  "license": "UNLICENSED"
 }
