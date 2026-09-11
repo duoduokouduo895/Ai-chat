@@ -64,7 +64,7 @@ class ConversationServiceImplTest {
                 messageRepository,
                 searchIndexQueue,
                 cacheManager,
-                chatMemoryStore
+                chatMemoryStore, org.mockito.Mockito.mock(ChatRetrievalReader.class)
         );
 
         StepVerifier.create(service.getRecentConversationsWithPreview(42L))
@@ -183,6 +183,6 @@ class ConversationServiceImplTest {
 
     private ConversationServiceImpl createService() {
         return new ConversationServiceImpl(conversationRepository, messageRepository, searchIndexQueue, cacheManager,
-                chatMemoryStore);
+                chatMemoryStore, org.mockito.Mockito.mock(ChatRetrievalReader.class));
     }
 }

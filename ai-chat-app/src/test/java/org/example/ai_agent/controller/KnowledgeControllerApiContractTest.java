@@ -22,6 +22,7 @@ import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.KnowledgeChunkSearchService;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.impl.identity.RepositoryActorIdentityLookup;
+import org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,8 @@ class KnowledgeControllerApiContractTest {
     private KnowledgeChunkSearchService knowledgeChunkSearchService;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private KnowledgeCleanupCommands cleanup;
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
@@ -81,9 +84,9 @@ class KnowledgeControllerApiContractTest {
                 ragService,
                 knowledgeBaseService,
                 knowledgeChunkSearchService,
-                accessContextResolver);
+                accessContextResolver, cleanup);
         documentController = new KnowledgeDocumentController(
-                documentService, documentChunkService, accessContextResolver, uploadFacade);
+                documentService, documentChunkService, accessContextResolver, uploadFacade, cleanup);
     }
 
     @Test
@@ -274,6 +277,40 @@ class KnowledgeControllerApiContractTest {
                     org.junit.jupiter.api.Assertions.assertEquals(0.93d, first.get("score").asDouble());
                     org.junit.jupiter.api.Assertions.assertEquals("违约责任", first.get("metadata").get("section").asText());
                     org.junit.jupiter.api.Assertions.assertTrue(first.hasNonNull("matchTime"));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteKnowledgeBase_shouldReturnAcceptedCleanupOperation() {
+        var operation = new org.example.ai_agent.knowledge.ingestion.CleanupOperation(
+                "cleanup-kb-1", "PENDING", 0, 0, null,
+                LocalDateTime.of(2026, 3, 28, 13, 0), LocalDateTime.of(2026, 3, 28, 13, 0));
+        when(cleanup.deleteKnowledgeBase(1L, 11L, false)).thenReturn(Mono.just(operation));
+
+        StepVerifier.create(controller.deleteKnowledgeBase(1L, userAuthentication(11L)))
+                .assertNext(response -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(202, response.getStatusCode().value());
+                    org.junit.jupiter.api.Assertions.assertSame(operation, response.getBody());
+                    org.junit.jupiter.api.Assertions.assertEquals("cleanup-kb-1", response.getBody().operationId());
+                    org.junit.jupiter.api.Assertions.assertEquals("PENDING", response.getBody().status());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void deleteDocument_shouldReturnAcceptedCleanupOperation() {
+        var operation = new org.example.ai_agent.knowledge.ingestion.CleanupOperation(
+                "cleanup-doc-9", "PENDING", 0, 0, null,
+                LocalDateTime.of(2026, 3, 28, 13, 0), LocalDateTime.of(2026, 3, 28, 13, 0));
+        when(cleanup.deleteDocument(9L, 11L, false)).thenReturn(Mono.just(operation));
+
+        StepVerifier.create(documentController.deleteDocument(9L, userAuthentication(11L)))
+                .assertNext(response -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(202, response.getStatusCode().value());
+                    org.junit.jupiter.api.Assertions.assertSame(operation, response.getBody());
+                    org.junit.jupiter.api.Assertions.assertEquals("cleanup-doc-9", response.getBody().operationId());
+                    org.junit.jupiter.api.Assertions.assertEquals("PENDING", response.getBody().status());
                 })
                 .verifyComplete();
     }

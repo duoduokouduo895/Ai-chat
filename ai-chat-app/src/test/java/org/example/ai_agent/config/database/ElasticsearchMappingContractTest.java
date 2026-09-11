@@ -20,7 +20,25 @@ class ElasticsearchMappingContractTest {
     @Test
     void shouldKeepReviewedIndexNamesInsideCandidateRoleAllowlist() {
         assertEquals("conversations", ConversationDocument.class.getAnnotation(Document.class).indexName());
-        assertEquals("knowledge_base_chunks", KnowledgeChunkDocument.class.getAnnotation(Document.class).indexName());
+        assertEquals("knowledge_base_chunks", resolvedKnowledgeIndex(null));
+    }
+
+    @Test
+    void isolatedConfigurationResolvesOnlyTheNamedTestIndex() {
+        assertEquals("ai-chat-it-20260907-test", resolvedKnowledgeIndex("ai-chat-it-20260907-test"));
+    }
+
+    private String resolvedKnowledgeIndex(String index) {
+        try (var context = new org.springframework.context.support.GenericApplicationContext()) {
+            if (index != null) context.getEnvironment().getPropertySources().addFirst(
+                    new org.springframework.core.env.MapPropertySource("test", java.util.Map.of(
+                            "knowledge-base.search.index-name", index)));
+            context.refresh();
+            var mapping = new org.springframework.data.elasticsearch.core.mapping.SimpleElasticsearchMappingContext();
+            mapping.setApplicationContext(context);
+            return mapping.getRequiredPersistentEntity(KnowledgeChunkDocument.class)
+                    .getIndexCoordinates().getIndexName();
+        }
     }
 
     private void assertIkField(Class<?> documentType, String fieldName) throws NoSuchFieldException {

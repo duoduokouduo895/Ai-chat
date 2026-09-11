@@ -146,8 +146,11 @@ public class DocumentProcessingOutboxService {
         LocalDateTime now = LocalDateTime.now();
         DocumentProcessingOutboxEvent event = new DocumentProcessingOutboxEvent();
         event.setEventKey(UUID.randomUUID().toString());
+        event.setRunId(message.getRunId());
         event.setDocumentId(message.getDocumentId());
         event.setKnowledgeBaseId(message.getKnowledgeBaseId());
+        event.setVersionId(message.getVersionId());
+        event.setGeneration(message.getGeneration());
         event.setProcessingType(message.getProcessingType());
         event.setRoutingKey(routingKey);
         event.setPayload(objectMapper.writeValueAsString(message));

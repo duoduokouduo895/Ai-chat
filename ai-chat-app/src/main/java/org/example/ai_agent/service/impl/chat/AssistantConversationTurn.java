@@ -57,31 +57,42 @@ public class AssistantConversationTurn {
     }
 
     public Mono<Message> saveAiMessage(ChatRequest request, String content) {
-        if (content == null || content.trim().isEmpty()) {
-            log.warn("跳过保存空的AI消息");
-            return Mono.empty();
-        }
+        return retryAiMessagePersistence(saveAiMessageOnce(request, content));
+    }
 
-        Message aiMessage = new Message();
-        aiMessage.setConversationId(request.getConversationId());
-        aiMessage.setSender("ai");
-        aiMessage.setContent(content.trim());
-        aiMessage.setModel(request.getEffectiveModelId());
-        aiMessage.setDeduplicationKey(messageDeduplicationKey("ai", request));
+    Mono<Message> saveAiMessageOnce(ChatRequest request, String content) {
+        return Mono.defer(() -> {
+                    if (content == null || content.trim().isEmpty()) {
+                        log.warn("跳过保存空的AI消息");
+                        return Mono.empty();
+                    }
 
-        return conversationService.addMessageToConversation(aiMessage)
-                .retryWhen(Retry.backoff(3, Duration.ofMillis(100))
-                        .maxBackoff(Duration.ofSeconds(1))
-                        .filter(this::isTransientPersistenceFailure)
-                        .doBeforeRetry(retrySignal -> log.warn(
-                                "AI消息持久化遇到临时异常，准备重试: retry={}, errorType={}",
-                                retrySignal.totalRetries() + 1,
-                                retrySignal.failure().getClass().getSimpleName())))
-                .doOnSuccess(savedMessage -> log.info("AI消息已成功保存，ID: {}, 内容长度: {}",
-                        savedMessage.getId(), aiMessage.getContent().length()))
-                .doOnError(e -> log.error("保存AI消息失败: contentLength={}, errorType={}",
-                        aiMessage.getContent().length(), e.getClass().getSimpleName()))
+                    Message aiMessage = new Message();
+                    aiMessage.setConversationId(request.getConversationId());
+                    aiMessage.setSender("ai");
+                    aiMessage.setContent(content.trim());
+                    aiMessage.setModel(request.getEffectiveModelId());
+                    aiMessage.setDeduplicationKey(messageDeduplicationKey("ai", request));
+
+                    return conversationService.addMessageToConversation(aiMessage)
+                            .doOnSuccess(savedMessage -> log.info(
+                                    "AI消息已成功保存，ID: {}, 内容长度: {}",
+                                    savedMessage.getId(), aiMessage.getContent().length()))
+                            .doOnError(error -> log.error(
+                                    "保存AI消息失败: contentLength={}, errorType={}",
+                                    aiMessage.getContent().length(), error.getClass().getSimpleName()));
+                })
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    <T> Mono<T> retryAiMessagePersistence(Mono<T> operation) {
+        return operation.retryWhen(Retry.backoff(3, Duration.ofMillis(100))
+                .maxBackoff(Duration.ofSeconds(1))
+                .filter(this::isTransientPersistenceFailure)
+                .doBeforeRetry(retrySignal -> log.warn(
+                        "AI消息持久化事务遇到临时异常，准备重试: retry={}, errorType={}",
+                        retrySignal.totalRetries() + 1,
+                        retrySignal.failure().getClass().getSimpleName())));
     }
 
     private boolean isTransientPersistenceFailure(Throwable error) {

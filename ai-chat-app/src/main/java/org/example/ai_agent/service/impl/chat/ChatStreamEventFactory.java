@@ -20,6 +20,7 @@ public class ChatStreamEventFactory {
     public ServerSentEvent<String> metadata(ChatRequest request) {
         Map<String, Object> metadata = Map.of(
                 "type", "metadata",
+                "protocolVersion", 2,
                 "conversationId", request.getConversationId(),
                 "mode", request.isRagMode() ? "rag" : "normal",
                 "model", request.getEffectiveModelId()
@@ -27,6 +28,21 @@ public class ChatStreamEventFactory {
         return ServerSentEvent.<String>builder()
                 .event("metadata")
                 .data(toJson(metadata))
+                .build();
+    }
+
+    public ServerSentEvent<String> retrieval(ChatRetrievalReader.View view) {
+        return ServerSentEvent.<String>builder().event("retrieval")
+                .data(toJson(Map.of("status", view.status(), "channels", view.channels(), "sources", view.sources()))).build();
+    }
+
+    public ServerSentEvent<String> complete(String turnId) {
+        // Old frontends treat unknown event names as message text. [DONE] is already
+        // a stop marker there, so it must not be a JSON payload.
+        return ServerSentEvent.<String>builder()
+                .id(turnId)
+                .event("complete")
+                .data("[DONE]")
                 .build();
     }
 

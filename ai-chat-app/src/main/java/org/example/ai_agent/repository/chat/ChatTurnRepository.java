@@ -8,15 +8,36 @@ import reactor.core.publisher.Mono;
 
 public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String> {
 
+    @Modifying
+    @Query("""
+            UPDATE chat_turn SET retrieval_json = :retrievalJson
+            WHERE id = :id AND status = 'STREAMING'
+            """)
+    Mono<Integer> storeRetrieval(String id, String retrievalJson);
+
+    @Modifying
+    @Query("INSERT INTO conversation_active_turn (conversation_id, turn_id) VALUES (:conversationId, :turnId)")
+    Mono<Integer> acquireConversation(Long conversationId, String turnId);
+
+    @Modifying
+    @Query("DELETE FROM conversation_active_turn WHERE turn_id = :turnId")
+    Mono<Integer> releaseConversation(String turnId);
+
+    @Modifying
+    @Query("""
+            DELETE slot FROM conversation_active_turn slot
+            LEFT JOIN chat_turn t ON t.id = slot.turn_id
+            WHERE t.id IS NULL OR t.status NOT IN ('STARTED', 'STREAMING')
+            """)
+    Mono<Integer> releaseTerminalConversations();
+
     @Query("""
             SELECT * FROM chat_turn
             WHERE actor_type = :actorType
               AND actor_id = :actorId
-              AND conversation_id = :conversationId
               AND client_request_id = :clientRequestId
             """)
-    Mono<ChatTurnRow> findByActorAndConversationAndClientRequestId(String actorType, Long actorId,
-                                                                     Long conversationId, String clientRequestId);
+    Mono<ChatTurnRow> findByActorAndClientRequestId(String actorType, Long actorId, String clientRequestId);
 
     @Modifying
     @Query("""
@@ -52,4 +73,16 @@ public interface ChatTurnRepository extends R2dbcRepository<ChatTurnRow, String>
             WHERE id = :id AND status IN ('STARTED', 'STREAMING')
             """)
     Mono<Integer> markCancelled(String id);
+
+    @Modifying
+    @Query("""
+            UPDATE chat_turn
+            SET status = 'FAILED', error_code = :errorCode,
+                completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('STARTED', 'STREAMING')
+              AND updated_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL :staleSeconds SECOND)
+            ORDER BY updated_at ASC
+            LIMIT :batchSize
+            """)
+    Mono<Integer> failStaleActiveTurns(long staleSeconds, int batchSize, String errorCode);
 }

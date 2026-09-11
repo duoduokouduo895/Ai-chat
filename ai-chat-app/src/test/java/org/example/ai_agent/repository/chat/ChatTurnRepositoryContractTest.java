@@ -13,6 +13,13 @@ class ChatTurnRepositoryContractTest {
         assertModifying("markCompleted", String.class, Long.class);
         assertModifying("markFailed", String.class, String.class);
         assertModifying("markCancelled", String.class);
+        assertModifying("failStaleActiveTurns", long.class, int.class, String.class);
+    }
+
+    @Test
+    void requestClaimLookupMustNotRequireAConversationId() throws NoSuchMethodException {
+        ChatTurnRepository.class.getMethod(
+                "findByActorAndClientRequestId", String.class, Long.class, String.class);
     }
 
     private void assertModifying(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {

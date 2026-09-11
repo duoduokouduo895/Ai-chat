@@ -7,6 +7,8 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 
 public interface KnowledgeChunkSearchService {
+    Mono<Void> indexVersionChunks(Long documentId, Long versionId);
+    Mono<Void> deleteVersionChunks(java.util.List<Long> chunkIds);
 
     Flux<KnowledgeChunkSearchHit> searchAuthorizedChunks(SearchRequest request);
 

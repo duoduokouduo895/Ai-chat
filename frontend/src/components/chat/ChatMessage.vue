@@ -15,6 +15,7 @@
         :plain="message.sender === 'user'"
         :completed="message.completed !== false"
       />
+      <ChatSources v-if="message.retrieval" :retrieval="message.retrieval" />
       <time>{{ message.timestamp }}</time>
     </div>
   </article>
@@ -22,6 +23,7 @@
 
 <script setup>
 import MessageContent from './MessageContent.vue';
+import ChatSources from './ChatSources.vue';
 
 defineProps({
   message: { type: Object, required: true }

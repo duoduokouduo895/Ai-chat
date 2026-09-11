@@ -26,10 +26,18 @@ $paths = @(
     '.dockerignore',
     '.gitattributes',
     'Dockerfile',
+    'Dockerfile.runtime-jar',
     'compose.cloud.yaml',
     'deploy',
     'pom.xml',
-    'src',
+    'ai-chat-kernel',
+    'ai-chat-identity',
+    'ai-chat-conversation',
+    'ai-chat-knowledge',
+    'ai-chat-search',
+    'ai-chat-adapters',
+    'ai-chat-web',
+    'ai-chat-app',
     'versions.env'
 )
 

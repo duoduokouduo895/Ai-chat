@@ -50,6 +50,9 @@ class DocumentProcessingOutboxServiceTest {
     @Test
     void enqueue_shouldPersistTheProcessingMessageBeforeReportingSuccess() throws Exception {
         DocumentProcessingMessage message = DocumentProcessingMessage.createParseMessage(1L, 10L, "auto", true);
+        message.setRunId("00000000-0000-0000-0000-000000000008");
+        message.setVersionId(81L);
+        message.setGeneration(2L);
         when(outboxRepository.save(any(DocumentProcessingOutboxEvent.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
@@ -64,8 +67,13 @@ class DocumentProcessingOutboxServiceTest {
         org.junit.jupiter.api.Assertions.assertEquals(DocumentProcessingOutboxService.STATUS_PENDING, event.getStatus());
         org.junit.jupiter.api.Assertions.assertEquals("document.parse", event.getRoutingKey());
         org.junit.jupiter.api.Assertions.assertNotNull(event.getEventKey());
+        org.junit.jupiter.api.Assertions.assertEquals(message.getRunId(), event.getRunId());
+        org.junit.jupiter.api.Assertions.assertEquals(81L, event.getVersionId());
+        org.junit.jupiter.api.Assertions.assertEquals(2L, event.getGeneration());
         org.junit.jupiter.api.Assertions.assertEquals(1L,
                 objectMapper.readValue(event.getPayload(), DocumentProcessingMessage.class).getDocumentId());
+        org.junit.jupiter.api.Assertions.assertEquals(message.getRunId(),
+                objectMapper.readValue(event.getPayload(), DocumentProcessingMessage.class).getRunId());
         org.junit.jupiter.api.Assertions.assertEquals(1.0,
                 meterRegistry.get("aichat.document.outbox.events").tag("outcome", "enqueued").counter().count());
     }

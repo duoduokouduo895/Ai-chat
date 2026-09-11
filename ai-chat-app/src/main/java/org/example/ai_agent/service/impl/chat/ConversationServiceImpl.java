@@ -16,6 +16,9 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.reactive.TransactionSynchronization;
+import org.springframework.transaction.reactive.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -36,17 +39,19 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationSearchIndexQueue searchIndexQueue;
     private final CacheManager cacheManager;
     private final RedisChatMemoryStore chatMemoryStore;
+    private final ChatRetrievalReader retrievalReader;
 
     public ConversationServiceImpl(ConversationRepository conversationRepository,
                                    MessageRepository messageRepository,
                                    ConversationSearchIndexQueue searchIndexQueue,
                                    CacheManager cacheManager,
-                                   RedisChatMemoryStore chatMemoryStore) {
+                                   RedisChatMemoryStore chatMemoryStore, ChatRetrievalReader retrievalReader) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.searchIndexQueue = searchIndexQueue;
         this.cacheManager = cacheManager;
         this.chatMemoryStore = chatMemoryStore;
+        this.retrievalReader = retrievalReader;
     }
 
     @Override
@@ -90,11 +95,48 @@ public class ConversationServiceImpl implements ConversationService {
 
         return saveMessageIdempotently(message)
                 .flatMap(savedMessage -> updateConversationTimestamp(savedMessage.getConversationId())
-                        .flatMap(conversation -> evictRecentConversations(conversation.getUserId()))
+                        .flatMap(conversation -> scheduleMessageCommittedEffects(
+                                savedMessage.getConversationId(), conversation.getUserId()))
                         .thenReturn(savedMessage))
-                .doOnSuccess(savedMessage -> searchIndexQueue.enqueueUpsert(savedMessage.getConversationId()))
-                .doOnSuccess(savedMessage -> logger.info("Message saved successfully, id={}", savedMessage.getId()))
+                .doOnSuccess(savedMessage -> logger.info("Message persistence step completed, id={}", savedMessage.getId()))
                 .doOnError(error -> logger.error("Failed to add message", error));
+    }
+
+    private Mono<Void> scheduleMessageCommittedEffects(Long conversationId, Long userId) {
+        return TransactionSynchronizationManager.forCurrentTransaction()
+                .flatMap(manager -> {
+                    if (!manager.isActualTransactionActive() || !manager.isSynchronizationActive()) {
+                        return Mono.just(false);
+                    }
+                    manager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public Mono<Void> afterCommit() {
+                            return runMessageCommittedEffects(conversationId, userId);
+                        }
+                    });
+                    return Mono.just(true);
+                })
+                .onErrorReturn(NoTransactionException.class, false)
+                .flatMap(registered -> registered
+                        ? Mono.<Void>empty()
+                        : runMessageCommittedEffects(conversationId, userId));
+    }
+
+    private Mono<Void> runMessageCommittedEffects(Long conversationId, Long userId) {
+        Mono<Void> cacheEviction = Mono.defer(() -> evictRecentConversations(userId))
+                .onErrorResume(failure -> {
+                    logger.warn("Message commit cache eviction failed: conversationId={}, errorType={}",
+                            conversationId, failure.getClass().getSimpleName());
+                    return Mono.empty();
+                });
+        Mono<Void> projectionRefresh = Mono.fromRunnable(() -> searchIndexQueue.enqueueUpsert(conversationId))
+                .onErrorResume(failure -> {
+                    logger.warn("Message commit projection enqueue failed: conversationId={}, errorType={}",
+                            conversationId, failure.getClass().getSimpleName());
+                    return Mono.empty();
+                })
+                .then();
+        return cacheEviction.then(projectionRefresh);
     }
 
     private Mono<Message> saveMessageIdempotently(Message message) {
@@ -129,7 +171,8 @@ public class ConversationServiceImpl implements ConversationService {
                 })
                 .flatMapMany(validatedId -> conversationRepository.findById(validatedId)
                         .switchIfEmpty(Mono.error(new IllegalArgumentException("Conversation does not exist: " + validatedId)))
-                        .flatMapMany(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId())))
+                        .flatMapMany(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId())
+                                .concatMap(message -> retrievalReader.attach(message, conversation.getUserId(), false))))
                 .doOnError(error -> logger.error("Failed to load messages for conversation {}", conversationId, error));
     }
 
@@ -137,6 +180,7 @@ public class ConversationServiceImpl implements ConversationService {
     public Flux<Message> getMessagesByConversationId(Long conversationId, Long userId) {
         return getConversationById(conversationId, userId)
                 .flatMapMany(conversation -> messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId())
+                        .concatMap(message -> retrievalReader.attach(message, userId, false))
                         .switchIfEmpty(Flux.defer(() -> {
                             logger.warn("Conversation {} for user {} exists but has no message records", conversation.getId(), userId);
                             return Flux.empty();

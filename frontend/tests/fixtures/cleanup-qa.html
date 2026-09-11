@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>后台清理反馈验收</title>
+</head>
+<body>
+<main id="app"></main>
+<script type="module">
+import { createApp, h } from 'vue';
+import CleanupNotice from '../../src/components/knowledge/CleanupNotice.vue';
+import '../../src/assets/styles/variables.css';
+import '../../src/assets/styles/common.css';
+const operation = {
+  operationId: 'cleanup-doc-demo', status: 'PENDING', step: 0, attempt: 0,
+  createdAt: '2026-09-06T19:00:00', updatedAt: '2026-09-06T19:00:00'
+};
+createApp({ render: () => h('section', { class: 'workspace' }, [
+  h('header', [h('p', { class: 'eyebrow' }, '知识库'), h('h1', '项目文档')]),
+  h(CleanupNotice, { operation }),
+  h('article', [h('h2', '当前可用文档'), h('p', '已删除资源会立即从普通视图隐藏，后台继续清理外部产物。')])
+]) }).mount('#app');
+</script>
+<style>
+body{margin:0;background:var(--canvas);color:var(--text-primary);font-family:var(--font-family)}
+main{max-width:900px;margin:48px auto;padding:0 24px}.workspace{overflow:hidden;border:1px solid var(--border-subtle);border-radius:18px;background:var(--surface-1)}
+header,article{padding:22px 24px}.eyebrow{margin:0 0 6px;color:var(--text-accent);font-size:12px;text-transform:uppercase;letter-spacing:.12em}h1,h2,p{margin-top:0}h1{margin-bottom:0;font-size:24px}h2{font-size:16px}article p{color:var(--text-secondary);line-height:1.65}
+@media(max-width:480px){main{margin:20px auto;padding:0 12px}header,article{padding:18px 16px}}
+</style>
+</body>
+</html>

@@ -27,4 +27,36 @@ class ModuleArchitectureTest {
                     "co.elastic.clients..",
                     "com.aliyun.oss..")
             .because("kernel must remain a framework-free Module that supplies stable domain types");
+
+    @ArchTest
+    static final ArchRule ingestionDomainTypesHaveNoFrameworkOrAdapterDependencies = noClasses()
+            .that().resideInAnyPackage("..knowledge.ingestion..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "org.springframework..",
+                    "com.rabbitmq..",
+                    "co.elastic.clients..",
+                    "com.aliyun.oss..",
+                    "io.r2dbc..")
+            .because("IngestionRun decisions are domain Interface types, not transport or persistence types");
+
+    @ArchTest
+    static final ArchRule retrievalDomainTypesHaveNoFrameworkOrAdapterDependencies = noClasses()
+            .that().resideInAnyPackage("..knowledge.retrieval..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "org.springframework..",
+                    "com.rabbitmq..",
+                    "co.elastic.clients..",
+                    "com.aliyun.oss..",
+                    "io.r2dbc..")
+            .because("retrieval outcomes belong to the knowledge domain and are implemented by adapters");
+
+    @ArchTest
+    static final ArchRule conversationContextDomainTypesHaveNoFrameworkOrAdapterDependencies = noClasses()
+            .that().resideInAnyPackage("..conversation..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "org.springframework..",
+                    "org.springframework.data..",
+                    "io.r2dbc..",
+                    "io.lettuce..")
+            .because("completed conversation context is a framework-free domain contract");
 }

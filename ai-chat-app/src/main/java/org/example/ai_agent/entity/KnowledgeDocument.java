@@ -19,12 +19,16 @@ import java.time.LocalDateTime;
 @Data
 @Table("knowledge_documents")
 public class KnowledgeDocument {
+    private String deletionStatus = "ACTIVE";
     
     /**
      * 文档ID，主键
      */
     @Id
     private Long id;
+
+    /** 当前可用于读取和检索的 DocumentVersion。旧数据由 V8 回填为 generation 1。 */
+    private Long activeVersionId;
     
     /**
      * 所属知识库ID

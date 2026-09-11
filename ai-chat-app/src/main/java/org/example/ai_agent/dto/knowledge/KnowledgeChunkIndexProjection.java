@@ -21,6 +21,11 @@ public class KnowledgeChunkIndexProjection {
     @Column("document_id")
     private Long documentId;
 
+    @Column("version_id")
+    private Long versionId;
+
+    private Long generation;
+
     @Column("knowledge_base_id")
     private Long knowledgeBaseId;
 

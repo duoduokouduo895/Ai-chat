@@ -18,6 +18,7 @@ import reactor.core.publisher.Mono;
  * @since 2025
  */
 public interface RagService {
+    String INSUFFICIENT_EVIDENCE = "当前知识库中没有找到可用资料，暂时无法依据资料回答这个问题。";
     
     /**
      * 知识库搜索
@@ -65,6 +66,15 @@ public interface RagService {
             java.util.List<KnowledgeSearchResultDto.KnowledgeSearchMatch> relevantDocuments,
             String contextText,
             Integer documentCount,
-            Long retrievalTime
-    ) {}
+            Long retrievalTime,
+            org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status status,
+            java.util.List<org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel> channels
+    ) {
+        public RetrievalContext(String question, java.util.List<KnowledgeSearchResultDto.KnowledgeSearchMatch> relevantDocuments,
+                String contextText, Integer documentCount, Long retrievalTime) {
+            this(question, relevantDocuments, contextText, documentCount, retrievalTime,
+                    relevantDocuments.isEmpty() ? org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY
+                            : org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.FOUND, java.util.List.of());
+        }
+    }
 }

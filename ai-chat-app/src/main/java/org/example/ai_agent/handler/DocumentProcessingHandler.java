@@ -6,9 +6,14 @@ import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.constants.DocumentProcessingStatus;
 import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
+import org.example.ai_agent.knowledge.ingestion.IngestionStage;
+import org.example.ai_agent.knowledge.ingestion.StageLeaseClaim;
 import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.impl.document.DocumentProcessingAlreadyHandledException;
+import org.example.ai_agent.service.impl.document.IngestionLeaseLostException;
+import org.example.ai_agent.service.impl.document.IngestionRunLeaseService;
+import org.example.ai_agent.service.impl.document.VersionedDocumentProcessor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -33,17 +38,23 @@ public class DocumentProcessingHandler {
     private final DocumentProcessingRetryPolicy retryPolicy;
     private final DocumentProcessingAckHandler ackHandler;
     private final DocumentProcessingProperties processingProperties;
+    private final IngestionRunLeaseService ingestionRunLeaseService;
+    private final VersionedDocumentProcessor versionedProcessor;
 
     public DocumentProcessingHandler(DocumentProcessingService documentProcessingService,
                                      DocumentProcessingRecordService recordService,
                                      DocumentProcessingRetryPolicy retryPolicy,
                                      DocumentProcessingAckHandler ackHandler,
-                                     DocumentProcessingProperties processingProperties) {
+                                     DocumentProcessingProperties processingProperties,
+                                     IngestionRunLeaseService ingestionRunLeaseService,
+                                     VersionedDocumentProcessor versionedProcessor) {
         this.documentProcessingService = documentProcessingService;
         this.recordService = recordService;
         this.retryPolicy = retryPolicy;
         this.ackHandler = ackHandler;
         this.processingProperties = processingProperties;
+        this.ingestionRunLeaseService = ingestionRunLeaseService;
+        this.versionedProcessor = versionedProcessor;
     }
     
     /**
@@ -57,7 +68,7 @@ public class DocumentProcessingHandler {
         validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
-                documentProcessingService.processDocumentParsing(message),
+                Mono.defer(() -> documentProcessingService.processDocumentParsing(message)),
                 "文档解析处理失败");
     }
     
@@ -71,7 +82,7 @@ public class DocumentProcessingHandler {
         validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
-                documentProcessingService.processDocumentChunking(message),
+                Mono.defer(() -> documentProcessingService.processDocumentChunking(message)),
                 "文档分块处理失败");
     }
     
@@ -85,7 +96,7 @@ public class DocumentProcessingHandler {
         validateMessage(message);
 
         processMessage(message, channel, deliveryTag,
-                documentProcessingService.processDocumentEmbedding(message),
+                Mono.defer(() -> documentProcessingService.processDocumentEmbedding(message)),
                 "文档向量化处理失败");
     }
     
@@ -169,7 +180,18 @@ public class DocumentProcessingHandler {
     
     private void processMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
                                 reactor.core.publisher.Mono<Boolean> processingMono, String failureMessage) {
-        Mono<Void> processingFlow = processingMono
+        Mono<Void> processingFlow = isVersionedMessage(message)
+                ? processVersionedMessage(message, channel, deliveryTag, processingMono, failureMessage)
+                : processLegacyMessage(message, channel, deliveryTag, processingMono, failureMessage);
+
+        processingFlow
+                .timeout(processingTimeout().plusSeconds(5))
+                .block(processingTimeout().plusSeconds(10));
+    }
+
+    private Mono<Void> processLegacyMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
+                                            Mono<Boolean> processingMono, String failureMessage) {
+        return processingMono
             .switchIfEmpty(Mono.error(new IllegalStateException("文档处理未返回结果")))
             .timeout(processingTimeout())
             .flatMap(result -> {
@@ -214,12 +236,87 @@ public class DocumentProcessingHandler {
                             message.getDocumentId(), message.getProcessingType());
                     return deferInFlightMessage(message, channel, deliveryTag);
                 }
-
                 return scheduleRetryOrFail(message, error.getMessage(), channel, deliveryTag);
-            })
-            .timeout(processingTimeout().plusSeconds(5));
+            });
+    }
 
-        processingFlow.block(processingTimeout().plusSeconds(10));
+    private Mono<Void> processVersionedMessage(DocumentProcessingMessage message, Channel channel, long deliveryTag,
+                                               Mono<Boolean> processingMono, String failureMessage) {
+        return ingestionRunLeaseService.claim(message)
+                .flatMap(claim -> switch (claim.disposition()) {
+                    case CLAIMED -> executeOwnedVersionedStage(
+                            claim, message, channel, deliveryTag, processingMono, failureMessage);
+                    case ALREADY_COMPLETED -> ackMessage(
+                            channel, deliveryTag, message, "IngestionRun 阶段已完成");
+                    case LEASE_HELD, REJECTED -> deferInFlightMessage(
+                            message, channel, deliveryTag);
+                    case RUN_FAILED -> ackMessage(
+                            channel, deliveryTag, message, "IngestionRun 已可靠失败");
+                });
+    }
+
+    private Mono<Void> executeOwnedVersionedStage(StageLeaseClaim claim,
+                                                  DocumentProcessingMessage message,
+                                                  Channel channel,
+                                                  long deliveryTag,
+                                                  Mono<Boolean> processingMono,
+                                                  String failureMessage) {
+        return versionedProcessor.process(claim, message)
+                .switchIfEmpty(Mono.error(new IllegalStateException("文档处理未返回结果")))
+                .timeout(processingTimeout())
+                .flatMap(result -> Boolean.TRUE.equals(result)
+                        ? ackMessage(channel, deliveryTag, message, "版本化阶段事务已完成")
+                        : scheduleVersionedRetryOrFail(claim, message, failureMessage, channel, deliveryTag))
+                .onErrorResume(IngestionLeaseLostException.class, error -> {
+                    log.warn("文档阶段 lease 已失效，原消息重新入队: runId={}, documentId={}, processingType={}",
+                            claim.runId(), message.getDocumentId(), message.getProcessingType());
+                    return nackMessage(channel, deliveryTag, message, true, "阶段 lease 已失效");
+                })
+                .onErrorResume(error -> handleVersionedStageError(
+                        claim, message, error, channel, deliveryTag));
+    }
+
+    private Mono<Void> handleVersionedStageError(StageLeaseClaim claim,
+                                                 DocumentProcessingMessage message,
+                                                 Throwable error,
+                                                 Channel channel,
+                                                 long deliveryTag) {
+        log.error("版本化文档处理异常: runId={}, documentId={}, processingType={}, errorType={}",
+                claim.runId(), message.getDocumentId(), message.getProcessingType(),
+                error.getClass().getSimpleName());
+
+        if (retryPolicy.isNonRetryableError(error)) {
+            return failVersionedStage(claim, message, error.getMessage())
+                    .then(ackMessage(channel, deliveryTag, message, "版本化不可重试错误"));
+        }
+        return scheduleVersionedRetryOrFail(
+                claim, message, error.getMessage(), channel, deliveryTag);
+    }
+
+    private Mono<Void> scheduleVersionedRetryOrFail(StageLeaseClaim claim,
+                                                    DocumentProcessingMessage message,
+                                                    String errorMessage,
+                                                    Channel channel,
+                                                    long deliveryTag) {
+        retryPolicy.prepareRetry(message, errorMessage);
+        if (retryPolicy.isRetryExhausted(message)) {
+            return failVersionedStage(claim, message, errorMessage)
+                    .then(ackMessage(channel, deliveryTag, message, "版本化阶段最终失败"));
+        }
+
+        String retryRoutingKey = retryPolicy.retryRoutingKeyByProcessingType(message.getProcessingType());
+        return versionedProcessor.retry(claim, message, retryRoutingKey)
+                .then(ackMessage(channel, deliveryTag, message, "版本化重试已持久化"));
+    }
+
+    private Mono<Void> failVersionedStage(StageLeaseClaim claim,
+                                          DocumentProcessingMessage message,
+                                          String errorMessage) {
+        return versionedProcessor.fail(claim, message);
+    }
+
+    private boolean isVersionedMessage(DocumentProcessingMessage message) {
+        return message.getRunId() != null && !message.getRunId().isBlank();
     }
 
     private Mono<Void> scheduleRetryOrFail(DocumentProcessingMessage message, String errorMessage,

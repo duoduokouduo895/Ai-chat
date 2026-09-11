@@ -52,6 +52,13 @@ public class DocumentEmbeddingBatchProcessor {
                 .map(embeddingStoreRegistry::resolveProfile);
     }
 
+    public Mono<Void> refreshEmbeddingIndex(Long knowledgeBaseId) {
+        return resolveEmbeddingProfile(knowledgeBaseId).flatMap(profile -> Mono.fromCallable(() -> {
+            embeddingStoreRegistry.refresh(profile);
+            return true;
+        }).subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())).then();
+    }
+
     public Mono<Boolean> processChunkBatch(List<DocumentChunkDto> chunks,
                                            DocumentProcessingMessage message,
                                            EmbeddingProfile profile) {
@@ -85,15 +92,14 @@ public class DocumentEmbeddingBatchProcessor {
     }
 
     public Mono<Boolean> completeDocumentEmbedding(Long documentId) {
-        return documentRepository.findById(documentId)
+        return knowledgeChunkSearchService.indexDocumentChunks(documentId)
+                .then(Mono.defer(() -> documentRepository.findById(documentId)))
                 .flatMap(document -> {
                     document.setIsEmbedded(true);
                     document.setUpdatedAt(LocalDateTime.now());
                     return documentRepository.save(document).map(saved -> true);
                 })
-                .defaultIfEmpty(false)
-                .flatMap(updated -> knowledgeChunkSearchService.indexDocumentChunks(documentId)
-                        .thenReturn(updated));
+                .defaultIfEmpty(false);
     }
 
     public Mono<Boolean> resetChunksEmbeddingStatus(Long documentId, int batchSize) {

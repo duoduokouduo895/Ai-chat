@@ -27,6 +27,17 @@ import lombok.Builder;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ChatRequest {
+    @JsonIgnore
+    private org.example.ai_agent.service.RagService.RetrievalContext retrievalContext;
+    @JsonIgnore
+    private java.util.List<org.example.ai_agent.conversation.CompletedContextTurn> contextTurns;
+
+    @JsonIgnore
+    private Integer estimatedInputTokens;
+    @JsonIgnore
+    private Integer resolvedInputBudgetTokens;
+    @JsonIgnore
+    private String resolvedTokenEstimatorModel;
     
     /**
      * 用户ID

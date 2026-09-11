@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dduo 开场验收 · 模拟接口</title>
+  <style>
+    #qa-controls {
+      position: fixed;
+      top: max(56px, env(safe-area-inset-top));
+      left: 8px;
+      z-index: 300;
+      max-width: min(42vw, 180px);
+      color: #ddd;
+      background: #292633;
+      border: 1px solid #57505f;
+      border-radius: 3px;
+      font: 11px monospace;
+    }
+    #qa-controls summary {
+      min-height: 28px;
+      padding: 0 8px;
+      cursor: pointer;
+      list-style: none;
+    }
+    #qa-controls summary::-webkit-details-marker { display: none; }
+    #qa-controls[open] { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+    #qa-controls button {
+      min-height: 28px;
+      color: #ddd;
+      background: #221f29;
+      border: 1px solid #57505f;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    #qa-gallery { position: fixed; inset: 0; z-index: 250; overflow: auto; background: #17151d; padding: 45px 16px; color: white; }
+    #qa-gallery[hidden] { display: none; }
+    #qa-gallery img { width: 100%; display: block; }
+    #qa-gallery figure { margin: 0 0 20px; }
+    #qa-gallery figcaption { font: 13px monospace; padding: 8px; }
+    #qa-gallery-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+    #qa-download { color: #ddd; background: #292633; border: 1px solid #57505f; border-radius: 3px; padding: 6px 8px; text-decoration: none; font: 11px monospace; }
+    #qa-note { margin: 0; font: 12px monospace; color: #bbb; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <details id="qa-controls">
+    <summary>QA</summary>
+    <button type="button" id="qa-gallery-toggle">查看Canvas动效帧</button>
+    <button type="button" id="qa-motion">减少动态：关</button>
+    <button type="button" id="qa-pause">暂停：关</button>
+  </details>
+  <div id="qa-gallery" hidden>
+    <div id="qa-gallery-bar">
+      <p id="qa-note">Canvas overlay 录像/帧，不含真实DOM揭幕。</p>
+      <a id="qa-download" hidden download="dduo-intro-canvas.webm">下载Canvas字符动效（不含真实DOM揭幕）</a>
+    </div>
+    <div id="qa-frames"></div>
+  </div>
+  <script type="module">
+    import apiClient from '/src/services/apiClient.js';
+    import router from '/src/router/index.js';
+    import { markGuestSession } from '/src/services/sessionStore.mjs';
+
+    // This development-only entry mounts the real app, but never contacts a business backend.
+    // It is not a Vite build entry and is not included in the production output.
+    // Canvas capture is overlay-only and does not include the real workspace DOM reveal.
+    markGuestSession('local-intro-preview-not-a-real-token');
+    apiClient.defaults.adapter = async (config) => ({
+      config, status: 200, statusText: 'OK', headers: {},
+      data: config.url === '/ai/models'
+        ? [{ value: 'chat-fast', label: '快速模型（模拟）' }, { value: 'chat-reasoning', label: '推理模型（模拟）' }]
+        : config.url === '/users/me' ? { id: 0, username: 'preview', guest: true }
+          : config.url === '/users/guest' ? { token: 'local-intro-preview-not-a-real-token' } : []
+    });
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, options) => {
+      if (String(input).includes('/ai/chat')) {
+        return new Response('event: metadata\ndata: {"protocolVersion":2,"conversationId":1}\n\nevent: message\ndata: 这是本地模拟回复，仅用于开场后的交互验收。\n\nevent: complete\ndata: {"turnId":"preview"}\n\n',
+          { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      if (String(input).includes('/api/')) throw new Error('Unmocked preview request blocked');
+      return originalFetch(input, options);
+    };
+    router.addRoute({ path: '/tests/fixtures/intro-preview.html', component: () => import('/src/components/layout/MarketingPlatform.vue') });
+
+    const nativeRaf = window.requestAnimationFrame.bind(window);
+    const originalMatchMedia = window.matchMedia.bind(window);
+    const gallery = document.getElementById('qa-gallery');
+    const frames = document.getElementById('qa-frames');
+    const download = document.getElementById('qa-download');
+    const captured = new Set();
+    const motionListeners = new Set();
+    let currentPhase = '', phaseStarted = 0;
+    let recorder = null, recordingStream = null, recordingCanvas = null, recordingSerial = 0;
+    let lastEngineFrame = 0, lastDraw = '', runCanvas = null;
+    let skipNextInterval = false, disposed = false, sessionSerial = 0;
+    const frameDurations = [];
+
+    function revokeDownload() {
+      if (download.href.startsWith('blob:')) URL.revokeObjectURL(download.href);
+      download.removeAttribute('href');
+      download.hidden = true;
+    }
+
+    function publishFps() {
+      const controls = document.getElementById('qa-controls');
+      controls.dataset.frames = String(frameDurations.length);
+      if (frameDurations.length) {
+        const last = frameDurations.slice(-180);
+        controls.dataset.fps = (1000 / (last.reduce((a, b) => a + b, 0) / last.length)).toFixed(1);
+      } else {
+        delete controls.dataset.fps;
+      }
+    }
+
+    function resetRun(canvas) {
+      runCanvas = canvas;
+      captured.clear();
+      frames.replaceChildren();
+      currentPhase = '';
+      phaseStarted = 0;
+      lastDraw = '';
+      lastEngineFrame = 0;
+      skipNextInterval = false;
+      frameDurations.length = 0;
+      revokeDownload();
+      publishFps();
+    }
+
+    function endRun() {
+      if (!runCanvas && !recorder && !recordingStream) return;
+      runCanvas = null;
+      releaseRecording();
+    }
+
+    function beginRun(canvas) {
+      recordingSerial++;
+      releaseRecording();
+      resetRun(canvas);
+    }
+
+    function releaseRecording() {
+      const rec = recorder;
+      const stream = recordingStream;
+      recorder = null;
+      recordingStream = null;
+      recordingCanvas = null;
+      try { if (rec && rec.state !== 'inactive') rec.stop(); } catch { /* already stopped */ }
+      try { stream?.getTracks().forEach((track) => track.stop()); } catch { /* already stopped */ }
+    }
+
+    function record(canvas) {
+      if (disposed || !window.MediaRecorder || !canvas.captureStream) return;
+      releaseRecording();
+      const serial = ++recordingSerial;
+      const session = sessionSerial;
+      const chunks = [];
+      const stream = canvas.captureStream(30);
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      rec.onstop = () => {
+        try { stream.getTracks().forEach((track) => track.stop()); } catch { /* already stopped */ }
+        if (disposed || serial !== recordingSerial || session !== sessionSerial) return;
+        revokeDownload();
+        if (!chunks.length) return;
+        download.href = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'video/webm' }));
+        download.hidden = false;
+      };
+      rec.start();
+      recorder = rec;
+      recordingStream = stream;
+      recordingCanvas = canvas;
+    }
+
+    function inspect(now) {
+      const overlay = document.querySelector('.ascii-intro');
+      const canvas = overlay?.querySelector('canvas') || null;
+      if (canvas && canvas !== runCanvas) beginRun(canvas);
+      else if (!canvas) endRun();
+      if (!canvas) return;
+      const draw = canvas.dataset.introFrame || '';
+      if (!draw || draw === lastDraw) return;
+      lastDraw = draw;
+      const engineDelta = lastEngineFrame ? now - lastEngineFrame : 0;
+      lastEngineFrame = now;
+      if (skipNextInterval) skipNextInterval = false;
+      else if (engineDelta > 0 && !document.hidden) frameDurations.push(engineDelta);
+      const phase = overlay.dataset.phase;
+      if (phase === 'morph' && recordingCanvas !== canvas) record(canvas);
+      if (phase !== currentPhase) { currentPhase = phase; phaseStarted = now; }
+      const clock = parseFloat(canvas.dataset.introClock || '0');
+      const elapsed = parseFloat(canvas.dataset.introElapsed || '0');
+      const shots = [];
+      if (phase === 'sculpture') {
+        for (const t of [1.5, 3, 5, 7, 12, 30]) {
+          if (clock >= t) shots.push([`sculpture:${t}`, `sculpture ${t}s · Canvas-only（不含真实DOM揭幕）`]);
+        }
+      } else if (phase === 'morph') {
+        for (const t of [0.25, 0.65, 1.1]) {
+          if (elapsed >= t) shots.push([`morph:${t}`, `morph ${t}s · Canvas-only（不含真实DOM揭幕）`]);
+        }
+      } else if (['falling', 'outline', 'reveal', 'clearing'].includes(phase)) {
+        for (const [t, label] of [[0.6, 'falling'], [1.3, 'falling'], [2.5, 'outline'], [3.4, 'outline'], [3.9, 'reveal'], [4.5, 'clearing'], [5.5, 'clearing'], [6.3, 'clearing']]) {
+          if (elapsed >= t) shots.push([`${label}:${t}`, `${label} ${t}s · Canvas-only（不含真实DOM揭幕）`]);
+        }
+      }
+      for (const [key, captionText] of shots) {
+        if (captured.has(key)) continue;
+        const figure = document.createElement('figure');
+        const caption = document.createElement('figcaption');
+        caption.textContent = captionText;
+        const img = document.createElement('img'); img.alt = captionText; img.src = canvas.toDataURL('image/png');
+        figure.append(caption, img); frames.append(figure); captured.add(key);
+      }
+      publishFps();
+    }
+
+    window.requestAnimationFrame = (callback) => nativeRaf((now) => {
+      callback(now);
+      if (disposed) return;
+      try { inspect(now); } catch { /* inspection must not break intro time */ }
+    });
+
+    const overlayObserver = new MutationObserver(() => {
+      if (disposed) return;
+      if (!document.querySelector('.ascii-intro')) endRun();
+    });
+    overlayObserver.observe(document.getElementById('app'), { childList: true, subtree: true });
+
+    document.getElementById('qa-gallery-toggle').onclick = () => { gallery.hidden = !gallery.hidden; };
+    let reduced = originalMatchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.matchMedia = (query) => query === '(prefers-reduced-motion: reduce)' ? {
+      get matches() { return reduced; }, media: query,
+      addEventListener: (_, fn) => motionListeners.add(fn), removeEventListener: (_, fn) => motionListeners.delete(fn)
+    } : originalMatchMedia(query);
+    document.getElementById('qa-motion').onclick = (event) => {
+      reduced = !reduced; event.currentTarget.textContent = `减少动态：${reduced ? '开' : '关'}`;
+      motionListeners.forEach((fn) => fn({ matches: reduced }));
+    };
+    window.__INTRO_QA__ = window.__INTRO_QA__ || { paused: false };
+    document.getElementById('qa-pause').onclick = (event) => {
+      window.__INTRO_QA__.paused = !window.__INTRO_QA__.paused;
+      event.currentTarget.textContent = `暂停：${window.__INTRO_QA__.paused ? '开' : '关'}`;
+    };
+
+    const onVisibility = () => { if (document.hidden) skipNextInterval = true; };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const teardown = () => {
+      if (disposed) return;
+      disposed = true;
+      sessionSerial++;
+      recordingSerial++;
+      overlayObserver.disconnect();
+      motionListeners.clear();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', teardown);
+      releaseRecording();
+      window.requestAnimationFrame = nativeRaf;
+      window.fetch = originalFetch;
+      window.matchMedia = originalMatchMedia;
+      window.__INTRO_QA__ = undefined;
+      revokeDownload();
+    };
+    window.addEventListener('pagehide', teardown);
+
+    await import('/src/main.js');
+  </script>
+</body>
+</html>

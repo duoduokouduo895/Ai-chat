@@ -9,6 +9,7 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -99,6 +100,25 @@ public class GlobalExceptionHandler {
                 .body(buildError(403, "无权执行此操作", exchange, "FORBIDDEN")));
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public Mono<ResponseEntity<Map<String, Object>>> handleResponseStatusException(
+            ResponseStatusException ex, ServerWebExchange exchange) {
+
+        int status = ex.getStatusCode().value();
+        String message = (ex.getReason() != null && !ex.getReason().isBlank())
+                ? ex.getReason()
+                : defaultResponseStatusMessage(status);
+        if (status >= 500) {
+            log.error("请求返回服务端状态: status={}, errorType={}, path={}",
+                    status, ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
+        } else {
+            log.warn("请求被拒绝: status={}, errorType={}, path={}",
+                    status, ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
+        }
+        return Mono.just(ResponseEntity.status(ex.getStatusCode())
+                .body(buildError(status, message, exchange, responseStatusErrorCode(status))));
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public Mono<ResponseEntity<Map<String, Object>>> handleRuntimeException(
             RuntimeException ex, ServerWebExchange exchange) {
@@ -127,6 +147,27 @@ public class GlobalExceptionHandler {
                 ex.getClass().getSimpleName(), exchange.getRequest().getPath().value());
         return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(buildError(500, "服务器内部错误，请稍后重试", exchange, "INTERNAL_ERROR")));
+    }
+
+    private String defaultResponseStatusMessage(int status) {
+        return switch (status) {
+            case 401 -> "登录状态已失效，请重新登录";
+            case 403 -> "无权执行此操作";
+            case 404 -> "请求的资源不存在";
+            case 429 -> "请求过于频繁，请稍后重试";
+            default -> status >= 500 ? "服务器内部错误，请稍后重试" : "当前无法完成该请求";
+        };
+    }
+
+    private String responseStatusErrorCode(int status) {
+        return switch (status) {
+            case 401 -> "UNAUTHORIZED";
+            case 403 -> "FORBIDDEN";
+            case 404 -> "NOT_FOUND";
+            case 409 -> "CONFLICT";
+            case 429 -> "TOO_MANY_REQUESTS";
+            default -> status >= 500 ? "INTERNAL_ERROR" : "REQUEST_DENIED";
+        };
     }
 
     private Map<String, Object> buildError(int code, String message, ServerWebExchange exchange, String errorCode) {

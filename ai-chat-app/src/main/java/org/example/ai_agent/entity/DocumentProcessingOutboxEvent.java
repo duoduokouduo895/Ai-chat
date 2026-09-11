@@ -16,9 +16,12 @@ public class DocumentProcessingOutboxEvent {
 
     @Id
     private Long id;
+    private String runId;
     private String eventKey;
     private Long documentId;
     private Long knowledgeBaseId;
+    private Long versionId;
+    private Long generation;
     private String processingType;
     private String routingKey;
     private String payload;

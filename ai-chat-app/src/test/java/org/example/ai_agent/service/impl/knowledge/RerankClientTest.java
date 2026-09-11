@@ -2,12 +2,31 @@ package org.example.ai_agent.service.impl.knowledge;
 
 import org.example.ai_agent.service.HybridRetrievalService.RetrievalCandidate;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import reactor.test.StepVerifier;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class RerankClientTest {
+
+    @Test
+    void enabledButUnconfiguredRerankIsAChannelFailure() {
+        RerankClient client = new RerankClient();
+        ReflectionTestUtils.setField(client, "enabled", true);
+        ReflectionTestUtils.setField(client, "baseUrl", "");
+        ReflectionTestUtils.setField(client, "model", "");
+        var candidate = candidate("chunk-1", 0.4);
+
+        StepVerifier.create(client.rerankDetailed("query", List.of(candidate), 5))
+                .assertNext(result -> {
+                    assertEquals(List.of(candidate), result.candidates());
+                    assertEquals(org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.FAILED,
+                            result.channel().status());
+                })
+                .verifyComplete();
+    }
 
     private final RerankClient client = new RerankClient();
     private final List<RetrievalCandidate> candidates = List.of(
@@ -39,7 +58,7 @@ class RerankClientTest {
     }
 
     private static RetrievalCandidate candidate(String content, double score) {
-        return new RetrievalCandidate("embedding-" + content, 1L, 2L, 3L,
+        return new RetrievalCandidate("embedding-" + content, 1L, 2L, null, 3L,
                 content, "title", "knowledge-base", 0, score);
     }
 }

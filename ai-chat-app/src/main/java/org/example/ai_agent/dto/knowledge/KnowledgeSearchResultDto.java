@@ -15,6 +15,8 @@ import java.util.Map;
  */
 @Data
 public class KnowledgeSearchResultDto {
+    private org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status retrievalStatus;
+    private List<org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel> channels;
     
     /**
      * 搜索结果列表
@@ -43,6 +45,7 @@ public class KnowledgeSearchResultDto {
          * 文档ID
          */
         private Long documentId;
+        private Long versionId;
         
         /**
          * 文档标题

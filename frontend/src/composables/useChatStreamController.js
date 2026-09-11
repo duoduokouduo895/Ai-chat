@@ -134,7 +134,12 @@ export function useChatStreamController({
         resetIdleTimer();
         chatMessages.updateAiStatus(aiMessage, status);
       },
-      abortController.value
+      abortController.value,
+      (retrieval) => {
+        if (responseCompleted) return;
+        resetIdleTimer();
+        chatMessages.ensureAiMessageVisible(aiMessage).retrieval = retrieval;
+      }
     );
   };
 

@@ -18,6 +18,15 @@ import reactor.core.publisher.Mono;
  */
 @Repository
 public interface KnowledgeBaseRepository extends ReactiveCrudRepository<KnowledgeBase, Long> {
+    @Override
+    @Query("SELECT * FROM knowledge_bases WHERE id = :id AND deletion_status = 'ACTIVE'")
+    Mono<KnowledgeBase> findById(Long id);
+    @Override
+    @Query("SELECT * FROM knowledge_bases WHERE id IN (:ids) AND deletion_status = 'ACTIVE'")
+    Flux<KnowledgeBase> findAllById(Iterable<Long> ids);
+    @Query("SELECT * FROM knowledge_bases WHERE id = :id AND deletion_status = 'ACTIVE' FOR UPDATE")
+    Mono<KnowledgeBase> lockActiveById(Long id);
+
 
     /**
      * 根据创建者ID查询知识库
@@ -27,7 +36,10 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
      */
     Flux<KnowledgeBase> findByCreatorId(Long creatorId);
 
-    Flux<KnowledgeBase> findByCreatorIdOrderByCreatedAtDesc(Long creatorId, Pageable pageable);
+    default Flux<KnowledgeBase> findByCreatorIdOrderByCreatedAtDesc(Long creatorId, Pageable pageable) {
+        return findByCreatorIdAndDeletionStatusOrderByCreatedAtDesc(creatorId, "ACTIVE", pageable);
+    }
+    Flux<KnowledgeBase> findByCreatorIdAndDeletionStatusOrderByCreatedAtDesc(Long creatorId, String deletionStatus, Pageable pageable);
     
     /**
      * 根据是否公开查询知识库
@@ -66,7 +78,7 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
     @Query("""
             SELECT *
             FROM knowledge_bases
-            WHERE status = 'ACTIVE'
+            WHERE deletion_status = 'ACTIVE' AND status = 'ACTIVE'
               AND (:keyword IS NULL
                    OR LOWER(name) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(description, '')) LIKE CONCAT('%', LOWER(:keyword), '%'))
@@ -78,7 +90,7 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
     @Query("""
             SELECT COUNT(*)
             FROM knowledge_bases
-            WHERE status = 'ACTIVE'
+            WHERE deletion_status = 'ACTIVE' AND status = 'ACTIVE'
               AND (:keyword IS NULL
                    OR LOWER(name) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(description, '')) LIKE CONCAT('%', LOWER(:keyword), '%'))
@@ -91,7 +103,7 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
                    COALESCE(SUM(CASE WHEN is_public = TRUE THEN 1 ELSE 0 END), 0)
                        AS public_knowledge_base_count
             FROM knowledge_bases
-            WHERE status = 'ACTIVE'
+            WHERE deletion_status = 'ACTIVE' AND status = 'ACTIVE'
             """)
     Mono<AdminKnowledgeBaseSummaryProjection> summarizeForAdmin();
     
@@ -124,11 +136,11 @@ public interface KnowledgeBaseRepository extends ReactiveCrudRepository<Knowledg
             FROM (
                 SELECT *
                 FROM knowledge_bases
-                WHERE creator_id = :creatorId AND status = :status
+                WHERE creator_id = :creatorId AND status = :status AND deletion_status = 'ACTIVE'
                 UNION
                 SELECT *
                 FROM knowledge_bases
-                WHERE is_public = :isPublic AND status = :status
+                WHERE is_public = :isPublic AND status = :status AND deletion_status = 'ACTIVE'
             ) kb
             ORDER BY created_at DESC
             LIMIT :limit OFFSET :offset

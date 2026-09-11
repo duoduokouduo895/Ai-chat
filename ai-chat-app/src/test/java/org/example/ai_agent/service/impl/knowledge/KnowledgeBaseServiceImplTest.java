@@ -10,7 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -18,7 +17,6 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,7 +29,7 @@ class KnowledgeBaseServiceImplTest {
     @Mock
     private KnowledgeDocumentRepository knowledgeDocumentRepository;
     @Mock
-    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private KnowledgeCleanupCommands knowledgeCleanupCommands;
     @Mock
     private KnowledgeChunkSearchService knowledgeChunkSearchService;
 
@@ -39,30 +37,22 @@ class KnowledgeBaseServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(knowledgeBaseRepository.lockActiveById(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> knowledgeBaseRepository.findById((Long) invocation.getArgument(0)));
         service = new KnowledgeBaseServiceImpl(
                 knowledgeBaseRepository,
                 knowledgeDocumentRepository,
-                knowledgeAssetCleanupService,
+                knowledgeCleanupCommands,
                 knowledgeChunkSearchService);
     }
 
     @Test
-    void deleteKnowledgeBase_shouldCleanupAssetsBeforeDeletingKnowledgeBaseRecord() {
-        KnowledgeBase knowledgeBase = new KnowledgeBase();
-        knowledgeBase.setId(5L);
-        knowledgeBase.setCreatorId(100L);
-        knowledgeBase.setIsPublic(false);
-
-        when(knowledgeBaseRepository.findById(5L)).thenReturn(Mono.just(knowledgeBase));
-        when(knowledgeAssetCleanupService.deleteKnowledgeBaseAssets(knowledgeBase)).thenReturn(Mono.empty());
-        when(knowledgeBaseRepository.delete(knowledgeBase)).thenReturn(Mono.empty());
-
-        StepVerifier.create(service.deleteKnowledgeBase(5L, 100L, false))
-                .verifyComplete();
-
-        InOrder inOrder = inOrder(knowledgeAssetCleanupService, knowledgeBaseRepository);
-        inOrder.verify(knowledgeAssetCleanupService).deleteKnowledgeBaseAssets(knowledgeBase);
-        inOrder.verify(knowledgeBaseRepository).delete(knowledgeBase);
+    void deleteKnowledgeBase_shouldUseDurableAcceptanceWithoutDeletingRecords() {
+        when(knowledgeCleanupCommands.deleteKnowledgeBase(5L, 100L, false)).thenReturn(Mono.just(
+                new org.example.ai_agent.knowledge.ingestion.CleanupOperation(
+                        "cleanup-5", "PENDING", 0, 0, null, null, null)));
+        StepVerifier.create(service.deleteKnowledgeBase(5L, 100L, false)).verifyComplete();
+        org.mockito.Mockito.verify(knowledgeCleanupCommands).deleteKnowledgeBase(5L, 100L, false);
+        org.mockito.Mockito.verifyNoInteractions(knowledgeBaseRepository, knowledgeDocumentRepository);
     }
 
     @Test

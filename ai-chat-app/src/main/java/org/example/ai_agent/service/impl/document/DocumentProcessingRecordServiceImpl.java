@@ -67,8 +67,10 @@ public class DocumentProcessingRecordServiceImpl implements DocumentProcessingRe
                 
                 return Mono.fromCallable(() -> {
                     DocumentProcessingRecord record = new DocumentProcessingRecord();
+                    record.setRunId(message.getRunId());
                     record.setDocumentId(message.getDocumentId());
                     record.setKnowledgeBaseId(message.getKnowledgeBaseId());
+                    record.setGeneration(message.getGeneration());
                     record.setProcessingType(processingType.name());
                     record.setStatus(DocumentProcessingStatus.PENDING.value());
                     record.setRetryCount(0);

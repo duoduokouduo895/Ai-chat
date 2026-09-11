@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.entity.ChatTurnRow;
-import org.example.ai_agent.entity.Conversation;
 import org.example.ai_agent.entity.Message;
 import org.example.ai_agent.observability.ChatStreamTelemetry;
-import org.example.ai_agent.service.ConversationService;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.assistant.GeneralAssistant;
 import org.example.ai_agent.service.assistant.GeneralAssistantFactory;
@@ -15,7 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.codec.ServerSentEvent;
@@ -26,7 +23,6 @@ import reactor.test.StepVerifier;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -37,7 +33,6 @@ import static org.mockito.Mockito.when;
 class AiChatServiceImplTest {
 
     @Mock private GeneralAssistantFactory generalAssistantFactory;
-    @Mock private ConversationService conversationService;
     @Mock private RagService ragService;
     @Mock private GeneralAssistant generalAssistant;
     @Mock private ChatTurnLifecycle chatTurnLifecycle;
@@ -49,35 +44,86 @@ class AiChatServiceImplTest {
         ObjectMapper objectMapper = new ObjectMapper();
         service = new AiChatServiceImpl(
                 generalAssistantFactory,
-                new AssistantConversationTurn(conversationService),
                 chatTurnLifecycle,
-                new AssistantInputBuilder(ragService),
+                new AssistantInputBuilder(ragService, contextLoader()),
                 new ChatStreamEventFactory(objectMapper),
                 new ChatStreamTelemetry(new SimpleMeterRegistry(), objectMapper),
-                1000L);
+                1000L, retrievalReader());
+    }
+
+    @Test
+    void emptyEvidenceCompletesWithFixedReplyWithoutCallingModel() {
+        var request = request(99L, "empty-evidence");
+        request.setKnowledgeBaseIds(List.of(7L));
+        var claim = ownedClaim("empty-turn");
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(ragService.retrieveContext(any(), any(), any(), any(), any(), eq(false)))
+                .thenReturn(Mono.just(new RagService.RetrievalContext("问题", List.of(), "", 0, 1L)));
+        when(chatTurnLifecycle.completeWithAiMessage(claim, request, RagService.INSUFFICIENT_EVIDENCE))
+                .thenReturn(Mono.just(new Message()));
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals(
+                        RagService.INSUFFICIENT_EVIDENCE, events.get(events.size() - 2).data()))
+                .verifyComplete();
+        verify(generalAssistantFactory, org.mockito.Mockito.never()).createAssistant(any());
+    }
+
+    @Test
+    void unavailableRetrievalFailsWithoutCallingModel() {
+        var request = request(99L, "unavailable-evidence");
+        request.setKnowledgeBaseIds(List.of(7L));
+        var claim = ownedClaim("unavailable-turn");
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markFailed(eq(claim), any())).thenReturn(Mono.empty());
+        when(ragService.retrieveContext(any(), any(), any(), any(), any(), eq(false)))
+                .thenReturn(Mono.just(new RagService.RetrievalContext("问题", List.of(), "", 0, 1L,
+                        org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.UNAVAILABLE, List.of())));
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertTrue(
+                        events.getLast().data().contains("CHAT_RETRIEVAL_UNAVAILABLE")))
+                .verifyComplete();
+        verify(generalAssistantFactory, org.mockito.Mockito.never()).createAssistant(any());
+        verify(chatTurnLifecycle, org.mockito.Mockito.never()).completeWithAiMessage(any(), any(), any());
+    }
+
+    @Test
+    void wholeTurnDeadlineStopsContinuousOutput() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "maxTurnDurationMs", 200L);
+        ChatRequest request = request(99L, "deadline");
+        var claim = ownedClaim("turn-deadline");
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markFailed(eq(claim), any())).thenReturn(Mono.empty());
+        when(generalAssistantFactory.createAssistant(any())).thenReturn(generalAssistant);
+        when(generalAssistant.chat("99:test-model", "早上好"))
+                .thenReturn(Flux.interval(java.time.Duration.ofMillis(10)).map(i -> "持续输出"));
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals("error", events.getLast().event()))
+                .expectComplete().verify(java.time.Duration.ofSeconds(5));
+        verify(chatTurnLifecycle).markFailed(eq(claim), any());
+        verify(chatTurnLifecycle, org.mockito.Mockito.never()).completeWithAiMessage(any(), any(), any());
     }
 
     @Test
     void chat_shouldStreamChineseChunksAndCompleteTurnOnlyAfterAiMessageIsSaved() {
         ChatRequest request = request(99L, "request-1");
-        Conversation conversation = conversation(99L);
         ChatTurnLifecycle.Claim claim = ownedClaim("turn-1");
         Message savedAiMessage = new Message();
         savedAiMessage.setId(2L);
         savedAiMessage.setSender("ai");
 
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
-        when(conversationService.addMessageToConversation(argThat(message ->
-                message != null && "ai".equals(message.getSender())))).thenReturn(Mono.just(savedAiMessage));
-        when(chatTurnLifecycle.markCompleted(claim, savedAiMessage)).thenReturn(Mono.empty());
+        when(chatTurnLifecycle.completeWithAiMessage(claim, request, "早上好"))
+                .thenReturn(Mono.just(savedAiMessage));
         when(generalAssistantFactory.createAssistant(any(ChatRequest.class))).thenReturn(generalAssistant);
         when(generalAssistant.chat("99:test-model", "早上好")).thenReturn(Flux.just("早上", "好"));
 
         StepVerifier.create(service.chat(request).collectList())
                 .assertNext(events -> {
-                    org.junit.jupiter.api.Assertions.assertEquals(5, events.size());
+                    org.junit.jupiter.api.Assertions.assertEquals(6, events.size());
                     org.junit.jupiter.api.Assertions.assertEquals("metadata", events.get(0).event());
                     org.junit.jupiter.api.Assertions.assertEquals("status", events.get(1).event());
                     org.junit.jupiter.api.Assertions.assertEquals("status", events.get(2).event());
@@ -87,33 +133,28 @@ class AiChatServiceImplTest {
                 })
                 .verifyComplete();
 
-        ArgumentCaptor<Message> captor = ArgumentCaptor.forClass(Message.class);
-        verify(conversationService, timeout(1000)).addMessageToConversation(captor.capture());
-        Message persistedAiMessage = captor.getValue();
-        org.junit.jupiter.api.Assertions.assertEquals("早上好", persistedAiMessage.getContent());
-        org.junit.jupiter.api.Assertions.assertEquals("ai:42:99:request-1", persistedAiMessage.getDeduplicationKey());
-        verify(chatTurnLifecycle).markCompleted(claim, savedAiMessage);
+        verify(chatTurnLifecycle).completeWithAiMessage(claim, request, "早上好");
     }
 
     @Test
     void chat_shouldReplayCompletedTurnWithoutCreatingAnotherModelStream() {
         ChatRequest request = request(99L, "request-1");
-        Conversation conversation = conversation(99L);
         ChatTurnRow row = startedTurn("turn-1");
         row.setStatus("COMPLETED");
         Message savedAiMessage = new Message();
         savedAiMessage.setContent("已保存的回答");
         ChatTurnLifecycle.Claim replay = ChatTurnLifecycle.Claim.replay(row, savedAiMessage);
 
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(replay));
 
         StepVerifier.create(service.chat(request).collectList())
                 .assertNext(events -> {
                     org.junit.jupiter.api.Assertions.assertEquals(
-                            List.of("metadata", "status", "message"),
+                            List.of("metadata", "status", "message", "complete"),
                             events.stream().map(ServerSentEvent::event).toList());
                     org.junit.jupiter.api.Assertions.assertEquals("已保存的回答", events.get(2).data());
+                    org.junit.jupiter.api.Assertions.assertEquals("[DONE]", events.get(3).data());
+                    org.junit.jupiter.api.Assertions.assertEquals("turn-1", events.get(3).id());
                 })
                 .verifyComplete();
 
@@ -124,7 +165,6 @@ class AiChatServiceImplTest {
     void chat_shouldEmitErrorForInProgressDuplicateWithoutCreatingAnotherModelStream() {
         ChatRequest request = request(99L, "request-1");
         ChatTurnLifecycle.Claim inProgress = ChatTurnLifecycle.Claim.inProgress(startedTurn("turn-1"));
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation(99L)));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(inProgress));
 
         StepVerifier.create(service.chat(request).collectList())
@@ -142,16 +182,14 @@ class AiChatServiceImplTest {
     void chat_shouldEmitErrorAndMarkTurnFailedWhenModelStreamTimesOut() {
         AiChatServiceImpl timeoutService = new AiChatServiceImpl(
                 generalAssistantFactory,
-                new AssistantConversationTurn(conversationService),
                 chatTurnLifecycle,
-                new AssistantInputBuilder(ragService),
+                new AssistantInputBuilder(ragService, contextLoader()),
                 new ChatStreamEventFactory(new ObjectMapper()),
                 new ChatStreamTelemetry(new SimpleMeterRegistry(), new ObjectMapper()),
-                10L);
+                10L, retrievalReader());
         ChatRequest request = request(100L, "request-timeout");
         ChatTurnLifecycle.Claim claim = ownedClaim("turn-timeout");
 
-        when(conversationService.getConversationById(100L, 42L)).thenReturn(Mono.just(conversation(100L)));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markFailed(eq(claim), any())).thenReturn(Mono.empty());
@@ -177,10 +215,10 @@ class AiChatServiceImplTest {
         ChatTurnLifecycle.Claim claim = ownedClaim("turn-save-failure");
         RuntimeException persistenceFailure = new RuntimeException("database unavailable");
 
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation(99L)));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
-        when(conversationService.addMessageToConversation(any(Message.class))).thenReturn(Mono.error(persistenceFailure));
+        when(chatTurnLifecycle.completeWithAiMessage(claim, request, "回答"))
+                .thenReturn(Mono.error(persistenceFailure));
         when(chatTurnLifecycle.markFailed(eq(claim), any())).thenReturn(Mono.empty());
         when(generalAssistantFactory.createAssistant(any(ChatRequest.class))).thenReturn(generalAssistant);
         when(generalAssistant.chat("99:test-model", "早上好")).thenReturn(Flux.just("回答"));
@@ -194,7 +232,74 @@ class AiChatServiceImplTest {
                 .verifyComplete();
 
         verify(chatTurnLifecycle).markFailed(eq(claim), any());
-        verify(chatTurnLifecycle, org.mockito.Mockito.never()).markCompleted(eq(claim), any());
+        verify(chatTurnLifecycle).completeWithAiMessage(claim, request, "回答");
+    }
+
+    @Test
+    void chat_shouldMarkTurnFailedWhenStreamingTransitionFails() {
+        ChatRequest request = request(99L, "request-streaming-failure");
+        ChatTurnLifecycle.Claim claim = ownedClaim("turn-streaming-failure");
+        RuntimeException transitionFailure = new RuntimeException("streaming transition failed");
+
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.error(transitionFailure));
+        when(chatTurnLifecycle.markFailed(claim, transitionFailure)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals(
+                        List.of("error"), events.stream().map(ServerSentEvent::event).toList()))
+                .verifyComplete();
+
+        verify(chatTurnLifecycle).markFailed(claim, transitionFailure);
+        verify(generalAssistantFactory, org.mockito.Mockito.never()).createAssistant(any());
+    }
+
+    @Test
+    void chat_shouldMarkTurnFailedWhenRagInputConstructionFails() {
+        ChatRequest request = request(99L, "request-rag-failure");
+        request.setKnowledgeBaseIds(List.of(7L));
+        ChatTurnLifecycle.Claim claim = ownedClaim("turn-rag-failure");
+        RuntimeException retrievalFailure = new RuntimeException("retrieval unavailable");
+
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(ragService.retrieveContext("早上好", List.of(7L), 5, 0.3, 42L, false))
+                .thenReturn(Mono.error(retrievalFailure));
+        when(chatTurnLifecycle.markFailed(claim, retrievalFailure)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals(
+                        List.of("metadata", "status", "error"),
+                        events.stream().map(ServerSentEvent::event).toList()))
+                .verifyComplete();
+
+        verify(chatTurnLifecycle).markFailed(claim, retrievalFailure);
+        verify(generalAssistantFactory, org.mockito.Mockito.never()).createAssistant(any());
+    }
+
+    @Test
+    void chat_shouldKeepOriginalSseErrorWhenFailedTerminalizationAlsoFails() {
+        ChatRequest request = request(99L, "request-terminalization-failure");
+        ChatTurnLifecycle.Claim claim = ownedClaim("turn-terminalization-failure");
+        RuntimeException modelFailure = new RuntimeException("model unavailable");
+        RuntimeException terminalizationFailure = new RuntimeException("database unavailable");
+
+        when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
+        when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
+        when(generalAssistantFactory.createAssistant(any(ChatRequest.class))).thenReturn(generalAssistant);
+        when(generalAssistant.chat("99:test-model", "早上好")).thenReturn(Flux.error(modelFailure));
+        when(chatTurnLifecycle.markFailed(claim, modelFailure)).thenReturn(Mono.error(terminalizationFailure));
+
+        StepVerifier.create(service.chat(request).collectList())
+                .assertNext(events -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(
+                            List.of("metadata", "status", "status", "error"),
+                            events.stream().map(ServerSentEvent::event).toList());
+                    org.junit.jupiter.api.Assertions.assertEquals(1, modelFailure.getSuppressed().length);
+                    org.junit.jupiter.api.Assertions.assertSame(
+                            terminalizationFailure, modelFailure.getSuppressed()[0]);
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -202,7 +307,6 @@ class AiChatServiceImplTest {
         ChatRequest request = request(99L, "request-cancel");
         ChatTurnLifecycle.Claim claim = ownedClaim("turn-cancel");
 
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation(99L)));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markCancelled(claim)).thenReturn(Mono.empty());
@@ -217,11 +321,10 @@ class AiChatServiceImplTest {
     }
 
     @Test
-    void chat_shouldKeepEmptyAnswerSseBehaviorButMarkTurnFailed() {
+    void chat_shouldReportEmptyAnswerAndMarkTurnFailed() {
         ChatRequest request = request(99L, "request-empty");
         ChatTurnLifecycle.Claim claim = ownedClaim("turn-empty");
 
-        when(conversationService.getConversationById(99L, 42L)).thenReturn(Mono.just(conversation(99L)));
         when(chatTurnLifecycle.claim(request)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markStreaming(claim)).thenReturn(Mono.just(claim));
         when(chatTurnLifecycle.markEmptyResponse(claim)).thenReturn(Mono.empty());
@@ -230,12 +333,19 @@ class AiChatServiceImplTest {
 
         StepVerifier.create(service.chat(request).collectList())
                 .assertNext(events -> org.junit.jupiter.api.Assertions.assertEquals(
-                        List.of("metadata", "status", "status"),
+                        List.of("metadata", "status", "status", "error"),
                         events.stream().map(ServerSentEvent::event).toList()))
                 .verifyComplete();
 
         verify(chatTurnLifecycle).markEmptyResponse(claim);
-        verify(chatTurnLifecycle, org.mockito.Mockito.never()).markCompleted(eq(claim), any());
+        verify(chatTurnLifecycle, org.mockito.Mockito.never()).completeWithAiMessage(eq(claim), any(), any());
+    }
+
+    private ChatRetrievalReader retrievalReader() {
+        var reader = org.mockito.Mockito.mock(ChatRetrievalReader.class);
+        org.mockito.Mockito.lenient().when(reader.read(org.mockito.ArgumentMatchers.nullable(String.class), any(), any(boolean.class)))
+                .thenReturn(Mono.empty());
+        return reader;
     }
 
     private ChatRequest request(Long conversationId, String clientMessageId) {
@@ -249,12 +359,6 @@ class AiChatServiceImplTest {
                 .build();
     }
 
-    private Conversation conversation(Long id) {
-        Conversation conversation = new Conversation();
-        conversation.setId(id);
-        return conversation;
-    }
-
     private ChatTurnLifecycle.Claim ownedClaim(String id) {
         return ChatTurnLifecycle.Claim.owned(startedTurn(id), new Message());
     }
@@ -265,4 +369,11 @@ class AiChatServiceImplTest {
         turn.setStatus("STARTED");
         return turn;
     }
+    private ConversationContextLoader contextLoader() {
+        ConversationContextLoader loader = org.mockito.Mockito.mock(ConversationContextLoader.class);
+        org.mockito.Mockito.lenient().when(loader.prepare(any(), any()))
+                .thenAnswer(call -> Mono.just(call.getArgument(1)));
+        return loader;
+    }
+
 }

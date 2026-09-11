@@ -11,14 +11,16 @@ import reactor.core.publisher.Mono;
 public class AssistantInputBuilder {
 
     private final RagService ragService;
+    private final ConversationContextLoader contextLoader;
 
-    public AssistantInputBuilder(RagService ragService) {
+    public AssistantInputBuilder(RagService ragService, ConversationContextLoader contextLoader) {
         this.ragService = ragService;
+        this.contextLoader = contextLoader;
     }
 
     public Mono<String> build(ChatRequest request) {
         if (!request.isRagMode()) {
-            return Mono.just(request.getTrimmedMessage());
+            return contextLoader.prepare(request, request.getTrimmedMessage());
         }
 
         return ragService.retrieveContext(
@@ -29,13 +31,21 @@ public class AssistantInputBuilder {
                         request.getUserId(),
                         request.isAdminRequest()
                 )
-                .map(context -> buildKnowledgeAugmentedPrompt(request, context))
+                .map(context -> {
+                    request.setRetrievalContext(context);
+                    if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.UNAVAILABLE) {
+                        throw ChatStreamClientException.retrievalUnavailable();
+                    }
+                    return context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY
+                            ? request.getTrimmedMessage() : buildKnowledgeAugmentedPrompt(request, context);
+                })
+                .flatMap(input -> contextLoader.prepare(request, input))
                 .doOnSuccess(prompt -> log.info("知识增强输入已构建: conversationId={}, knowledgeBaseCount={}",
                         request.getConversationId(),
                         request.getKnowledgeBaseIds() != null ? request.getKnowledgeBaseIds().size() : 0));
     }
 
-    private String buildKnowledgeAugmentedPrompt(ChatRequest request, RagService.RetrievalContext context) {
+    static String buildKnowledgeAugmentedPrompt(ChatRequest request, RagService.RetrievalContext context) {
         String knowledgeContext = context.contextText();
         if (knowledgeContext == null || knowledgeContext.isBlank()) {
             knowledgeContext = "未检索到可直接引用的知识库内容。";

@@ -209,6 +209,17 @@ public interface ConversationRepository extends R2dbcRepository<Conversation, Lo
     @Query("SELECT c.id, c.title, c.created_at, c.updated_at, c.user_id FROM conversation c INNER JOIN users u ON c.user_id = u.user_id")
     Flux<Conversation> findAllConversationsFromRegisteredUsers();
 
+    @Query("SELECT COALESCE(MAX(id), 0) FROM conversation")
+    Mono<Long> findSearchRebuildUpperBound();
+
+    @Query("""
+            SELECT c.id, c.title, c.created_at, c.updated_at, c.user_id
+            FROM conversation c INNER JOIN users u ON c.user_id = u.user_id
+            WHERE c.id > :afterId AND c.id <= :upperBound
+            ORDER BY c.id ASC LIMIT :pageSize
+            """)
+    Flux<Conversation> findSearchRebuildPage(long afterId, long upperBound, int pageSize);
+
     @Query("""
             SELECT EXISTS(
                 SELECT 1

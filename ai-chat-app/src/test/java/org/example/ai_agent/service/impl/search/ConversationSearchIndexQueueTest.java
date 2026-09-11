@@ -16,6 +16,28 @@ import static org.mockito.Mockito.when;
 class ConversationSearchIndexQueueTest {
 
     @Test
+    void boundsPendingAndCoalescesRebuildUntilShutdown() {
+        SearchService service = mock(SearchService.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        ConversationSearchIndexQueue queue = new ConversationSearchIndexQueue(service, registry, 2, 10_000);
+        java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+        when(service.rebuildAllIndexes()).thenReturn(Mono.<Void>never().doOnCancel(() -> cancelled.set(true)));
+        queue.enqueueUpsert(1L);
+        queue.enqueueUpsert(2L);
+        queue.enqueueUpsert(3L);
+        queue.enqueueDelete(1L);
+        org.junit.jupiter.api.Assertions.assertEquals(2, registry.get("search.index.queue.pending").gauge().value());
+        org.junit.jupiter.api.Assertions.assertEquals(1, registry.counter("search.index.queue.overflow").count());
+        queue.drainPendingTasks();
+        queue.drainPendingTasks();
+        verify(service).rebuildAllIndexes();
+        queue.stop();
+        org.junit.jupiter.api.Assertions.assertTrue(cancelled.get());
+        queue.drainPendingTasks();
+        verify(service).rebuildAllIndexes();
+    }
+
+    @Test
     void shouldCoalescePendingOperationsAndLetDeleteWin() {
         SearchService searchService = mock(SearchService.class);
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();

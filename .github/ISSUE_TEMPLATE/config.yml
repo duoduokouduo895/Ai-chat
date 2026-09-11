@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 安全漏洞"
+    url: https://github.com/duoduokouduo895/Ai-chat/security/advisories/new
+    about: 请勿在公开 Issue 报告安全问题，使用 GitHub Security Advisories。
+  - name: "💬 提问与讨论"
+    url: https://github.com/duoduokouduo895/Ai-chat/discussions
+    about: 安装、用法、设计讨论请走 Discussions，不要开空白 Issue。

@@ -14,6 +14,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import org.example.ai_agent.knowledge.retrieval.RetrievalOutcome;
+import org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel;
+import org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -64,6 +67,19 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
     public Mono<List<RetrievalCandidate>> retrieve(String query, List<Long> knowledgeBaseIds,
                                                    Integer maxResults, Double minSimilarity,
                                                    Long requesterUserId, boolean isAdmin) {
+        return retrieveDetailed(query, knowledgeBaseIds, maxResults, minSimilarity, requesterUserId, isAdmin)
+                .map(RetrievalOutcome::candidates);
+    }
+
+    @Override
+    public Mono<RetrievalOutcome<RetrievalCandidate>> retrieveDetailed(String query, List<Long> knowledgeBaseIds,
+            Integer maxResults, Double minSimilarity, Long requesterUserId, boolean isAdmin) {
+        return Mono.defer(() -> retrieveOutcome(query, knowledgeBaseIds, maxResults, minSimilarity, requesterUserId, isAdmin));
+    }
+
+    private Mono<RetrievalOutcome<RetrievalCandidate>> retrieveOutcome(String query, List<Long> knowledgeBaseIds,
+            Integer maxResults, Double minSimilarity, Long requesterUserId, boolean isAdmin) {
+        long started = System.nanoTime();
         int finalMaxResults = maxResults != null && maxResults > 0 ? maxResults : 10;
         double finalMinSimilarity = minSimilarity != null ? minSimilarity : 0.7D;
 
@@ -71,28 +87,39 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                 .collectList()
                 .flatMap(knowledgeBases -> {
                     if (knowledgeBases.isEmpty()) {
-                        return Mono.just(List.<RetrievalCandidate>of());
+                        return Mono.just(RetrievalOutcome.<RetrievalCandidate>of(List.of(), List.of(), elapsedMs(started)));
                     }
 
                     int candidateLimit = Math.max(finalMaxResults, finalMaxResults * 2);
-                    Mono<List<RetrievalCandidate>> vector = "bm25".equalsIgnoreCase(retrievalMode)
-                            ? Mono.just(List.of())
+                    Mono<ChannelResult> vector = "bm25".equalsIgnoreCase(retrievalMode)
+                            ? Mono.just(new ChannelResult(List.of(), new Channel("Vector", ChannelStatus.DISABLED, 0)))
                             : withRetrievalGuard("Vector", query,
-                                    vectorSearch(query, knowledgeBases, finalMinSimilarity, candidateLimit),
+                                    Mono.defer(() -> vectorSearch(query, knowledgeBases, finalMinSimilarity, candidateLimit)),
                                     vectorTimeoutMs);
-                    Mono<List<RetrievalCandidate>> bm25 = "vector".equalsIgnoreCase(retrievalMode)
-                            ? Mono.just(List.of())
+                    Mono<ChannelResult> bm25 = "vector".equalsIgnoreCase(retrievalMode)
+                            ? Mono.just(new ChannelResult(List.of(), new Channel("BM25", ChannelStatus.DISABLED, 0)))
                             : withRetrievalGuard("BM25", query,
-                                    bm25Search(query, knowledgeBases, requesterUserId, isAdmin, candidateLimit),
+                                    Mono.defer(() -> bm25Search(query, knowledgeBases, requesterUserId, isAdmin, candidateLimit)),
                                     bm25TimeoutMs);
 
                     return Mono.zip(vector, bm25)
-                            .map(tuple -> fuse(tuple.getT1(), tuple.getT2()))
-                            .flatMap(candidates -> rerankClient.rerank(query, candidates, finalMaxResults));
+                            .flatMap(tuple -> {
+                                var candidates = fuse(tuple.getT1().candidates(), tuple.getT2().candidates());
+                                var channels = List.of(tuple.getT1().channel(), tuple.getT2().channel());
+                                if (candidates.isEmpty()) {
+                                    return Mono.just(RetrievalOutcome.of(candidates, channels, elapsedMs(started)));
+                                }
+                                return rerankClient.rerankDetailed(query, candidates, finalMaxResults)
+                                        .map(ranked -> {
+                                            List<Channel> allChannels = new ArrayList<>(channels);
+                                            allChannels.add(ranked.channel());
+                                            return RetrievalOutcome.of(ranked.candidates(), allChannels, elapsedMs(started));
+                                        });
+                            });
                 });
     }
 
-    private Mono<List<RetrievalCandidate>> withRetrievalGuard(String channel, String query,
+    private Mono<ChannelResult> withRetrievalGuard(String channel, String query,
                                                               Mono<List<RetrievalCandidate>> retrieval,
                                                               int timeoutMs) {
         long startNanos = System.nanoTime();
@@ -101,13 +128,16 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                 .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
                 .doOnSuccess(results -> log.info("{} 召回完成: queryLength={}, resultCount={}, durationMs={}",
                         channel, queryLength, results != null ? results.size() : 0, elapsedMs(startNanos)))
+                .map(results -> new ChannelResult(results, new Channel(channel, ChannelStatus.SUCCEEDED, elapsedMs(startNanos))))
                 .onErrorResume(error -> {
                     log.warn("{} 召回失败或超时，降级为空结果: queryLength={}, durationMs={}, errorType={}",
                             channel, queryLength, elapsedMs(startNanos),
                             error.getClass().getSimpleName());
-                    return Mono.just(List.of());
+                    return Mono.just(new ChannelResult(List.of(), new Channel(channel, ChannelStatus.FAILED, elapsedMs(startNanos))));
                 });
     }
+
+    private record ChannelResult(List<RetrievalCandidate> candidates, Channel channel) { }
 
     private Mono<List<RetrievalCandidate>> vectorSearch(String query, List<KnowledgeBase> knowledgeBases,
                                                         double minSimilarity, int candidateLimit) {
@@ -162,6 +192,7 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                             null,
                             doc.getKnowledgeBaseId(),
                             doc.getDocumentId(),
+                            doc.getVersionId(),
                             doc.getChunkId(),
                             doc.getContent(),
                             doc.getDocumentTitle(),
@@ -214,6 +245,7 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                 candidate.embeddingId(),
                 candidate.knowledgeBaseId(),
                 candidate.documentId(),
+                candidate.versionId(),
                 candidate.chunkId(),
                 candidate.content(),
                 candidate.documentTitle(),
@@ -232,6 +264,7 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                 result.embeddingId(),
                 result.knowledgeBaseId(),
                 result.documentId(),
+                metadata.getLong("version_id"),
                 result.chunkId(),
                 result.textSegment().text(),
                 hasText(documentTitle) ? documentTitle : "未知文档",

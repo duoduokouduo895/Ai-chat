@@ -64,14 +64,14 @@ def main():
         f"- 生成运行: `{generation['runId'] if generation else '未执行'}`",
         f"- 待人工复核失败项: `{len(failures)}`", "",
         "## 检索层", "",
-        "| 配置 | 问题数 | 错误数 | Precision@K | Recall@K | Hit Rate@K | MRR | 负样本误召回率 | P95 |",
+        "| 配置 | 问题数 | 错误数 | Precision@K | 证据覆盖率 | Hit Rate@K | MRR | 负样本误召回率 | P95 |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in retrieval["summary"]:
         lines.append(f"| {row['config']} | {row['questions']} | {row['errors']} | {row['precisionAtK']:.4f} | {row['recallAtK']:.4f} | {row['hitRateAtK']:.4f} | {row['mrr']:.4f} | {row['negativeFalsePositiveRate']:.4f} | {row['latencyP95Ms']}ms |")
     lines += [
         "", "### 按题型分组", "",
-        "| 配置 | 题型 | 问题数 | 错误数 | Precision@K | Recall@K | Hit Rate@K | MRR |",
+        "| 配置 | 题型 | 问题数 | 错误数 | Precision@K | 证据覆盖率 | Hit Rate@K | MRR |",
         "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in retrieval["summaryByType"]:
@@ -82,7 +82,7 @@ def main():
         lines += [
             f"- SSE 完成率: `{summary['successRate']:.4f}`",
             f"- 正样本关键词覆盖率: `{summary['positiveKeywordCoverage']:.4f}`",
-            f"- 负样本正确拒答率: `{summary['negativeCorrectRefusalRate']:.4f}`",
+            f"- 负样本拒答短语命中率（待人工核对）: `{summary['negativeCorrectRefusalRate']:.4f}`",
             f"- 非预期拒答率: `{summary['unexpectedRefusalRate']:.4f}`",
             f"- TTFT P50 / P95: `{summary['ttftP50Ms']}ms / {summary['ttftP95Ms']}ms`",
             f"- 完整耗时 P50 / P95: `{summary['totalP50Ms']}ms / {summary['totalP95Ms']}ms`",
@@ -104,7 +104,9 @@ def main():
         "", "## 说明", "",
         "- `POSSIBLE_HALLUCINATION` 仅表示需要人工复核，不是自动裁决。",
         "- `RETRIEVAL_FALSE_POSITIVE` 表示负样本召回了相似 Chunk，不等同于模型已经产生幻觉。",
-        "- 当前系统未显式返回引用，Faithfulness 需要结合检索结果与回答文本人工抽检。",
+        "- Precision 按返回 chunk 计算；证据覆盖率按去重标记计算，recallAtK 为兼容字段。",
+        "- 关键词和拒答短语仅作初筛；事实正确性、证据支持程度、拒答是否合理均需人工核对。",
+        f"- 检索复现指纹: `{json.dumps(retrieval.get('evidence', {}), ensure_ascii=False)}`",
         f"- 失败明细: `{failure_path.name}`",
     ]
     report = RESULTS_DIR / f"report-{run_id}.md"

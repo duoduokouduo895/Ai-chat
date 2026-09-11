@@ -38,8 +38,14 @@ public class ConversationSearchIndexQueue {
     private final Counter processedCounter;
     private final Counter failedCounter;
     private final Duration retryInterval;
+    private final int pendingCapacity;
+    private final java.util.concurrent.atomic.AtomicBoolean rebuildRequired = new java.util.concurrent.atomic.AtomicBoolean(true);
+    private final java.util.concurrent.atomic.AtomicBoolean rebuilding = new java.util.concurrent.atomic.AtomicBoolean();
+    private final Counter overflowCounter;
     private Disposable worker;
     private Disposable retryWorker;
+    private Disposable rebuildWorker;
+    private volatile boolean stopped;
 
     public ConversationSearchIndexQueue(
             SearchService searchService,
@@ -47,6 +53,9 @@ public class ConversationSearchIndexQueue {
             @Value("${search.index-sync.queue-capacity:500}") int queueCapacity,
             @Value("${search.index-sync.retry-interval-ms:1000}") long retryIntervalMs) {
         this.searchService = searchService;
+        this.pendingCapacity = Math.max(1, queueCapacity);
+        this.overflowCounter = meterRegistry.counter("search.index.queue.overflow");
+        Gauge.builder("search.index.rebuild.required", rebuildRequired, value -> value.get() ? 1 : 0).register(meterRegistry);
         this.tasks = Sinks.many().unicast()
                 .onBackpressureBuffer(new ArrayBlockingQueue<>(Math.max(1, queueCapacity)));
         this.retryInterval = Duration.ofMillis(Math.max(100, retryIntervalMs));
@@ -96,7 +105,7 @@ public class ConversationSearchIndexQueue {
             .doOnSuccess(ignored -> processedCounter.increment())
             .onErrorResume(error -> {
             failedCounter.increment();
-            pendingTasks.merge(conversationId, pendingOperation, this::mergeOperations);
+            retain(conversationId, pendingOperation);
             log.error("会话搜索索引后台同步失败: conversationId={}, operation={}, errorType={}",
                     conversationId, pendingOperation, error.getClass().getSimpleName());
             return Mono.empty();
@@ -109,13 +118,18 @@ public class ConversationSearchIndexQueue {
             return;
         }
 
-        pendingTasks.compute(conversationId, (ignored, current) -> {
-            if (current != null) {
-                coalescedCounter.increment();
-            }
-            return mergeOperations(current, operation);
-        });
+        retain(conversationId, operation);
         schedule(conversationId);
+    }
+
+    private synchronized void retain(Long conversationId, Operation operation) {
+        if (!pendingTasks.containsKey(conversationId) && pendingTasks.size() >= pendingCapacity) {
+            overflowCounter.increment();
+            rebuildRequired.set(true);
+            return;
+        }
+        if (pendingTasks.containsKey(conversationId)) coalescedCounter.increment();
+        pendingTasks.merge(conversationId, operation, this::mergeOperations);
     }
 
     private Operation mergeOperations(Operation current, Operation incoming) {
@@ -140,18 +154,34 @@ public class ConversationSearchIndexQueue {
         enqueuedCounter.increment();
     }
 
-    private void drainPendingTasks() {
+    synchronized void drainPendingTasks() {
+        if (stopped) return;
         pendingTasks.keySet().forEach(this::schedule);
+        if (rebuildRequired.get() && rebuilding.compareAndSet(false, true)) {
+            rebuildRequired.set(false);
+            rebuildWorker = Mono.defer(searchService::rebuildAllIndexes)
+                    .timeout(Duration.ofMinutes(10))
+                    .onErrorResume(error -> {
+                        rebuildRequired.set(true);
+                        return Mono.delay(Duration.ofSeconds(30)).then();
+                    })
+                    .doFinally(signal -> rebuilding.set(false))
+                    .subscribe();
+        }
     }
 
     @PreDestroy
-    public void stop() {
+    public synchronized void stop() {
+        stopped = true;
         tasks.tryEmitComplete();
         if (retryWorker != null) {
             retryWorker.dispose();
         }
         if (worker != null) {
             worker.dispose();
+        }
+        if (rebuildWorker != null) {
+            rebuildWorker.dispose();
         }
     }
 

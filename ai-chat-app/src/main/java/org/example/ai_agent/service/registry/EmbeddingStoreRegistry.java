@@ -165,6 +165,10 @@ public class EmbeddingStoreRegistry {
         }
     }
 
+    public void refresh(EmbeddingProfile profile) throws IOException {
+        getRestClient().performRequest(new Request("POST", "/" + profile.indexName() + "/_refresh"));
+    }
+
     private RestClient getRestClient() {
         if (restClient != null) {
             return restClient;
@@ -177,8 +181,8 @@ public class EmbeddingStoreRegistry {
                 HttpHost httpHost = new HttpHost(uri.getHost(), port, uri.getScheme());
                 restClient = RestClient.builder(httpHost)
                         .setRequestConfigCallback(builder -> builder
-                                .setConnectTimeout(elasticsearchConfig.getConnectionTimeout())
-                                .setSocketTimeout(elasticsearchConfig.getSocketTimeout()))
+                                .setConnectTimeout(Math.max(1000, Math.min(30000, elasticsearchConfig.getConnectionTimeout())))
+                                .setSocketTimeout(Math.max(1000, Math.min(120000, elasticsearchConfig.getSocketTimeout()))))
                         .setHttpClientConfigCallback(builder -> {
                             if (!elasticsearchConfig.hasCredentials()) {
                                 return builder;

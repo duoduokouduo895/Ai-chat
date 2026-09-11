@@ -44,7 +44,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     private final KnowledgeDocumentRepository documentRepository;
 
-    private final KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private final KnowledgeCleanupCommands knowledgeCleanupCommands;
 
     private final KnowledgeChunkSearchService knowledgeChunkSearchService;
 
@@ -59,11 +59,11 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     public KnowledgeBaseServiceImpl(KnowledgeBaseRepository knowledgeBaseRepository,
                                     KnowledgeDocumentRepository documentRepository,
-                                    KnowledgeAssetCleanupService knowledgeAssetCleanupService,
+                                    KnowledgeCleanupCommands knowledgeCleanupCommands,
                                     KnowledgeChunkSearchService knowledgeChunkSearchService) {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
-        this.knowledgeAssetCleanupService = knowledgeAssetCleanupService;
+        this.knowledgeCleanupCommands = knowledgeCleanupCommands;
         this.knowledgeChunkSearchService = knowledgeChunkSearchService;
     }
 
@@ -256,15 +256,9 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     @Override
     public Mono<Void> deleteKnowledgeBase(Long id, Long requesterUserId, boolean isAdmin) {
-        return getAuthorizedKnowledgeBase(id, requesterUserId, isAdmin, true)
-            .flatMap(kb -> {
-                return knowledgeAssetCleanupService.deleteKnowledgeBaseAssets(kb)
-                        .then(knowledgeBaseRepository.delete(kb));
-            })
+        return knowledgeCleanupCommands.deleteKnowledgeBase(id, requesterUserId, isAdmin)
             .then()
-            .doOnSuccess(v -> log.info("知识库删除成功: id={}", id))
-            .doOnError(error -> log.error("知识库删除失败: id={}, errorType={}", id, error.getClass().getSimpleName()))
-            .subscribeOn(Schedulers.boundedElastic());
+            .doOnSuccess(v -> log.info("知识库删除已受理: id={}", id));
     }
 
     @Override
@@ -276,7 +270,7 @@ public class  KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     public Mono<KnowledgeBase> getAuthorizedKnowledgeBase(Long id, Long requesterUserId,
                                                           boolean isAdmin, boolean requireWriteAccess) {
-        return knowledgeBaseRepository.findById(id)
+        return (requireWriteAccess ? knowledgeBaseRepository.lockActiveById(id) : knowledgeBaseRepository.findById(id))
             .switchIfEmpty(Mono.error(new IllegalArgumentException("知识库不存在: id=" + id)))
             .flatMap(knowledgeBase -> {
                 if (isAdmin) {

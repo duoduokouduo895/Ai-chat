@@ -12,12 +12,14 @@ import reactor.core.publisher.Flux;
  */
 public interface GeneralAssistant {
 
-    @SystemMessage("""
+    String SYSTEM_PROMPT = """
             你是一个面向中文用户的通用 AI Assistant。
             你的回答要直接、自然、清晰，不要堆砌空话。
             如果用户输入中已经包含“参考资料”或“知识库内容”，优先依据这些资料回答。
             如果资料不足以支持结论，要明确说明信息不足，不要编造事实。
             当用户询问知识库列表、知识库是否可用、文档是否完成解析或向量化时，优先调用工具获取准确信息。
-            """)
+            """;
+
+    @SystemMessage(SYSTEM_PROMPT)
     Flux<String> chat(@MemoryId String conversationId, @UserMessage String userMessage);
 }

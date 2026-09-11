@@ -12,7 +12,14 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -23,6 +30,8 @@ import java.util.UUID;
 @Slf4j
 @Component
 public class ChatTurnLifecycle {
+
+    static final String STALE_TURN_ERROR_CODE = "CHAT_STALE_TIMEOUT";
 
     private final ChatTurnRepository chatTurnRepository;
     private final MessageRepository messageRepository;
@@ -51,16 +60,22 @@ public class ChatTurnLifecycle {
                     return chatTurnRepository.save(started)
                             .flatMap(savedTurn -> {
                                 savedTurn.markPersisted();
-                                return conversationTurn.saveUserMessage(request)
-                                    .flatMap(savedUserMessage -> {
-                                        savedTurn.setUserMessageId(savedUserMessage.getId());
-                                        return chatTurnRepository.save(savedTurn)
-                                                .thenReturn(Claim.owned(savedTurn, savedUserMessage));
-                                    });
+                                return conversationTurn.ensureConversationExists(request)
+                                        .then(Mono.defer(() -> chatTurnRepository.acquireConversation(
+                                                        request.getConversationId(), savedTurn.getId())
+                                                .onErrorMap(this::isDataIntegrityFailure,
+                                                        error -> ChatStreamClientException.conversationBusy())))
+                                        .then(Mono.defer(() -> conversationTurn.saveUserMessage(request)))
+                                        .flatMap(savedUserMessage -> {
+                                            savedTurn.setConversationId(request.getConversationId());
+                                            savedTurn.setUserMessageId(savedUserMessage.getId());
+                                            return chatTurnRepository.save(savedTurn)
+                                                    .thenReturn(Claim.owned(savedTurn, savedUserMessage));
+                                        });
                             });
                 }))
-                .onErrorResume(this::isDuplicateClaim,
-                        ignored -> findExistingClaim(request, clientRequestId));
+                .onErrorResume(this::isDataIntegrityFailure,
+                        error -> findExistingClaim(request, clientRequestId, error));
     }
 
     public Mono<Claim> markStreaming(Claim claim) {
@@ -73,14 +88,47 @@ public class ChatTurnLifecycle {
                         : Mono.error(new IllegalStateException("ChatTurn 流式状态迁移被拒绝")));
     }
 
-    public Mono<Void> markCompleted(Claim claim, Message assistantMessage) {
+    /**
+     * Persists the assistant message and completes the turn in one local MySQL
+     * transaction. Retrying a transient failure re-subscribes the whole
+     * transaction so a failed transaction is never reused.
+     */
+    public Mono<Message> completeWithAiMessage(Claim claim, ChatRequest request, String content) {
         if (!claim.isOwned()) {
-            return Mono.empty();
+            return Mono.error(new IllegalStateException("只有当前 ChatTurn 所有者可以完成请求"));
         }
+        Mono<Message> completionTransaction = Mono.defer(() -> transactionalOperator.transactional(
+                conversationTurn.saveAiMessageOnce(request, content)
+                        .switchIfEmpty(Mono.error(new IllegalArgumentException("AI 回答不能为空")))
+                        .flatMap(message -> persistRetrieval(claim, request).thenReturn(message))
+                        .flatMap(assistantMessage -> completeTurn(claim, assistantMessage))
+                        .flatMap(message -> chatTurnRepository.releaseConversation(claim.turnId()).thenReturn(message))));
+        return conversationTurn.retryAiMessagePersistence(completionTransaction);
+    }
+
+    private Mono<Message> completeTurn(Claim claim, Message assistantMessage) {
         return chatTurnRepository.markCompleted(claim.turnId(), assistantMessage.getId())
                 .flatMap(updated -> updated == 1
-                        ? Mono.<Void>empty()
-                        : Mono.error(new IllegalStateException("ChatTurn 完成状态迁移被拒绝")));
+                        ? Mono.just(assistantMessage)
+                        : confirmAlreadyCompleted(claim, assistantMessage));
+    }
+
+    private Mono<Void> persistRetrieval(Claim claim, ChatRequest request) {
+        if (request.getRetrievalContext() == null) return Mono.empty();
+        return Mono.defer(() -> chatTurnRepository.storeRetrieval(claim.turnId(),
+                        ChatRetrievalSnapshots.encode(request.getRetrievalContext())))
+                .flatMap(updated -> updated == 1 ? Mono.empty() : chatTurnRepository.findById(claim.turnId())
+                        .filter(row -> "COMPLETED".equals(row.getStatus()))
+                        .switchIfEmpty(Mono.error(new IllegalStateException("ChatTurn retrieval persistence rejected")))
+                        .then());
+    }
+
+    private Mono<Message> confirmAlreadyCompleted(Claim claim, Message assistantMessage) {
+        return chatTurnRepository.findById(claim.turnId())
+                .filter(row -> "COMPLETED".equals(row.getStatus())
+                        && Objects.equals(row.getAssistantMessageId(), assistantMessage.getId()))
+                .map(ignored -> assistantMessage)
+                .switchIfEmpty(Mono.error(new IllegalStateException("ChatTurn 完成状态迁移被拒绝")));
     }
 
     public Mono<Void> markFailed(Claim claim, Throwable error) {
@@ -95,29 +143,83 @@ public class ChatTurnLifecycle {
         if (!claim.isOwned()) {
             return Mono.empty();
         }
-        return chatTurnRepository.markCancelled(claim.turnId())
+        return transactionalOperator.transactional(chatTurnRepository.markCancelled(claim.turnId())
+                .flatMap(updated -> updated == 1
+                        ? Mono.<Void>empty()
+                        : confirmTerminalState(claim, "CANCELLED", "CHAT_CANCELLED",
+                                "ChatTurn 取消状态迁移被拒绝"))
+                .then(Mono.defer(() -> chatTurnRepository.releaseConversation(claim.turnId()))).then())
                 .doOnError(error -> log.warn("写入 ChatTurn 取消状态失败: turnId={}, errorType={}",
-                        claim.turnId(), error.getClass().getSimpleName()))
-                .onErrorResume(ignored -> Mono.empty())
-                .then();
+                        claim.turnId(), error.getClass().getSimpleName()));
+    }
+
+    /**
+     * Terminates active turns that can no longer have a live request owner.
+     * The caller supplies an inactivity window that must exceed the longest
+     * configured request execution time.
+     */
+    public Mono<Integer> recoverStaleTurns(Duration staleAfter, int batchSize) {
+        if (staleAfter == null || staleAfter.isZero() || staleAfter.isNegative()) {
+            return Mono.error(new IllegalArgumentException("ChatTurn 过期时间必须为正数"));
+        }
+        if (batchSize <= 0) {
+            return Mono.error(new IllegalArgumentException("ChatTurn 恢复批量必须为正数"));
+        }
+        return transactionalOperator.transactional(chatTurnRepository.failStaleActiveTurns(
+                        Math.max(1L, staleAfter.toSeconds()), batchSize, STALE_TURN_ERROR_CODE)
+                .flatMap(count -> chatTurnRepository.releaseTerminalConversations().thenReturn(count)))
+                .doOnNext(recovered -> {
+                    if (recovered > 0) {
+                        log.warn("已终止过期 ChatTurn: count={}, staleAfterSeconds={}",
+                                recovered, staleAfter.toSeconds());
+                    }
+                });
     }
 
     private Mono<Void> transitionToFailure(Claim claim, String errorCode) {
         if (!claim.isOwned()) {
             return Mono.empty();
         }
-        return chatTurnRepository.markFailed(claim.turnId(), errorCode)
+        return transactionalOperator.transactional(chatTurnRepository.markFailed(claim.turnId(), errorCode)
+                .flatMap(updated -> updated == 1
+                        ? Mono.<Void>empty()
+                        : confirmTerminalState(claim, "FAILED", errorCode,
+                                "ChatTurn 失败状态迁移被拒绝"))
+                .then(Mono.defer(() -> chatTurnRepository.releaseConversation(claim.turnId()))).then())
                 .doOnError(error -> log.error("写入 ChatTurn 失败状态失败: turnId={}, errorType={}",
-                        claim.turnId(), error.getClass().getSimpleName()))
-                .onErrorResume(ignored -> Mono.empty())
+                        claim.turnId(), error.getClass().getSimpleName()));
+    }
+
+    private Mono<Void> confirmTerminalState(Claim claim, String status, String errorCode, String rejectionMessage) {
+        return chatTurnRepository.findById(claim.turnId())
+                .filter(row -> status.equals(row.getStatus()) && Objects.equals(errorCode, row.getErrorCode()))
+                .switchIfEmpty(Mono.error(new IllegalStateException(rejectionMessage)))
                 .then();
     }
 
-    private Mono<Claim> findExistingClaim(ChatRequest request, String clientRequestId) {
-        return chatTurnRepository.findByActorAndConversationAndClientRequestId(
-                        actorType(request), request.getUserId(), request.getConversationId(), clientRequestId)
-                .switchIfEmpty(Mono.error(new IllegalStateException("ChatTurn 唯一键冲突但未找到已有记录")))
+    private Mono<Claim> findExistingClaim(ChatRequest request, String clientRequestId, Throwable originalError) {
+        return chatTurnRepository.findByActorAndClientRequestId(
+                        actorType(request), request.getUserId(), clientRequestId)
+                .switchIfEmpty(Mono.error(originalError))
+                .flatMap(row -> bindExistingConversation(request, row))
                 .flatMap(this::toExistingClaim);
+    }
+
+    private Mono<ChatTurnRow> bindExistingConversation(ChatRequest request, ChatTurnRow row) {
+        Long requestedConversationId = request.getConversationId();
+        Long claimedConversationId = row.getConversationId();
+        if (claimedConversationId == null) {
+            return Mono.error(new IllegalStateException("ChatTurn 已提交但尚未绑定会话"));
+        }
+        if (requestedConversationId != null && !requestedConversationId.equals(claimedConversationId)) {
+            return Mono.error(ChatStreamClientException.clientRequestConflict());
+        }
+        if (StringUtils.hasText(row.getRequestFingerprint())
+                && !row.getRequestFingerprint().equals(requestFingerprint(request))) {
+            return Mono.error(ChatStreamClientException.clientRequestConflict());
+        }
+        request.setConversationId(claimedConversationId);
+        return Mono.just(row);
     }
 
     private Mono<Claim> toExistingClaim(ChatTurnRow row) {
@@ -145,6 +247,7 @@ public class ChatTurnLifecycle {
         turn.setActorId(request.getUserId());
         turn.setConversationId(request.getConversationId());
         turn.setClientRequestId(clientRequestId);
+        turn.setRequestFingerprint(requestFingerprint(request));
         turn.setModelId(request.getEffectiveModelId());
         turn.setStatus("STARTED");
         turn.setAttempt(1);
@@ -169,6 +272,31 @@ public class ChatTurnLifecycle {
         return StringUtils.hasText(request.getActorType()) ? request.getActorType() : "USER";
     }
 
+    private String requestFingerprint(ChatRequest request) {
+        List<Long> knowledgeBaseIds = request.getKnowledgeBaseIds() == null
+                ? List.of()
+                : request.getKnowledgeBaseIds().stream().sorted().toList();
+        String canonicalRequest = canonicalPart(request.getTrimmedMessage())
+                + canonicalPart(request.getEffectiveModelId())
+                + canonicalPart(knowledgeBaseIds.toString())
+                + canonicalPart(String.valueOf(request.getMaxRetrievedDocs()))
+                + canonicalPart(String.valueOf(request.getMinSimilarity()))
+                + canonicalPart(String.valueOf(request.getSaveMessage()))
+                + canonicalPart(String.valueOf(request.getStreaming()))
+                + canonicalPart(request.getTitle());
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(canonicalRequest.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private String canonicalPart(String value) {
+        String normalized = value == null ? "<null>" : value;
+        return normalized.length() + ":" + normalized;
+    }
+
     private String errorCode(Throwable error) {
         if (error instanceof ChatStreamClientException clientException) {
             return clientException.getErrorCode();
@@ -176,13 +304,11 @@ public class ChatTurnLifecycle {
         return "CHAT_ERROR";
     }
 
-    private boolean isDuplicateClaim(Throwable error) {
+    private boolean isDataIntegrityFailure(Throwable error) {
         Throwable current = error;
         while (current != null) {
             if (current instanceof DataIntegrityViolationException) {
-                String message = current.getMessage();
-                return message != null && (message.contains("uk_chat_turn_actor_conversation_request")
-                        || message.contains("Duplicate entry"));
+                return true;
             }
             current = current.getCause();
         }

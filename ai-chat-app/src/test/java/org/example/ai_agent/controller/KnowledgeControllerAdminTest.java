@@ -80,9 +80,9 @@ class KnowledgeControllerAdminTest {
                 ragService,
                 knowledgeBaseService,
                 knowledgeChunkSearchService,
-                accessContextResolver);
+                accessContextResolver, org.mockito.Mockito.mock(org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands.class));
         documentController = new KnowledgeDocumentController(
-                documentService, documentChunkService, accessContextResolver, uploadFacade);
+                documentService, documentChunkService, accessContextResolver, uploadFacade, org.mockito.Mockito.mock(org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands.class));
     }
 
     @Test

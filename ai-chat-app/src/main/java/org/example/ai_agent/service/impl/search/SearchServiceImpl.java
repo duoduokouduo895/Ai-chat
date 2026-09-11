@@ -185,6 +185,10 @@ public class SearchServiceImpl implements SearchService {
 
         return elasticsearchOperations.search(stringQuery, ConversationDocument.class)
                 .map(searchHit -> searchHit.getContent())
+                .filter(document -> userId != null && document.getConversationId() != null)
+                .filterWhen(document -> conversationRepository.findById(document.getConversationId())
+                        .map(conversation -> java.util.Objects.equals(conversation.getUserId(), userId))
+                        .defaultIfEmpty(false), 1)
                 .doOnComplete(() -> log.info("统一搜索完成"))
                 .doOnError(e -> log.error("统一搜索失败: errorType={}", e.getClass().getSimpleName()));
     }
@@ -240,24 +244,34 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public Mono<Void> rebuildAllIndexes() {
+        return Mono.defer(this::rebuildAllIndexesOnce);
+    }
+
+    private Mono<Void> rebuildAllIndexesOnce() {
         if (!rebuildRunning.compareAndSet(false, true)) {
             return Mono.error(new IllegalStateException("ES 索引重建任务正在执行"));
         }
 
         log.info("开始无损重建 ES 索引...");
 
-        return conversationRepository.findAllConversationsFromRegisteredUsers()
-                .doOnNext(conversation -> log.debug("正在更新对话索引: {}", conversation.getId()))
-                .buffer(50)
-                .concatMap(conversations -> Flux.fromIterable(conversations)
-                        .flatMap(this::indexConversation, 5)
-                        .then())
+        return conversationRepository.findSearchRebuildUpperBound()
+                .flatMap(upperBound -> rebuildPage(0L, upperBound))
                 .then(pruneStaleConversationIndexes())
                 .doOnSuccess(deleted -> log.info("ES 索引无损重建完成，清理了 {} 条失效索引", deleted))
                 .then()
                 .doOnError(error -> log.error("ES 索引无损重建失败，保留已有可用索引: errorType={}",
                         error.getClass().getSimpleName()))
                 .doFinally(signal -> rebuildRunning.set(false));
+    }
+
+    private Mono<Void> rebuildPage(long afterId, long upperBound) {
+        return Mono.defer(() -> conversationRepository.findSearchRebuildPage(afterId, upperBound, 50)
+                .collectList()
+                .flatMap(page -> {
+                    if (page.isEmpty()) return Mono.empty();
+                    return Flux.fromIterable(page).concatMap(this::indexConversation).then(
+                            Mono.defer(() -> rebuildPage(page.getLast().getId(), upperBound)));
+                }));
     }
 
     private Mono<Long> pruneStaleConversationIndexes() {

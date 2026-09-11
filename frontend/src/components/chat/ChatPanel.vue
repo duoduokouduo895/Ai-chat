@@ -1,9 +1,9 @@
 <template>
   <section class="chat-panel">
-    <header class="chat-toolbar">
+    <header class="chat-toolbar" data-intro="frame">
       <div>
-        <span class="toolbar-eyebrow">Chat</span>
-        <strong>{{ conversationTitle }}</strong>
+        <span class="toolbar-eyebrow" data-intro="text">Chat</span>
+        <strong data-intro="text">{{ conversationTitle }}</strong>
       </div>
       <button class="new-chat-action" type="button" @click="$emit('new-conversation')">
         <span aria-hidden="true">+</span>
@@ -14,8 +14,8 @@
     <div v-if="isEmptyConversation" class="empty-chat">
       <div class="empty-chat-content">
         <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
-        <h1>Dduo AI-Chat</h1>
-        <p>选择模型，开始一段新的对话。</p>
+        <h1 data-intro="text">Dduo AI-Chat</h1>
+        <p data-intro="text">选择模型，开始一段新的对话。</p>
         <ChatInput
           v-model:message="inputMessage"
           v-model:selected-model="selectedModel"
@@ -28,6 +28,7 @@
           @mode-change="chatMode = $event"
           @stop="$emit('stop-generation')"
         />
+        <button class="intro-replay" type="button" @click="$emit('replay-intro')">重播开场 <span aria-hidden="true">↗</span></button>
       </div>
     </div>
 
@@ -89,7 +90,7 @@ const props = defineProps({
   loadError: { type: String, default: '' }
 });
 
-const emit = defineEmits(['send-message', 'new-conversation', 'clear-context', 'stop-generation']);
+const emit = defineEmits(['send-message', 'new-conversation', 'clear-context', 'stop-generation', 'replay-intro']);
 
 const { canSendMessage } = useGuestMessageGate();
 const messageContainer = ref(null);
@@ -147,6 +148,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.intro-replay {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 12px;
+  min-height: 44px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font: 12px var(--font-family);
+  cursor: pointer;
+}
+.intro-replay span { margin-left: 6px; }
+.intro-replay:hover { color: var(--text-primary); }
+.intro-replay:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .intro-replay { display: none; } }
+
 .chat-panel {
   background: var(--canvas);
   display: flex;
@@ -195,7 +213,7 @@ onBeforeUnmount(() => {
 }
 
 .empty-chat {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   flex: 1;
   justify-content: center;
@@ -204,6 +222,8 @@ onBeforeUnmount(() => {
 }
 
 .empty-chat-content {
+  margin-bottom: auto;
+  margin-top: auto;
   max-width: 780px;
   text-align: center;
   width: 100%;
@@ -297,6 +317,29 @@ onBeforeUnmount(() => {
 
   .chat-composer-area {
     padding: 10px;
+  }
+}
+
+@media (max-height: 560px) {
+  .empty-chat {
+    padding: 12px 20px 16px;
+  }
+  .empty-chat img {
+    height: 40px;
+    width: 40px;
+    margin-bottom: 6px;
+  }
+  .empty-chat p {
+    margin: 6px 0 12px;
+  }
+  .intro-replay {
+    margin-top: 8px;
+  }
+}
+
+@media (max-width: 768px) and (max-height: 560px) {
+  .empty-chat {
+    padding: 8px 12px 12px;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <aside class="activity-rail" aria-label="主导航">
+  <aside data-intro="frame" class="activity-rail" aria-label="主导航">
     <button class="brand-mark" type="button" aria-label="Dduo AI-Chat 首页" @click="$emit('switch-view', 'chat')">
       <img src="/icon/OIP-C.webp" alt="" aria-hidden="true">
     </button>
@@ -9,6 +9,7 @@
         v-for="item in primaryItems"
         :key="item.id"
         class="rail-button"
+        data-intro="frame" data-intro-surface
         :class="{ active: item.id === currentView || (item.id === 'history' && historyOpen) }"
         type="button"
         :title="item.label"

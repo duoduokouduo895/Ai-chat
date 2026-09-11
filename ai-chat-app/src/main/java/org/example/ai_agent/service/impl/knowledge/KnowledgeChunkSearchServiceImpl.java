@@ -29,14 +29,16 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
     private final KnowledgeDocumentChunkRepository chunkRepository;
     private final ReactiveElasticsearchOperations elasticsearchOperations;
     private final KnowledgeSearchTelemetry searchTelemetry;
+    private final ActiveKnowledgeChunks activeChunks;
     private final AtomicBoolean indexChecked = new AtomicBoolean(false);
 
     public KnowledgeChunkSearchServiceImpl(KnowledgeDocumentChunkRepository chunkRepository,
                                            ReactiveElasticsearchOperations elasticsearchOperations,
-                                           KnowledgeSearchTelemetry searchTelemetry) {
+                                           KnowledgeSearchTelemetry searchTelemetry, ActiveKnowledgeChunks activeChunks) {
         this.chunkRepository = chunkRepository;
         this.elasticsearchOperations = elasticsearchOperations;
         this.searchTelemetry = searchTelemetry;
+        this.activeChunks = activeChunks;
     }
 
     @Override
@@ -49,7 +51,11 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
         int queryLength = request.query().length();
 
         return searchTelemetry.observe(ensureIndex()
-                .thenMany(elasticsearchOperations.search(buildSearchQuery(request), KnowledgeChunkDocument.class))
+                .then(activeChunks.ids(request.authorizedKnowledgeBaseIds()))
+                .flatMapMany(ids -> ids.isEmpty() ? Flux.empty()
+                        : elasticsearchOperations.search(buildSearchQuery(request, ids), KnowledgeChunkDocument.class))
+                .filterWhen(hit -> activeChunks.ids(request.authorizedKnowledgeBaseIds())
+                        .map(ids -> ids.contains(hit.getContent().getChunkId())))
                 .map(hit -> new KnowledgeChunkSearchHit(hit.getContent(), hit.getScore()))
                 .doOnComplete(() -> log.info("知识库 BM25 检索完成: queryLength={}, knowledgeBaseCount={}, maxResults={}",
                         queryLength, request.authorizedKnowledgeBaseIds().size(), request.maxResults()))
@@ -63,6 +69,27 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
                             queryLength, error.getClass().getSimpleName());
                     return Flux.error(error);
                 }));
+    }
+
+    @Override
+    public Mono<Void> deleteVersionChunks(List<Long> chunkIds) {
+        if (chunkIds.isEmpty()) return Mono.empty();
+        StringQuery query = new StringQuery(new JSONObject().fluentPut("terms",
+                new JSONObject().fluentPut("chunkId", chunkIds)).toJSONString());
+        return elasticsearchOperations.delete(DeleteQuery.builder(query).build(), KnowledgeChunkDocument.class)
+                .then().onErrorResume(error -> isIndexMissing(error) ? Mono.empty() : Mono.error(error));
+    }
+
+    @Override
+    public Mono<Void> indexVersionChunks(Long documentId, Long versionId) {
+        return ensureIndex()
+                        .thenMany(chunkRepository.findIndexRowsByVersionId(versionId)
+                                .map(row -> {
+                                    row.setDocumentParseStatus("COMPLETED");
+                                    return toDocument(row);
+                                }).buffer(100).concatMap(this::saveBatch))
+                        .then(elasticsearchOperations.indexOps(KnowledgeChunkDocument.class).refresh())
+                        .then();
     }
 
     @Override
@@ -152,9 +179,17 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
     }
 
     StringQuery buildSearchQuery(SearchRequest request) {
+        return buildSearchQuery(request, null);
+    }
+
+    private StringQuery buildSearchQuery(SearchRequest request, List<Long> visibleChunkIds) {
         JSONObject boolClause = new JSONObject();
         JSONArray mustClauses = new JSONArray();
         JSONArray filterClauses = new JSONArray();
+        if (visibleChunkIds != null) {
+            filterClauses.add(new JSONObject().fluentPut("terms",
+                    new JSONObject().fluentPut("chunkId", visibleChunkIds)));
+        }
 
         mustClauses.add(new JSONObject().fluentPut("match",
                 new JSONObject().fluentPut("content", request.query())));
@@ -204,6 +239,8 @@ public class KnowledgeChunkSearchServiceImpl implements KnowledgeChunkSearchServ
                 row.getChunkId().toString(),
                 row.getChunkId(),
                 row.getDocumentId(),
+                row.getVersionId(),
+                row.getGeneration(),
                 row.getKnowledgeBaseId(),
                 row.getChunkIndex(),
                 row.getContent(),

@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 @Data
 @Table("knowledge_bases")
 public class KnowledgeBase {
+    private String deletionStatus = "ACTIVE";
     
     /**
      * 知识库ID，主键

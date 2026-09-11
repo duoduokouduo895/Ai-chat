@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import os
 import statistics
+import subprocess
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -111,3 +113,31 @@ def keyword_coverage(answer: str, keywords: list[str]) -> float:
     text = answer.lower()
     matched = sum(1 for keyword in keywords if keyword.lower() in text)
     return round(matched / len(keywords), 4)
+
+
+def run_evidence(config: Any) -> dict[str, Any]:
+    """Record reproducibility fingerprints, never configuration secrets or diffs."""
+    repository = ROOT.parent
+    def git(*args: str) -> bytes:
+        return subprocess.check_output(["git", *args], cwd=repository, stderr=subprocess.DEVNULL)
+    corpus = hashlib.sha256()
+    for path in sorted((ROOT / "dataset").rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts:
+            corpus.update(path.relative_to(ROOT).as_posix().encode())
+            corpus.update(path.read_bytes())
+    try:
+        revision = git("rev-parse", "HEAD").decode().strip()
+        changes = hashlib.sha256(git("diff", "HEAD", "--no-ext-diff", "--binary"))
+        for name in git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"):
+            if name:
+                path = repository / os.fsdecode(name)
+                if path.is_file():
+                    changes.update(name)
+                    changes.update(path.read_bytes())
+        change_digest = changes.hexdigest()
+    except (OSError, subprocess.CalledProcessError):
+        revision, change_digest = "UNAVAILABLE", "UNAVAILABLE"
+    return {"metricVersion": 2, "revision": revision, "worktreeSha256": change_digest,
+            "datasetSha256": corpus.hexdigest(),
+            "configSha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
+            "generationAssessment": "keyword/refusal heuristics; human review required"}

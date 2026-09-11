@@ -21,6 +21,9 @@ public class DocumentProcessingMessage {
     
     private Long documentId;
     private Long knowledgeBaseId;
+    private String runId;
+    private Long versionId;
+    private Long generation;
     private String processingType;
     private String parseMode;
     private Boolean enableVectorization;

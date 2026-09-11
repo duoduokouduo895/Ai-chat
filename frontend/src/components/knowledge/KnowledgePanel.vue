@@ -8,6 +8,7 @@
       <button class="btn-base btn-primary btn-sm" type="button" @click="showCreateModal = true">创建知识库</button>
       <button class="btn-base btn-outline btn-sm" type="button" @click="$emit('close')">返回聊天</button>
     </WorkspaceHeader>
+    <CleanupNotice v-if="cleanupOperation" :operation="cleanupOperation" />
 
     <div class="knowledge-content" :class="{ 'show-detail': selectedKB }">
       <aside class="knowledge-list custom-scroll">
@@ -95,6 +96,7 @@
 
 <script setup>
 import { onMounted } from 'vue';
+import CleanupNotice from './CleanupNotice.vue';
 import { useKnowledgeWorkspace } from '@/composables/useKnowledgeWorkspace.js';
 import WorkspaceHeader from '../common/WorkspaceHeader.vue';
 import StateBlock from '../common/StateBlock.vue';
@@ -106,6 +108,7 @@ import KnowledgeBaseModal from './KnowledgeBaseModal.vue';
 defineEmits(['close']);
 
 const {
+  cleanupOperation,
   closeModals,
   deleteDocument,
   deleteKnowledgeBase,

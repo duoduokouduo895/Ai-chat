@@ -62,6 +62,11 @@ public class ModelCatalogProperties {
 
     @Data
     public static class ModelConfig {
+        private Integer inputBudgetTokens = 8192;
+        /** Reserved for tool request/response messages that are appended by the AI service. */
+        private Integer toolOutputReserveTokens = 1024;
+        /** Explicit compatible tokenizer model; absent uses a conservative UTF-8 byte estimate. */
+        private String tokenEstimatorModel;
         private ModelType type;
         private boolean enabled = true;
         private String providerModelName;

@@ -77,6 +77,7 @@ public class DocumentChunkServiceImpl implements DocumentChunkService {
                     TextSegment segment = textSegments.get(i);
                     KnowledgeDocumentChunk chunk = new KnowledgeDocumentChunk();
                     chunk.setDocumentId(documentId);
+                    chunk.setGeneration(1L);
                     chunk.setKnowledgeBaseId(knowledgeBaseId);
                     chunk.setChunkIndex(i);
                     chunk.setContent(segment.text());

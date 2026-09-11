@@ -5,9 +5,16 @@ import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.constants.DocumentProcessingConstants;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
 import org.example.ai_agent.entity.DocumentProcessingRecord;
+import org.example.ai_agent.knowledge.ingestion.IngestionRunStatus;
+import org.example.ai_agent.knowledge.ingestion.IngestionStage;
+import org.example.ai_agent.knowledge.ingestion.StageClaimDisposition;
+import org.example.ai_agent.knowledge.ingestion.StageLeaseClaim;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
 import org.example.ai_agent.service.DocumentProcessingService;
 import org.example.ai_agent.service.impl.document.DocumentProcessingAlreadyHandledException;
+import org.example.ai_agent.service.impl.document.IngestionLeaseLostException;
+import org.example.ai_agent.service.impl.document.IngestionRunLeaseService;
+import org.example.ai_agent.service.impl.document.VersionedDocumentProcessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -19,6 +26,7 @@ import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -36,6 +44,10 @@ class DocumentProcessingHandlerTest {
     private DocumentProcessingRecordService recordService;
     @Mock
     private Channel channel;
+    @Mock
+    private IngestionRunLeaseService ingestionRunLeaseService;
+    @Mock
+    private VersionedDocumentProcessor versionedProcessor;
 
     private DocumentProcessingHandler handler;
     private DocumentProcessingProperties processingProperties;
@@ -48,7 +60,8 @@ class DocumentProcessingHandlerTest {
                 recordService,
                 new DocumentProcessingRetryPolicy(),
                 new DocumentProcessingAckHandler(),
-                processingProperties);
+                processingProperties,
+                ingestionRunLeaseService, versionedProcessor);
     }
 
     @Test
@@ -198,5 +211,91 @@ class DocumentProcessingHandlerTest {
                 () -> handler.handleDocumentEmbedding(message, channel, 900L));
 
         verify(channel, never()).basicAck(900L, false);
+    }
+
+    @Test
+    void versionedMessageShouldAckOnlyAfterFencedStageAdvance() throws IOException {
+        DocumentProcessingMessage message = versionedParseMessage(11L, 110L);
+        StageLeaseClaim claim = ownedClaim(message);
+        when(ingestionRunLeaseService.claim(message)).thenReturn(Mono.just(claim));
+        when(versionedProcessor.process(claim, message)).thenReturn(Mono.just(true));
+
+        handler.handleDocumentParsing(message, channel, 1100L);
+
+        verify(versionedProcessor).process(claim, message);
+        verify(documentProcessingService, never()).processDocumentParsing(any());
+        verify(channel).basicAck(1100L, false);
+    }
+
+    @Test
+    void versionedMessageShouldNackWhenLeaseIsLostBeforeCompletion() throws IOException {
+        DocumentProcessingMessage message = versionedParseMessage(12L, 120L);
+        StageLeaseClaim claim = ownedClaim(message);
+        when(ingestionRunLeaseService.claim(message)).thenReturn(Mono.just(claim));
+        when(versionedProcessor.process(claim, message))
+                .thenReturn(Mono.error(new IngestionLeaseLostException(claim.runId(), "CHUNK")));
+
+        handler.handleDocumentParsing(message, channel, 1200L);
+
+        verify(channel).basicNack(1200L, false, true);
+        verify(channel, never()).basicAck(1200L, false);
+    }
+
+    @Test
+    void versionedRetryShouldAckAfterAtomicRetryAcceptance() throws IOException {
+        DocumentProcessingMessage message = versionedParseMessage(13L, 130L);
+        StageLeaseClaim claim = ownedClaim(message);
+        when(ingestionRunLeaseService.claim(message)).thenReturn(Mono.just(claim));
+        when(versionedProcessor.process(claim, message)).thenReturn(Mono.just(false));
+        when(versionedProcessor.retry(claim, message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY))
+                .thenReturn(Mono.empty());
+
+        handler.handleDocumentParsing(message, channel, 1300L);
+
+        verify(versionedProcessor).retry(claim, message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY);
+        verify(channel).basicAck(1300L, false);
+    }
+
+    @Test
+    void versionedDuplicateWithHeldLeaseShouldBeDeferredWithoutRunningStage() throws IOException {
+        DocumentProcessingMessage message = versionedParseMessage(14L, 140L);
+        StageLeaseClaim held = new StageLeaseClaim(
+                StageClaimDisposition.LEASE_HELD,
+                message.getRunId(),
+                IngestionStage.PARSE,
+                IngestionStage.PARSE,
+                IngestionRunStatus.PROCESSING,
+                null,
+                LocalDateTime.now().plusMinutes(1));
+        when(ingestionRunLeaseService.claim(message)).thenReturn(Mono.just(held));
+        when(documentProcessingService.sendProcessingMessage(
+                message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY))
+                .thenReturn(Mono.just(true));
+
+        handler.handleDocumentParsing(message, channel, 1400L);
+
+        verify(documentProcessingService).sendProcessingMessage(
+                message, DocumentProcessingConstants.RoutingKey.DOCUMENT_PARSE_RETRY);
+        verify(channel).basicAck(1400L, false);
+    }
+
+    private DocumentProcessingMessage versionedParseMessage(long documentId, long knowledgeBaseId) {
+        DocumentProcessingMessage message = DocumentProcessingMessage.createParseMessage(
+                documentId, knowledgeBaseId, "auto", true);
+        message.setRunId("00000000-0000-0000-0000-" + String.format("%012d", documentId));
+        message.setVersionId(documentId + 1000);
+        message.setGeneration(1L);
+        return message;
+    }
+
+    private StageLeaseClaim ownedClaim(DocumentProcessingMessage message) {
+        return new StageLeaseClaim(
+                StageClaimDisposition.CLAIMED,
+                message.getRunId(),
+                IngestionStage.PARSE,
+                IngestionStage.PARSE,
+                IngestionRunStatus.PROCESSING,
+                "lease-token-" + message.getDocumentId(),
+                LocalDateTime.now().plusMinutes(1));
     }
 }

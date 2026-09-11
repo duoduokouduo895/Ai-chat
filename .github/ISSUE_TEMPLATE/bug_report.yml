@@ -1,0 +1,81 @@
+name: "🐛 Bug 报告"
+description: 可复现的错误或异常行为
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前自检
+      options:
+        - label: 已搜索过现有 Issues（含已关闭）
+          required: true
+        - label: 这是 Bug，不是用法提问（提问请走 Discussions）
+          required: true
+        - label: 未在正文粘贴 Secret、Cookie、用户隐私内容
+          required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: 环境
+      options:
+        - 本地开发
+        - 候选 / Staging
+        - 生产（app.dduo.me）
+      multiple: false
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本信息
+      description: git SHA、镜像 tag，或 versions.env 中的关键版本
+      placeholder: 例如 git rev-parse --short HEAD
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 对话 / ChatTurn
+        - 知识库 / 文档入库
+        - 搜索
+        - 登录 / 账号
+        - 管理端
+        - 移动端 UI
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（脱敏后）
+      description: 只贴复现时间窗口内的关键片段；禁止 Prompt/回答/Token。
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 可拖拽图片

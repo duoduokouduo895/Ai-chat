@@ -14,6 +14,10 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Table("message")
 public class Message {
+    @org.springframework.data.annotation.Transient
+    private Object retrieval;
+    @org.springframework.data.annotation.Transient
+    private String chatTurnId;
     @Id
     private Long id;
     

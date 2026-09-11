@@ -11,6 +11,7 @@ export function useKnowledgeWorkspace() {
   const listError = ref('');
   const documentsError = ref('');
   const operationError = ref('');
+  const cleanupOperation = ref(null);
   const showCreateModal = ref(false);
   const showEditModal = ref(false);
   const showUploadModal = ref(false);
@@ -59,7 +60,8 @@ export function useKnowledgeWorkspace() {
     if (!window.confirm(`确定要删除知识库"${knowledgeBase.name}"吗？此操作不可撤销。`)) return;
     operationError.value = '';
     try {
-      await knowledgeApiService.deleteKnowledgeBase(knowledgeBase.id);
+      const response = await knowledgeApiService.deleteKnowledgeBase(knowledgeBase.id);
+      cleanupOperation.value = response.data || { status: "PENDING" };
       await loadKnowledgeBases();
       if (selectedKB.value?.id === knowledgeBase.id) {
         selectedKB.value = null;
@@ -95,7 +97,8 @@ export function useKnowledgeWorkspace() {
   const deleteDocument = async (document) => {
     if (!window.confirm(`确定要删除文档"${document.fileName}"吗？`)) return;
     try {
-      await knowledgeApiService.deleteDocument(document.id);
+      const response = await knowledgeApiService.deleteDocument(document.id);
+      cleanupOperation.value = response.data || { status: "PENDING" };
       if (selectedKB.value) await loadDocuments(selectedKB.value.id);
     } catch (error) {
       documentsError.value = getApiErrorMessage(error, '文档删除失败，请稍后重试');
@@ -109,6 +112,7 @@ export function useKnowledgeWorkspace() {
   };
 
   return {
+    cleanupOperation,
     closeModals,
     deleteDocument,
     deleteKnowledgeBase,

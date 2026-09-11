@@ -72,11 +72,18 @@ class HybridRetrievalServiceImplTest {
         when(embeddingService.embedText(any(), eq("embedding-default"))).thenReturn(Mono.never());
         when(knowledgeChunkSearchService.searchAuthorizedChunks(any()))
                 .thenReturn(Flux.just(new KnowledgeChunkSearchService.KnowledgeChunkSearchHit(document, 8.5D)));
-        when(rerankClient.rerank(eq("退款规则"), anyList(), eq(5)))
-                .thenAnswer(invocation -> Mono.just(invocation.getArgument(1)));
+        when(rerankClient.rerankDetailed(eq("退款规则"), anyList(), eq(5)))
+                .thenAnswer(invocation -> Mono.just(new RerankClient.RerankResult(
+                        invocation.getArgument(1),
+                        new org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel(
+                                "Rerank",
+                                org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.DISABLED,
+                                0))));
 
-        StepVerifier.create(service.retrieve("退款规则", List.of(7L), 5, 0.3D, 42L, false))
-                .assertNext(results -> {
+        StepVerifier.create(service.retrieveDetailed("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .assertNext(outcome -> {
+                    org.junit.jupiter.api.Assertions.assertEquals(org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.DEGRADED, outcome.status());
+                    var results = outcome.candidates();
                     org.junit.jupiter.api.Assertions.assertEquals(1, results.size());
                     HybridRetrievalService.RetrievalCandidate candidate = results.get(0);
                     org.junit.jupiter.api.Assertions.assertEquals(100L, candidate.chunkId());

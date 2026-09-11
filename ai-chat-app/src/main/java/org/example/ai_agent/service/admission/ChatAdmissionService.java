@@ -1,14 +1,18 @@
 package org.example.ai_agent.service.admission;
 
 import org.example.ai_agent.config.ai.ModelCatalogProperties;
+import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelConfig;
+import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelType;
 import org.example.ai_agent.config.security.ChatAdmissionProperties;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.util.TokenRedisKeys;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -100,10 +104,32 @@ public class ChatAdmissionService {
             return;
         }
 
-        String defaultModel = modelCatalogProperties.getDefaultChatModel();
-        if (defaultModel == null || defaultModel.isBlank() || !defaultModel.equals(request.getModel())) {
-            throw new ChatAdmissionException(HttpStatus.FORBIDDEN, "游客仅可使用默认模型");
+        if (!isEnabledChatModel(request.getModel())) {
+            throw new ChatAdmissionException(HttpStatus.FORBIDDEN, "当前模型不支持游客体验");
         }
+    }
+
+    private boolean isEnabledChatModel(String modelAlias) {
+        if (!StringUtils.hasText(modelAlias)) {
+            return false;
+        }
+        Map<String, ModelConfig> models = modelCatalogProperties.getModels();
+        if (models == null || models.isEmpty()) {
+            return false;
+        }
+        String requested = modelAlias.trim();
+        ModelConfig direct = models.get(requested);
+        if (direct != null) {
+            return direct.isEnabled() && isChatType(direct);
+        }
+        return models.values().stream().anyMatch(config -> config != null
+                && config.isEnabled()
+                && isChatType(config)
+                && requested.equals(config.getProviderModelName()));
+    }
+
+    private static boolean isChatType(ModelConfig config) {
+        return config.getType() == null || config.getType() == ModelType.CHAT;
     }
 
     private Mono<Void> release(String key, String member) {

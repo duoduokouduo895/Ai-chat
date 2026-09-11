@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>清理任务管理验收</title>
+</head>
+<body>
+<main id="app"></main>
+<script type="module">
+import { createApp, h } from 'vue';
+import { createPinia } from 'pinia';
+import CleanupTasks from '../../src/components/common/CleanupTasks.vue';
+import { setupElementPlus } from '../../src/plugins/element-plus.js';
+import '../../src/assets/styles/index.css';
+const app = createApp({ render: () => h('div', { class: 'page-shell' }, [
+  h('p', { class: 'eyebrow' }, '知识库维护'), h('h1', '可靠删除任务'), h(CleanupTasks)
+]) });
+app.use(createPinia());
+setupElementPlus(app);
+app.mount('#app');
+</script>
+<style>
+body{background:#f5f7fb}.page-shell{max-width:1040px;margin:44px auto;padding:0 24px}.eyebrow{margin:0 0 6px;color:#6d28d9;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0 0 20px;color:#0f172a;font-size:26px}
+@media(max-width:480px){.page-shell{margin:20px auto;padding:0 12px}h1{font-size:22px}}
+</style>
+</body>
+</html>

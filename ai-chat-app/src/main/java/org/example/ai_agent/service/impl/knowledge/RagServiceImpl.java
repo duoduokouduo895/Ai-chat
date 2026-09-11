@@ -57,7 +57,7 @@ public class RagServiceImpl implements RagService {
                                                           Long requesterUserId, boolean isAdmin) {
         long startTime = System.currentTimeMillis();
         
-        return hybridRetrievalService.retrieve(
+        return hybridRetrievalService.retrieveDetailed(
                 searchRequest.getQuery(),
                 searchRequest.getKnowledgeBaseIds(),
                 searchRequest.getMaxResults() != null ? searchRequest.getMaxResults() : defaultMaxResults,
@@ -67,11 +67,13 @@ public class RagServiceImpl implements RagService {
             )
         .map(searchResults -> {
             KnowledgeSearchResultDto result =
-                    retrievalContextAssembler.toSearchResult(searchResults, startTime);
+                    retrievalContextAssembler.toSearchResult(searchResults.candidates(), startTime);
 
             log.info("知识库搜索完成: queryLength={}, resultCount={}, searchTime={}ms",
                     searchRequest.getQuery().length(), result.getTotalCount(), result.getSearchTime());
 
+            result.setRetrievalStatus(searchResults.status());
+            result.setChannels(searchResults.channels());
             return result;
         })
         .subscribeOn(Schedulers.boundedElastic());
@@ -90,6 +92,18 @@ public class RagServiceImpl implements RagService {
                 isAdmin
         )
         .flatMap(context -> {
+            if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.UNAVAILABLE) {
+                return Mono.error(org.example.ai_agent.service.impl.chat.ChatStreamClientException.retrievalUnavailable());
+            }
+            if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY) {
+                var response = new RagChatResponseDto();
+                response.setAnswer(INSUFFICIENT_EVIDENCE);
+                response.setSources(List.of());
+                response.setConversationId(ragRequest.getConversationId());
+                response.setResponseTime(LocalDateTime.now());
+                response.setProcessingTime(System.currentTimeMillis() - startTime);
+                return Mono.just(response);
+            }
             // 构建增强提示词
             String enhancedPrompt = buildRagPrompt(ragRequest.getQuestion(), context.contextText());
             
@@ -132,6 +146,12 @@ public class RagServiceImpl implements RagService {
                 isAdmin
         )
         .flatMapMany(context -> {
+            if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.UNAVAILABLE) {
+                return Flux.error(org.example.ai_agent.service.impl.chat.ChatStreamClientException.retrievalUnavailable());
+            }
+            if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY) {
+                return Flux.just(INSUFFICIENT_EVIDENCE);
+            }
             // 构建增强提示词
             String enhancedPrompt = buildRagPrompt(ragRequest.getQuestion(), context.contextText());
             
@@ -185,7 +205,7 @@ public class RagServiceImpl implements RagService {
         long startTime = System.currentTimeMillis();
         int questionLength = question == null ? 0 : question.length();
         
-        return hybridRetrievalService.retrieve(
+        return hybridRetrievalService.retrieveDetailed(
                 question,
                 knowledgeBaseIds,
                 maxResults != null ? maxResults : defaultMaxResults,
@@ -194,12 +214,13 @@ public class RagServiceImpl implements RagService {
                 isAdmin)
             .map(searchResults -> {
                 RetrievalContext context =
-                        retrievalContextAssembler.toRetrievalContext(question, searchResults, startTime);
+                        retrievalContextAssembler.toRetrievalContext(question, searchResults.candidates(), startTime);
 
                 log.info("🔍 [上下文检索] 上下文检索完成: questionLength={}, documentCount={}, retrievalTime={}ms",
                         questionLength, context.documentCount(), context.retrievalTime());
 
-                return context;
+                return new RetrievalContext(context.question(), context.relevantDocuments(), context.contextText(),
+                        context.documentCount(), context.retrievalTime(), searchResults.status(), searchResults.channels());
             })
             .subscribeOn(Schedulers.boundedElastic());
     }

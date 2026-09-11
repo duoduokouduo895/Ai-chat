@@ -1,4 +1,5 @@
 <script setup>
+import CleanupTasks from '@/components/common/CleanupTasks.vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -59,6 +60,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
+    <CleanupTasks />
     <PageHeader title="知识库管理" description="当前已接入知识库列表接口，用于展示基础资源概览。" />
 
     <div class="grid grid-cols-1 gap-6 md:grid-cols-3">

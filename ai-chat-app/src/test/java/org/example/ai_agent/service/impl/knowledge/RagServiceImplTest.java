@@ -34,8 +34,8 @@ class RagServiceImplTest {
         request.setMaxResults(5);
         request.setMinScore(0.3D);
 
-        when(hybridRetrievalService.retrieve("退款规则", List.of(7L), 5, 0.3D, 42L, false))
-                .thenReturn(Mono.just(List.of(candidate())));
+        when(hybridRetrievalService.retrieveDetailed("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .thenReturn(Mono.just(org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.of(List.of(candidate()), List.of(), 0)));
 
         StepVerifier.create(service.searchKnowledge(request, 42L, false))
                 .assertNext(result -> {
@@ -57,8 +57,8 @@ class RagServiceImplTest {
                 hybridRetrievalService,
                 new RetrievalContextAssembler());
 
-        when(hybridRetrievalService.retrieve("退款规则", List.of(7L), 5, 0.3D, 42L, false))
-                .thenReturn(Mono.just(List.of(candidate())));
+        when(hybridRetrievalService.retrieveDetailed("退款规则", List.of(7L), 5, 0.3D, 42L, false))
+                .thenReturn(Mono.just(org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.of(List.of(candidate()), List.of(), 0)));
 
         StepVerifier.create(service.retrieveContext("退款规则", List.of(7L), 5, 0.3D, 42L, false))
                 .assertNext(context -> {
@@ -75,6 +75,7 @@ class RagServiceImplTest {
                 null,
                 7L,
                 20L,
+                3L,
                 100L,
                 "BM25 命中的内容",
                 "测试文档",

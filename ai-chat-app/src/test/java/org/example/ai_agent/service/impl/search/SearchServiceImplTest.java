@@ -55,8 +55,10 @@ class SearchServiceImplTest {
         conversation.setTitle("测试会话");
         conversation.setCreatedAt(LocalDateTime.of(2026, 5, 30, 12, 0));
 
-        when(conversationRepository.findAllConversationsFromRegisteredUsers())
+        when(conversationRepository.findSearchRebuildUpperBound()).thenReturn(Mono.just(9L));
+        when(conversationRepository.findSearchRebuildPage(0L, 9L, 50))
                 .thenReturn(Flux.just(conversation));
+        when(conversationRepository.findSearchRebuildPage(9L, 9L, 50)).thenReturn(Flux.empty());
         when(messageRepository.findByConversationIdOrderByTimestampAsc(9L)).thenReturn(Flux.empty());
         when(conversationDocumentRepository.save(any(ConversationDocument.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));

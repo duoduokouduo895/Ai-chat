@@ -17,6 +17,7 @@ import java.util.List;
  * @since 2025
  */
 public interface EmbeddingService {
+    Mono<Boolean> deleteChunkEmbeddings(List<Long> chunkIds);
     
     /**
      * 对文本段进行向量化

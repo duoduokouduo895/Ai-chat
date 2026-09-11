@@ -31,6 +31,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/knowledge")
 public class KnowledgeDocumentController {
+    private final org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands cleanup;
 
     private final DocumentService documentService;
     private final DocumentChunkService documentChunkService;
@@ -40,11 +41,12 @@ public class KnowledgeDocumentController {
     public KnowledgeDocumentController(DocumentService documentService,
                                        DocumentChunkService documentChunkService,
                                        KnowledgeAccessContextResolver accessContextResolver,
-                                       KnowledgeDocumentUploadFacade uploadFacade) {
+                                       KnowledgeDocumentUploadFacade uploadFacade, org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands cleanup) {
         this.documentService = documentService;
         this.documentChunkService = documentChunkService;
         this.accessContextResolver = accessContextResolver;
         this.uploadFacade = uploadFacade;
+        this.cleanup = cleanup;
     }
 
     @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -108,9 +110,10 @@ public class KnowledgeDocumentController {
     }
 
     @DeleteMapping("/documents/{id}")
-    public Mono<Void> deleteDocument(@PathVariable Long id, Authentication authentication) {
+    public Mono<org.springframework.http.ResponseEntity<org.example.ai_agent.knowledge.ingestion.CleanupOperation>> deleteDocument(@PathVariable Long id, Authentication authentication) {
         return accessContextResolver.resolve(authentication)
-                .flatMap(access -> documentService.deleteDocument(id, access.userId(), access.isAdmin()));
+                .flatMap(access -> cleanup.deleteDocument(id, access.userId(), access.isAdmin()))
+                .map(operation -> org.springframework.http.ResponseEntity.accepted().body(operation));
     }
 
     @GetMapping("/documents/{id}/download")

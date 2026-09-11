@@ -15,6 +15,61 @@ const responseFromChunks = (chunks) => ({
 });
 
 {
+  const messages = [];
+  const completions = [];
+  await readSseEventStream(responseFromChunks([
+    'event: metadata\ndata: {"protocolVersion":2}\n\n',
+    'event: future-event\ndata: hidden\n\n',
+    'event: retrieval\ndata: {"status":"EMPTY"}\n\n',
+    'data: 资料不足\n\n',
+    'event: complete\ndata: {"turnId":"saved-turn"}\n\n'
+  ]), {
+    onMessage: (data) => messages.push(data),
+    onComplete: (data) => completions.push(data.turnId)
+  });
+  assert.deepEqual(messages, ['资料不足']);
+  assert.deepEqual(completions, ['saved-turn']);
+}
+
+{
+  const messages = [];
+  const completions = [];
+  await readSseEventStream(responseFromChunks([
+    'event: metadata\ndata: {"protocolVersion":2}\n\n',
+    'event: message\ndata: 下午好呀～有什么我可以帮忙的吗？\n\n',
+    'id: saved-turn\n',
+    'event: complete\ndata: [DONE]\n\n'
+  ]), {
+    onMessage: (data) => messages.push(data),
+    onComplete: (data) => completions.push(data?.type)
+  });
+  assert.deepEqual(messages, ['下午好呀～有什么我可以帮忙的吗？']);
+  assert.deepEqual(completions, ['complete']);
+}
+
+{
+  const messages = [];
+  const completions = [];
+  await readSseEventStream(responseFromChunks([
+    'event: metadata\ndata: {"protocolVersion":2}\n\n',
+    'event: message\ndata: 下午好呀～有什么我可以帮忙的吗？\n\n',
+    'data: {"turnId":"7328df62-6815-478c-8156-0552f1d43c8d","type":"complete"}\n\n'
+  ]), {
+    onMessage: (data) => messages.push(data),
+    onComplete: (data) => completions.push(data.turnId)
+  });
+  assert.deepEqual(messages, ['下午好呀～有什么我可以帮忙的吗？']);
+  assert.deepEqual(completions, ['7328df62-6815-478c-8156-0552f1d43c8d']);
+}
+
+{
+  await assert.rejects(() => readSseEventStream(responseFromChunks([
+    'event: metadata\ndata: {"protocolVersion":2}\n\n',
+    'data: 未确认的回答\n\n'
+  ])), (error) => error.response.data.code === 'CHAT_INCOMPLETE_STREAM');
+}
+
+{
   const events = [];
   await readSseEventStream(responseFromChunks([
     'event: metadata\r\n',

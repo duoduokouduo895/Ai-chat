@@ -13,6 +13,8 @@ import java.util.stream.Collectors;
  */
 public class KnowledgeAssistantTools {
 
+    private static final int MAX_TOOL_RESULT_CHARACTERS = 4_000;
+
     private final KnowledgeAssistantToolGateway gateway;
 
     public KnowledgeAssistantTools(KnowledgeAssistantToolGateway gateway) {
@@ -26,7 +28,7 @@ public class KnowledgeAssistantTools {
             return "当前没有可用的知识库。";
         }
 
-        return knowledgeBases.stream()
+        return bounded(knowledgeBases.stream()
                 .map(kb -> String.format(
                         "知识库ID=%d，名称=%s，文档数=%d，状态=%s，EmbeddingModel=%s，是否公开=%s",
                         kb.getId(),
@@ -36,7 +38,7 @@ public class KnowledgeAssistantTools {
                         safe(kb.getEmbeddingModel()),
                         Boolean.TRUE.equals(kb.getIsPublic()) ? "是" : "否"
                 ))
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n")));
     }
 
     @Tool("查询某个文档的处理状态，包括解析状态、向量化状态、分块数量和是否已完成向量入库。适合用户询问某个知识库文档是否已经准备好用于问答。")
@@ -45,9 +47,9 @@ public class KnowledgeAssistantTools {
             return "文档ID无效。";
         }
 
-        return gateway.getDocument(documentId)
+        return bounded(gateway.getDocument(documentId)
                 .map(this::formatDocumentStatus)
-                .orElse("未找到对应文档。");
+                .orElse("未找到对应文档。"));
     }
 
     private String formatDocumentStatus(DocumentDto document) {
@@ -74,5 +76,10 @@ public class KnowledgeAssistantTools {
 
     private String safe(String value) {
         return value != null && !value.isBlank() ? value : "未知";
+    }
+
+    private String bounded(String result) {
+        if (result == null || result.length() <= MAX_TOOL_RESULT_CHARACTERS) return result;
+        return result.substring(0, MAX_TOOL_RESULT_CHARACTERS) + "\n结果过长，已省略剩余内容。";
     }
 }

@@ -16,7 +16,7 @@ import org.example.ai_agent.service.DocumentService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
 import org.example.ai_agent.service.document.DocumentUploadValidator;
-import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
+import org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -52,7 +52,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final OssService ossService;
     private final DocumentIngestionService documentIngestionService;
     private final UserRepository userRepository;
-    private final KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private final KnowledgeCleanupCommands knowledgeCleanupCommands;
     private final DocumentUploadValidator documentUploadValidator;
     private final TransactionalOperator transactionalOperator;
     
@@ -64,7 +64,7 @@ public class DocumentServiceImpl implements DocumentService {
                                OssService ossService,
                                DocumentIngestionService documentIngestionService,
                                UserRepository userRepository,
-                               KnowledgeAssetCleanupService knowledgeAssetCleanupService,
+                               KnowledgeCleanupCommands knowledgeCleanupCommands,
                                DocumentUploadValidator documentUploadValidator,
                                TransactionalOperator transactionalOperator) {
         this.documentRepository = documentRepository;
@@ -72,7 +72,7 @@ public class DocumentServiceImpl implements DocumentService {
         this.ossService = ossService;
         this.documentIngestionService = documentIngestionService;
         this.userRepository = userRepository;
-        this.knowledgeAssetCleanupService = knowledgeAssetCleanupService;
+        this.knowledgeCleanupCommands = knowledgeCleanupCommands;
         this.documentUploadValidator = documentUploadValidator;
         this.transactionalOperator = transactionalOperator;
     }
@@ -176,19 +176,9 @@ public class DocumentServiceImpl implements DocumentService {
     
     @Override
     public Mono<Void> deleteDocument(Long id, Long requesterUserId, boolean isAdmin) {
-        return getAuthorizedDocument(id, requesterUserId, isAdmin, true)
-            .flatMap(document -> {
-                Long knowledgeBaseId = document.getKnowledgeBaseId();
-                return knowledgeAssetCleanupService.deleteDocumentAggregate(document)
-                    .then(knowledgeBaseService.adjustDocumentCount(knowledgeBaseId, -1)
-                            .onErrorResume(error -> {
-                            log.warn("减少知识库文档数量失败，等待定时校准: knowledgeBaseId={}, errorType={}",
-                                    knowledgeBaseId, error.getClass().getSimpleName());
-                                return Mono.empty();
-                            }));
-            })
-            .doOnSuccess(v -> log.info("文档删除成功: id={}", id))
-            .subscribeOn(Schedulers.boundedElastic());
+        return knowledgeCleanupCommands.deleteDocument(id, requesterUserId, isAdmin)
+            .then()
+            .doOnSuccess(v -> log.info("文档删除已受理: id={}", id));
     }
     
     @Override
@@ -474,7 +464,8 @@ public class DocumentServiceImpl implements DocumentService {
                                                                           String ossPath,
                                                                           String ossUrl,
                                                                           Long uploaderId) {
-        return saveDocumentRecord(file, knowledgeBaseId, parseMode, enableVectorization, ossPath, ossUrl, uploaderId)
+        return knowledgeBaseService.getAuthorizedKnowledgeBase(knowledgeBaseId, uploaderId, true, true)
+                .then(Mono.defer(() -> saveDocumentRecord(file, knowledgeBaseId, parseMode, enableVectorization, ossPath, ossUrl, uploaderId)))
                 .flatMap(document -> documentIngestionService.startIngestion(
                                 document.getId(), knowledgeBaseId, parseMode, enableVectorization)
                         .map(task -> {

@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Document(indexName = "knowledge_base_chunks")
+@Document(indexName = "#{@environment.getProperty('knowledge-base.search.index-name', 'knowledge_base_chunks')}")
 public class KnowledgeChunkDocument {
 
     @Id
@@ -27,6 +27,12 @@ public class KnowledgeChunkDocument {
 
     @Field(type = FieldType.Long)
     private Long documentId;
+
+    @Field(type = FieldType.Long)
+    private Long versionId;
+
+    @Field(type = FieldType.Long)
+    private Long generation;
 
     @Field(type = FieldType.Long)
     private Long knowledgeBaseId;

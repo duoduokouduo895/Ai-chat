@@ -16,8 +16,25 @@ const parseJsonPayload = (data, fallback = {}) => {
 };
 
 const dispatchEvent = async (eventName, data, handlers) => {
-  if (data === DONE_MARKER) {
+  if (eventName === 'complete') {
+    const payload = data === DONE_MARKER
+      ? { type: 'complete' }
+      : parseJsonPayload(data, { type: 'complete' });
+    handlers.onComplete?.(payload);
     return true;
+  }
+
+  if (data === DONE_MARKER) {
+    handlers.onComplete?.({ type: 'complete' });
+    return true;
+  }
+
+  if (eventName === 'message' && data.startsWith('{')) {
+    const compatibilityPayload = parseJsonPayload(data, null);
+    if (compatibilityPayload?.type === 'complete' && typeof compatibilityPayload.turnId === 'string') {
+      handlers.onComplete?.(compatibilityPayload);
+      return true;
+    }
   }
 
   if (eventName === 'metadata') {
@@ -38,7 +55,11 @@ const dispatchEvent = async (eventName, data, handlers) => {
     return true;
   }
 
-  handlers.onMessage?.(data);
+  if (eventName === 'retrieval') {
+    handlers.onRetrieval?.(parseJsonPayload(data, null));
+  } else if (eventName === 'message') {
+    handlers.onMessage?.(data);
+  }
   return false;
 };
 
@@ -83,34 +104,60 @@ export const readSseEventStream = async (response, handlers = {}) => {
     throw new Error('流式响应不可读取');
   }
 
-  const decoder = new TextDecoder('utf-8');
-  const state = {
-    eventName: 'message',
-    data: null
-  };
-  let buffer = '';
-  let shouldStop = false;
+  try {
+    let protocolVersion = 1;
+    let completed = false;
+    let failed = false;
+    const dispatchHandlers = {
+      ...handlers,
+      onMetadata(payload) {
+        protocolVersion = payload?.protocolVersion ?? 1;
+        handlers.onMetadata?.(payload);
+      },
+      onComplete(payload) {
+        completed = true;
+        handlers.onComplete?.(payload);
+      },
+      onError(error) {
+        failed = true;
+        handlers.onError?.(error);
+      }
+    };
+    const decoder = new TextDecoder('utf-8');
+    const state = {
+      eventName: 'message',
+      data: null
+    };
+    let buffer = '';
+    let shouldStop = false;
 
-  while (!shouldStop) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    while (!shouldStop) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      shouldStop = await processLine(line, state, handlers);
-      if (shouldStop) break;
+      for (const line of lines) {
+        shouldStop = await processLine(line, state, dispatchHandlers);
+        if (shouldStop) break;
+      }
     }
-  }
 
-  if (!shouldStop && buffer) {
-    shouldStop = await processLine(buffer, state, handlers);
-  }
+    if (!shouldStop && buffer) {
+      shouldStop = await processLine(buffer, state, dispatchHandlers);
+    }
 
-  if (!shouldStop && state.data !== null) {
-    await dispatchEvent(state.eventName, state.data, handlers);
+    if (!shouldStop && state.data !== null) {
+      await dispatchEvent(state.eventName, state.data, dispatchHandlers);
+    }
+    if (protocolVersion >= 2 && !completed && !failed) {
+      throw createStreamError({ code: 'CHAT_INCOMPLETE_STREAM', message: '连接已中断，回答尚未确认保存，请重试。' });
+    }
+  } finally {
+    try { await reader.cancel?.(); } catch { /* Preserve the original transport error. */ }
+    reader.releaseLock?.();
   }
 };
 

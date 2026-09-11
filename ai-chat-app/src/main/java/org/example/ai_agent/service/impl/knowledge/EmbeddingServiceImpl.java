@@ -40,11 +40,13 @@ public class EmbeddingServiceImpl implements EmbeddingService {
     private final AiModelRegistry aiModelRegistry;
     
     private final EmbeddingStoreRegistry embeddingStoreRegistry;
+    private final ActiveKnowledgeChunks activeChunks;
 
     public EmbeddingServiceImpl(AiModelRegistry aiModelRegistry,
-                                EmbeddingStoreRegistry embeddingStoreRegistry) {
+                                EmbeddingStoreRegistry embeddingStoreRegistry, ActiveKnowledgeChunks activeChunks) {
         this.aiModelRegistry = aiModelRegistry;
         this.embeddingStoreRegistry = embeddingStoreRegistry;
+        this.activeChunks = activeChunks;
     }
     
     @Override
@@ -87,6 +89,11 @@ public class EmbeddingServiceImpl implements EmbeddingService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
     
+    static String stableEmbeddingId(EmbeddingProfile profile, Long documentId, Long chunkId) {
+        String key = profile.indexName() + ":" + profile.version() + ":" + documentId + ":" + chunkId;
+        return java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+
     @Override
     public Mono<String> storeEmbedding(Long knowledgeBaseId, Long documentId, Long chunkId, 
                                      Embedding embedding, TextSegment textSegment,
@@ -107,7 +114,8 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                         .put("stored_time", System.currentTimeMillis())
                 );
                 
-                String embeddingId = embeddingStore.add(embedding, enhancedSegment);
+                String embeddingId = stableEmbeddingId(profile, documentId, chunkId);
+                embeddingStore.addAll(List.of(embeddingId), List.of(embedding), List.of(enhancedSegment));
                 
                 log.debug("向量存储成功: knowledgeBaseId={}, documentId={}, chunkId={}, embeddingId={}", 
                          knowledgeBaseId, documentId, chunkId, embeddingId);
@@ -148,7 +156,9 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                     })
                     .toList();
                 
-                List<String> embeddingIds = embeddingStore.addAll(embeddings, enhancedSegments);
+                List<String> embeddingIds = chunkIds.stream()
+                        .map(chunkId -> stableEmbeddingId(profile, documentId, chunkId)).toList();
+                embeddingStore.addAll(embeddingIds, embeddings, enhancedSegments);
                 
                 log.info("批量向量存储成功: knowledgeBaseId={}, documentId={}, count={}", 
                         knowledgeBaseId, documentId, embeddingIds.size());
@@ -168,6 +178,15 @@ public class EmbeddingServiceImpl implements EmbeddingService {
             Embedding queryEmbedding, List<Long> knowledgeBaseIds, Integer maxResults, Double minScore,
         String modelId, String indexName) {
         
+        return activeChunks.ids(knowledgeBaseIds).flatMap(ids -> ids.isEmpty() ? Mono.just(List.<EmbeddingService.EmbeddingSearchResult>of())
+                : searchVisible(queryEmbedding, knowledgeBaseIds, maxResults, minScore, modelId, indexName, ids))
+                .flatMap(results -> activeChunks.ids(knowledgeBaseIds)
+                        .map(ids -> results.stream().filter(result -> ids.contains(result.chunkId())).toList()));
+    }
+
+    private Mono<List<EmbeddingService.EmbeddingSearchResult>> searchVisible(
+            Embedding queryEmbedding, List<Long> knowledgeBaseIds, Integer maxResults, Double minScore,
+            String modelId, String indexName, List<Long> visibleChunkIds) {
         return Mono.fromCallable(() -> {
             int knowledgeBaseCount = knowledgeBaseIds == null ? 0 : knowledgeBaseIds.size();
             try {
@@ -189,7 +208,9 @@ public class EmbeddingServiceImpl implements EmbeddingService {
                         .orElse(null);
                     
                     if (combinedFilter != null) {
-                        requestBuilder.filter(combinedFilter);
+                        requestBuilder.filter(new dev.langchain4j.store.embedding.filter.logical.And(combinedFilter,
+                                new dev.langchain4j.store.embedding.filter.comparison.IsIn("chunk_id",
+                                        visibleChunkIds.stream().map(String::valueOf).toList())));
                     }
                 }
                 
@@ -217,6 +238,19 @@ public class EmbeddingServiceImpl implements EmbeddingService {
         }).subscribeOn(Schedulers.boundedElastic());
     }
     
+    @Override
+    public Mono<Boolean> deleteChunkEmbeddings(List<Long> chunkIds) {
+        if (chunkIds.isEmpty()) return Mono.just(true);
+        return Mono.fromCallable(() -> {
+            boolean success = true;
+            for (EmbeddingProfile profile : embeddingStoreRegistry.getCleanupProfiles()) {
+                success &= removeAll(profile, new dev.langchain4j.store.embedding.filter.comparison.IsIn(
+                        "chunk_id", chunkIds.stream().map(String::valueOf).toList()), "版本块", chunkIds.getFirst());
+            }
+            return success;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
     @Override
     public Mono<Boolean> deleteDocumentEmbeddings(Long documentId) {
         return Mono.fromCallable(() -> {

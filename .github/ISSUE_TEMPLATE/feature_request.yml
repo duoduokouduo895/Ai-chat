@@ -1,0 +1,41 @@
+name: "⭐ 功能请求"
+description: 提议新能力或体验改进
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前自检
+      options:
+        - label: 已搜索过现有 Issues / Discussions
+          required: true
+        - label: 一条 Issue 只提一个请求
+          required: true
+  - type: textarea
+    id: story
+    attributes:
+      label: 场景与痛点
+      description: 你在做什么任务时卡住了？
+      placeholder: 我在用「知识库问答」做……时，……
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 你希望产品怎样表现？
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案
+    validations:
+      required: false
+  - type: checkboxes
+    id: help
+    attributes:
+      label: 协作意愿
+      options:
+        - label: 我愿意参与实现或提供复现环境

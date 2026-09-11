@@ -29,6 +29,8 @@ public class DocumentProcessingProperties {
     private Duration outboxClaimTimeout = Duration.ofMinutes(2);
     private Duration outboxRetryDelay = Duration.ofSeconds(5);
     private Duration outboxMaxRetryDelay = Duration.ofMinutes(5);
+    private Duration ingestionLeaseDuration = Duration.ofMinutes(5);
+    private boolean versionedIngestionEnabled;
 
     public Duration effectiveParseTimeout() {
         return boundedDuration(parseTimeout, Duration.ofSeconds(1), Duration.ofMinutes(3));
@@ -76,6 +78,10 @@ public class DocumentProcessingProperties {
 
     public Duration effectiveOutboxMaxRetryDelay() {
         return boundedDuration(outboxMaxRetryDelay, Duration.ofSeconds(10), Duration.ofMinutes(30));
+    }
+
+    public Duration effectiveIngestionLeaseDuration() {
+        return boundedDuration(ingestionLeaseDuration, Duration.ofSeconds(10), Duration.ofMinutes(10));
     }
 
     private Duration boundedDuration(Duration value, Duration minimum, Duration maximum) {

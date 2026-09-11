@@ -53,6 +53,7 @@ public class ChatAdmissionProperties {
         private Duration requestWindow = Duration.ofHours(24);
         private int concurrentLimit = 1;
         private boolean ragEnabled = false;
+        /** Empty means every enabled catalog chat model is allowed. */
         private List<String> allowedModels = new ArrayList<>();
 
         public int requestLimit() {

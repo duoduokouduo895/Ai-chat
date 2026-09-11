@@ -1,6 +1,8 @@
 package org.example.ai_agent.service.admission;
 
 import org.example.ai_agent.config.ai.ModelCatalogProperties;
+import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelConfig;
+import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelType;
 import org.example.ai_agent.config.security.ChatAdmissionProperties;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.util.TokenRedisKeys;
@@ -12,7 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -88,5 +92,50 @@ class ChatAdmissionServiceTest {
 
         verify(redisAdmissionStore).releaseLease(eq(TokenRedisKeys.chatConcurrencyUser(7L)), anyString());
         verify(redisAdmissionStore).releaseLease(eq(TokenRedisKeys.chatConcurrencyGlobal()), anyString());
+    }
+
+    @Test
+    void guestRequest_shouldAllowAnyEnabledCatalogChatModelWhenAllowListIsEmpty() {
+        properties.getGuest().setAllowedModels(List.of());
+        ModelCatalogProperties catalog = catalogWithChatModels("chat-fast", "chat-reasoning", "chat-coding");
+        service = new ChatAdmissionService(redisAdmissionStore, properties, catalog);
+        when(redisAdmissionStore.tryAcquireLease(anyString(), anyString(), anyInt(), any()))
+                .thenReturn(Mono.just(true));
+        when(redisAdmissionStore.tryConsume(anyString(), anyInt(), any())).thenReturn(Mono.just(true));
+
+        ChatRequest request = ChatRequest.builder().prompt("hello").model("chat-reasoning").build();
+
+        StepVerifier.create(service.admit(7L, true, request)).expectNextCount(1).verifyComplete();
+    }
+
+    @Test
+    void guestRequest_shouldRejectUnknownModelWhenAllowListIsEmpty() {
+        properties.getGuest().setAllowedModels(List.of());
+        service = new ChatAdmissionService(redisAdmissionStore, properties,
+                catalogWithChatModels("chat-fast", "chat-reasoning", "chat-coding"));
+
+        ChatRequest request = ChatRequest.builder().prompt("hello").model("unknown-model").build();
+
+        StepVerifier.create(service.admit(7L, true, request))
+                .expectErrorMatches(error -> error instanceof ChatAdmissionException
+                        && ((ChatAdmissionException) error).getStatusCode().value() == 403)
+                .verify();
+
+        verifyNoInteractions(redisAdmissionStore);
+    }
+
+    private static ModelCatalogProperties catalogWithChatModels(String... aliases) {
+        ModelCatalogProperties catalog = new ModelCatalogProperties();
+        Map<String, ModelConfig> models = new LinkedHashMap<>();
+        for (String alias : aliases) {
+            ModelConfig config = new ModelConfig();
+            config.setType(ModelType.CHAT);
+            config.setEnabled(true);
+            config.setProviderModelName("provider/" + alias);
+            models.put(alias, config);
+        }
+        catalog.setModels(models);
+        catalog.setDefaultChatModel(aliases[0]);
+        return catalog;
     }
 }

@@ -12,6 +12,7 @@ import urllib.request
 from collections import defaultdict
 
 from common import RESULTS_DIR, base_url, is_refusal, keyword_coverage, latest_manifest, no_proxy_opener, percentile, read_questions, timestamp, write_csv, write_pointer
+from common import run_evidence
 
 
 def stream_answer(token, body, timeout):
@@ -129,7 +130,8 @@ def main():
     }
     output = RESULTS_DIR / f"generation-{run_id}.json"
     csv_output = RESULTS_DIR / f"generation-{run_id}.csv"
-    output.write_text(json.dumps({"runId": run_id, "model": model, "summary": summary, "rows": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+    output.write_text(json.dumps({"runId": run_id, "model": model, "summary": summary, "rows": rows,
+                                 "evidence": run_evidence({"model": model, "timeout": timeout})}, ensure_ascii=False, indent=2), encoding="utf-8")
     write_csv(csv_output, rows)
     write_pointer("latest-generation.txt", output)
     print(f"生成评测完成: {output}", flush=True)

@@ -1,5 +1,7 @@
 <template>
-  <div class="ai-platform">
+  <div ref="workspaceRoot" class="ai-platform" :inert="introBlocked || undefined"
+    :aria-hidden="introBlocked || undefined" :data-intro-phase="introVisible ? introPhase : undefined"
+    :style="{ opacity: workspaceVisibility }" tabindex="-1">
     <ActivityRail
       :current-view="currentView"
       :history-open="isHistoryDrawerOpen"
@@ -22,7 +24,7 @@
     />
 
     <main class="main-content">
-      <header class="mobile-workspace-header">
+      <header class="mobile-workspace-header" data-intro="frame">
         <button type="button" aria-label="打开菜单" @click="isMobileDrawerOpen = true">
           <font-awesome-icon icon="bars" aria-hidden="true" />
         </button>
@@ -38,6 +40,7 @@
         :is-loading="isLoading"
         :is-loading-conversation="isLoadingConversation"
         :load-error="loadError"
+        @replay-intro="replayIntro"
         @send-message="handleSendMessage"
         @new-conversation="createConversation"
         @clear-context="clearContext"
@@ -69,10 +72,15 @@
       @auth-action="handleAuthAction"
     />
   </div>
+  <AsciiIntro v-if="introVisible" :key="introRun" :workspace="workspaceRoot"
+    @phase="introPhase = $event" @reveal="workspaceVisibility = $event"
+    @interactive="unlockWorkspace" @complete="finishIntro" />
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, ref } from 'vue';
+import AsciiIntro from '../intro/AsciiIntro.vue';
+import { introSession } from '../intro/introModel.mjs';
 import { useChatWorkspace } from '@/composables/useChatWorkspace.js';
 import ActivityRail from './ActivityRail.vue';
 import HistoryDrawer from './HistoryDrawer.vue';
@@ -81,6 +89,40 @@ import ChatPanel from '../chat/ChatPanel.vue';
 
 const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'));
 const SearchPanel = defineAsyncComponent(() => import('../search/SearchPanel.vue'));
+
+const workspaceRoot = ref(null);
+const introVisible = ref(introSession.shouldPlay(window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+const introBlocked = ref(introVisible.value);
+const workspaceVisibility = ref(introVisible.value ? 0 : 1);
+const introPhase = ref('sculpture');
+const introRun = ref(0);
+let replayFocus = null;
+
+const unlockWorkspace = async () => {
+  const focusWasInIntro = Boolean(document.activeElement?.closest('.ascii-intro'));
+  introBlocked.value = false;
+  await nextTick();
+  if (focusWasInIntro) {
+    const target = replayFocus?.isConnected ? replayFocus : workspaceRoot.value;
+    target?.focus({ preventScroll: true });
+  }
+};
+const finishIntro = () => {
+  if (document.activeElement?.closest('.ascii-intro')) unlockWorkspace();
+  introSession.finish();
+  workspaceVisibility.value = 1;
+  introVisible.value = false;
+  introPhase.value = 'done';
+};
+const replayIntro = () => {
+  if (introVisible.value || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  replayFocus = document.activeElement;
+  introRun.value++;
+  introBlocked.value = true;
+  workspaceVisibility.value = 0;
+  introPhase.value = 'sculpture';
+  introVisible.value = true;
+};
 
 const isHistoryDrawerOpen = ref(false);
 const isMobileDrawerOpen = ref(false);
@@ -143,6 +185,8 @@ onMounted(initWorkspace);
   overflow: hidden;
 }
 
+.ai-platform:focus { outline: none; }
+
 .main-content {
   background: var(--canvas);
   display: flex;
@@ -189,6 +233,34 @@ onMounted(initWorkspace);
     font-size: var(--font-size-xs);
     min-width: 44px;
     text-align: right;
+  }
+}
+
+.ai-platform[data-intro-phase='falling'] :deep(.composer),
+.ai-platform[data-intro-phase='field'] :deep(.composer),
+.ai-platform[data-intro-phase='lock'] :deep(.composer),
+.ai-platform[data-intro-phase='outline'] :deep(.composer) {
+  transform: translateY(16px);
+}
+
+.ai-platform[data-intro-phase='reveal'] :deep(.composer),
+.ai-platform[data-intro-phase='clearing'] :deep(.composer) {
+  transform: none;
+}
+
+.ai-platform[data-intro-phase='reveal'] :deep(.composer) {
+  animation: introComposerRise 0.7s ease both;
+}
+
+@keyframes introComposerRise {
+  from { transform: translateY(16px); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-platform :deep(.composer) {
+    animation: none;
+    transform: none;
   }
 }
 </style>

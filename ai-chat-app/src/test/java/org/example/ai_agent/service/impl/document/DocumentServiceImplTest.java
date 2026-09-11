@@ -13,7 +13,7 @@ import org.example.ai_agent.service.DocumentIngestionService;
 import org.example.ai_agent.service.KnowledgeBaseService;
 import org.example.ai_agent.service.OssService;
 import org.example.ai_agent.service.document.DocumentUploadValidator;
-import org.example.ai_agent.service.impl.knowledge.KnowledgeAssetCleanupService;
+import org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class DocumentServiceImplTest {
     @Mock
     private UserRepository userRepository;
     @Mock
-    private KnowledgeAssetCleanupService knowledgeAssetCleanupService;
+    private KnowledgeCleanupCommands knowledgeCleanupCommands;
     @Mock
     private DocumentUploadValidator documentUploadValidator;
     @Mock
@@ -62,13 +62,14 @@ class DocumentServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(knowledgeBaseService.getAuthorizedKnowledgeBase(any(), any(), eq(true), eq(true))).thenAnswer(invocation -> knowledgeBaseService.getAuthorizedKnowledgeBase(invocation.getArgument(0), invocation.getArgument(1), false, true));
         service = new DocumentServiceImpl(
                 documentRepository,
                 knowledgeBaseService,
                 ossService,
                 documentIngestionService,
                 userRepository,
-                knowledgeAssetCleanupService,
+                knowledgeCleanupCommands,
                 documentUploadValidator,
                 transactionalOperator);
         ReflectionTestUtils.setField(service, "supportedTypes", new String[]{"md"});
@@ -192,19 +193,24 @@ class DocumentServiceImplTest {
 
     @Test
     void deleteDocument_shouldNotCleanupWhenWriteAccessDenied() {
-        KnowledgeDocument document = new KnowledgeDocument();
-        document.setId(13L);
-        document.setKnowledgeBaseId(22L);
-
-        when(documentRepository.findById(13L)).thenReturn(Mono.just(document));
-        when(knowledgeBaseService.getAuthorizedKnowledgeBase(22L, 300L, false, true))
+        when(knowledgeCleanupCommands.deleteDocument(13L, 300L, false))
                 .thenReturn(Mono.error(new SecurityException("当前用户无权修改该知识库")));
 
         StepVerifier.create(service.deleteDocument(13L, 300L, false))
                 .expectError(SecurityException.class)
                 .verify();
 
-        verify(knowledgeAssetCleanupService, never()).deleteDocumentAggregate(document);
+        org.mockito.Mockito.verifyNoInteractions(ossService, documentRepository);
+    }
+
+    @Test
+    void deleteDocument_shouldUseDurableAcceptanceWithoutDeletingRecords() {
+        when(knowledgeCleanupCommands.deleteDocument(13L, 300L, false)).thenReturn(Mono.just(
+                new org.example.ai_agent.knowledge.ingestion.CleanupOperation(
+                        "cleanup-13", "PENDING", 0, 0, null, null, null)));
+        StepVerifier.create(service.deleteDocument(13L, 300L, false)).verifyComplete();
+        verify(knowledgeCleanupCommands).deleteDocument(13L, 300L, false);
+        org.mockito.Mockito.verifyNoInteractions(ossService, documentRepository, knowledgeBaseService);
     }
 
     @Test

@@ -35,7 +35,7 @@ public class GeneralAssistantFactory {
             // RAG 上下文已经由 AssistantInputBuilder 完成检索并写入提示词。
             // 再暴露知识库工具不仅重复检索，还会让部分 OpenAI-compatible
             // 流式模型把工具协议标记当作普通文本输出。
-            return createAssistant(effectiveModelId, null);
+            return createAssistant(effectiveModelId, null, chatRequest);
         }
 
         KnowledgeAssistantToolGateway toolGateway = new KnowledgeAssistantToolGateway(
@@ -46,15 +46,24 @@ public class GeneralAssistantFactory {
                 documentService
         );
         KnowledgeAssistantTools knowledgeTools = new KnowledgeAssistantTools(toolGateway);
-        return createAssistant(effectiveModelId, knowledgeTools);
+        return createAssistant(effectiveModelId, knowledgeTools, chatRequest);
     }
 
-    private GeneralAssistant createAssistant(String modelId, KnowledgeAssistantTools knowledgeTools) {
+    private GeneralAssistant createAssistant(String modelId, KnowledgeAssistantTools knowledgeTools, ChatRequest request) {
+        var memory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(
+                Math.max(256, (request.getContextTurns() == null ? 0 : request.getContextTurns().size() * 2) + 64));
+        if (request.getContextTurns() != null) {
+            for (var turn : request.getContextTurns()) {
+                memory.add(dev.langchain4j.data.message.UserMessage.from(turn.userText()));
+                memory.add(dev.langchain4j.data.message.AiMessage.from(turn.assistantText()));
+            }
+        }
         dev.langchain4j.memory.chat.ChatMemoryProvider memoryProvider =
-                memoryId -> chatMemoryProvider.get(String.valueOf(memoryId));
+                memoryId -> memory;
 
         var builder = AiServices.builder(GeneralAssistant.class)
-                .streamingChatModel(aiModelRegistry.getStreamingModel(modelId))
+                .streamingChatModel(new InputBudgetStreamingChatModel(aiModelRegistry.getStreamingModel(modelId),
+                        request.getResolvedInputBudgetTokens(), request.getResolvedTokenEstimatorModel()))
                 .chatMemoryProvider(memoryProvider);
         if (knowledgeTools != null) {
             builder.tools(knowledgeTools);

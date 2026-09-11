@@ -49,7 +49,8 @@ public class KnowledgeBaseAccessResolver {
     public Mono<KnowledgeBase> authorizeRead(KnowledgeBase knowledgeBase,
                                              Long requesterUserId,
                                              boolean isAdmin) {
-        if (!"ACTIVE".equalsIgnoreCase(knowledgeBase.getStatus())) {
+        if (!"ACTIVE".equalsIgnoreCase(knowledgeBase.getStatus())
+                || !"ACTIVE".equalsIgnoreCase(knowledgeBase.getDeletionStatus())) {
             return Mono.error(new SecurityException("当前知识库不可用于检索"));
         }
         if (isAdmin) {

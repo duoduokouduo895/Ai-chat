@@ -5,7 +5,7 @@ import { readSseEventStream } from './sseEventStream.mjs';
 const API_BASE_URL = apiClient.defaults.baseURL;
 
 export const aiApiService = {
-    async chatStream(chatRequest, onData, onComplete, onError, onMetadata, onStatus, abortController = null) {
+    async chatStream(chatRequest, onData, onComplete, onError, onMetadata, onStatus, abortController = null, onRetrieval = null) {
         try {
 
             // 确保chatRequest包含所有必要字段
@@ -57,6 +57,7 @@ export const aiApiService = {
                 onMessage: onData,
                 onMetadata,
                 onStatus,
+                onRetrieval,
                 onError: (error) => {
                     streamErrored = true;
                     if (onError) onError(error);

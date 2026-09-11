@@ -22,27 +22,28 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AiChatServiceImpl implements AiChatService {
 
     private final GeneralAssistantFactory generalAssistantFactory;
-    private final AssistantConversationTurn conversationTurn;
     private final ChatTurnLifecycle chatTurnLifecycle;
     private final AssistantInputBuilder inputBuilder;
     private final ChatStreamEventFactory eventFactory;
     private final ChatStreamTelemetry telemetry;
     private final long streamTimeoutMs;
+    private final ChatRetrievalReader retrievalReader;
+    @Value("${assistant.chat-turn.max-duration-ms:300000}")
+    private long maxTurnDurationMs = 300000;
 
     public AiChatServiceImpl(GeneralAssistantFactory generalAssistantFactory,
-                             AssistantConversationTurn conversationTurn,
                              ChatTurnLifecycle chatTurnLifecycle,
                              AssistantInputBuilder inputBuilder,
                              ChatStreamEventFactory eventFactory,
                              ChatStreamTelemetry telemetry,
-                             @Value("${assistant.stream.timeout-ms:60000}") long streamTimeoutMs) {
+                             @Value("${assistant.stream.timeout-ms:60000}") long streamTimeoutMs, ChatRetrievalReader retrievalReader) {
         this.generalAssistantFactory = generalAssistantFactory;
-        this.conversationTurn = conversationTurn;
         this.chatTurnLifecycle = chatTurnLifecycle;
         this.inputBuilder = inputBuilder;
         this.eventFactory = eventFactory;
         this.telemetry = telemetry;
         this.streamTimeoutMs = streamTimeoutMs;
+        this.retrievalReader = retrievalReader;
     }
 
     @Override
@@ -51,7 +52,6 @@ public class AiChatServiceImpl implements AiChatService {
                 chatRequest.getModel(), chatRequest.isRagMode());
 
         Flux<ServerSentEvent<String>> stream = Mono.just(chatRequest)
-                .flatMap(conversationTurn::ensureConversationExists)
                 .flatMap(chatTurnLifecycle::claim)
                 .flatMapMany(claim -> handleClaim(chatRequest, claim));
         return telemetry.observe(stream, chatRequest.isRagMode())
@@ -60,16 +60,42 @@ public class AiChatServiceImpl implements AiChatService {
 
     private Flux<ServerSentEvent<String>> handleClaim(ChatRequest request, ChatTurnLifecycle.Claim claim) {
         return switch (claim.kind()) {
-            case OWNED -> chatTurnLifecycle.markStreaming(claim)
-                    .flatMapMany(streamingClaim -> handleAssistantChat(request, streamingClaim)
-                            .doOnCancel(() -> markCancelledAsync(streamingClaim)));
+            case OWNED -> executeOwnedRequest(request, claim);
             case REPLAY -> Flux.concat(
                     Flux.just(eventFactory.metadata(request)),
                     Flux.just(eventFactory.status("正在重放已完成回答")),
-                    Flux.just(eventFactory.message(claim.assistantMessage().getContent())));
+                    retrievalReader.read(claim.row().getRetrievalJson(), request.getUserId(), request.isAdminRequest())
+                            .map(eventFactory::retrieval),
+                    Flux.just(eventFactory.message(claim.assistantMessage().getContent())),
+                    Flux.just(eventFactory.complete(claim.turnId())));
             case IN_PROGRESS -> Flux.error(ChatStreamClientException.requestInProgress());
             case FAILED -> Flux.error(ChatStreamClientException.previousRequestFailed(claim.row().getErrorCode()));
         };
+    }
+
+    private Flux<ServerSentEvent<String>> executeOwnedRequest(ChatRequest request,
+                                                               ChatTurnLifecycle.Claim claim) {
+        return chatTurnLifecycle.markStreaming(claim)
+                .flatMapMany(streamingClaim -> handleAssistantChat(request, streamingClaim))
+                .takeUntilOther(Mono.delay(Duration.ofMillis(Math.max(1L, maxTurnDurationMs)))
+                        .flatMap(ignored -> Mono.error(ChatStreamClientException.modelTimeout())))
+                .onErrorResume(error -> failOwnedRequest(claim, error))
+                .doOnCancel(() -> markCancelledAsync(claim));
+    }
+
+    private Flux<ServerSentEvent<String>> failOwnedRequest(ChatTurnLifecycle.Claim claim,
+                                                            Throwable originalError) {
+        return chatTurnLifecycle.markFailed(claim, originalError)
+                .onErrorResume(terminalizationError -> {
+                    if (terminalizationError != originalError) {
+                        originalError.addSuppressed(terminalizationError);
+                    }
+                    log.error("ChatTurn 失败终态写入失败: turnId={}, originalErrorType={}, terminalErrorType={}",
+                            claim.turnId(), originalError.getClass().getSimpleName(),
+                            terminalizationError.getClass().getSimpleName());
+                    return Mono.empty();
+                })
+                .thenMany(Flux.error(originalError));
     }
 
     /**
@@ -100,9 +126,28 @@ public class AiChatServiceImpl implements AiChatService {
         Mono<String> assistantInput = inputBuilder.build(chatRequest);
 
         return assistantInput
-                .flatMapMany(input -> Flux.concat(
-                        Flux.just(eventFactory.status("正在生成回答")),
-                        streamAssistantResponse(chatRequest, claim, input)));
+                .flatMapMany(input -> {
+                    log.info("Assistant 输入预算已应用: conversationId={}, modelId={}, inputTokenEstimate={}, supplierInputTokens=unavailable",
+                            chatRequest.getConversationId(), chatRequest.getEffectiveModelId(),
+                            chatRequest.getEstimatedInputTokens());
+                    Flux<ServerSentEvent<String>> retrieval = chatRequest.getRetrievalContext() == null
+                            ? Flux.empty() : retrievalReader.read(ChatRetrievalSnapshots.encode(chatRequest.getRetrievalContext()),
+                                    chatRequest.getUserId(), chatRequest.isAdminRequest())
+                                    .flatMap(view -> view.sources().stream().anyMatch(source -> !source.available())
+                                            ? Mono.error(ChatStreamClientException.retrievalUnavailable())
+                                            : Mono.just(eventFactory.retrieval(view))).flux();
+                    return retrieval.concatWith(Flux.defer(() -> generateOrRefuse(chatRequest, claim, input)));
+                });
+    }
+
+    private Flux<ServerSentEvent<String>> generateOrRefuse(ChatRequest request, ChatTurnLifecycle.Claim claim, String input) {
+        if (request.getRetrievalContext() != null && request.getRetrievalContext().status()
+                == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY) {
+            String answer = org.example.ai_agent.service.RagService.INSUFFICIENT_EVIDENCE;
+            return chatTurnLifecycle.completeWithAiMessage(claim, request, answer)
+                    .flatMapMany(saved -> Flux.just(eventFactory.message(answer), eventFactory.complete(claim.turnId())));
+        }
+        return Flux.concat(Flux.just(eventFactory.status("正在生成回答")), streamAssistantResponse(request, claim, input));
     }
 
     private Flux<ServerSentEvent<String>> streamAssistantResponse(ChatRequest chatRequest,
@@ -138,14 +183,14 @@ public class AiChatServiceImpl implements AiChatService {
                     .doOnNext(responseBuilder::append)
                     .map(eventFactory::message)
                     .concatWith(Mono.defer(() -> {
-                        if (responseBuilder.length() > 0) {
-                            return conversationTurn.saveAiMessage(chatRequest, responseBuilder.toString())
+                        if (!responseBuilder.toString().isBlank()) {
+                            return chatTurnLifecycle.completeWithAiMessage(
+                                            claim, chatRequest, responseBuilder.toString())
                                     .doOnNext(savedAiMessage -> log.info("Assistant AI消息已保存，ID: {}", savedAiMessage.getId()))
-                                    .flatMap(savedAiMessage -> chatTurnLifecycle.markCompleted(claim, savedAiMessage))
-                                    .then(Mono.<ServerSentEvent<String>>empty());
+                                    .thenReturn(eventFactory.complete(claim.turnId()));
                         }
                         return chatTurnLifecycle.markEmptyResponse(claim)
-                                .then(Mono.<ServerSentEvent<String>>empty());
+                                .thenReturn(eventFactory.error(ChatStreamClientException.emptyResponse()));
                     }))
                     .doOnComplete(() -> {
                         log.info("Assistant对话完成: conversationId={}, ragMode={}, durationMs={}, chunks={}, nonEmptyChunks={}",
@@ -155,21 +200,23 @@ public class AiChatServiceImpl implements AiChatService {
                     .doOnError(error -> {
                         log.warn("Assistant流异常: conversationId={}, modelId={}, durationMs={}, chunks={}, nonEmptyChunks={}, error={}",
                                 chatRequest.getConversationId(), effectiveModelId,
-                                elapsedMs(streamStartNanos), chunkCount.get(), nonEmptyChunkCount.get(), error.toString());
+                                elapsedMs(streamStartNanos), chunkCount.get(), nonEmptyChunkCount.get(), error.getClass().getSimpleName());
                     });
         })
-                .subscribeOn(Schedulers.boundedElastic()) // 隔离：防止 LangChain4j 同步读取 Redis ChatMemory 或同步构造流时阻塞 Netty 事件循环线程
+                .subscribeOn(Schedulers.boundedElastic()) // 模型代理构造可能同步执行，避免阻塞事件循环。
                 .timeout(
                         Duration.ofMillis(Math.max(1L, streamTimeoutMs)),
-                        Flux.error(ChatStreamClientException.modelTimeout()))
-                .onErrorResume(error -> chatTurnLifecycle.markFailed(claim, error)
-                        .then(Mono.error(error)));
+                        Flux.error(ChatStreamClientException.modelTimeout()));
     }
 
     private void markCancelledAsync(ChatTurnLifecycle.Claim claim) {
         Mono<Void> cancellation = chatTurnLifecycle.markCancelled(claim);
         if (cancellation != null) {
-            cancellation.subscribe();
+            cancellation.subscribe(
+                    ignored -> { },
+                    cancellationFailure -> log.error(
+                            "ChatTurn 取消终态写入失败: turnId={}, errorType={}",
+                            claim.turnId(), cancellationFailure.getClass().getSimpleName()));
         }
     }
 

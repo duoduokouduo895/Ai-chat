@@ -20,6 +20,10 @@ import reactor.core.publisher.Mono;
  */
 @Repository
 public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<KnowledgeDocument, Long> {
+    @Override
+    @Query("SELECT d.* FROM knowledge_documents d INNER JOIN knowledge_bases k ON k.id = d.knowledge_base_id WHERE d.id = :id AND d.deletion_status = 'ACTIVE' AND k.deletion_status = 'ACTIVE'")
+    Mono<KnowledgeDocument> findById(Long id);
+
     
     /**
      * 根据知识库ID查询文档
@@ -57,7 +61,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             FROM knowledge_documents d
             LEFT JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
             LEFT JOIN users u ON u.user_id = d.uploader_id
-            WHERE d.knowledge_base_id = :knowledgeBaseId
+            WHERE d.deletion_status = 'ACTIVE' AND kb.deletion_status = 'ACTIVE' AND d.knowledge_base_id = :knowledgeBaseId
             ORDER BY d.created_at DESC
             LIMIT :limit OFFSET :offset
             """)
@@ -72,6 +76,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             FROM knowledge_documents d
             LEFT JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
             LEFT JOIN users u ON u.user_id = d.uploader_id
+            WHERE d.deletion_status = 'ACTIVE' AND kb.deletion_status = 'ACTIVE'
             ORDER BY d.updated_at DESC
             LIMIT :limit OFFSET :offset
             """)
@@ -86,7 +91,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             FROM knowledge_documents d
             LEFT JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
             LEFT JOIN users u ON u.user_id = d.uploader_id
-            WHERE (:keyword IS NULL
+            WHERE d.deletion_status = 'ACTIVE' AND kb.deletion_status = 'ACTIVE' AND (:keyword IS NULL
                    OR LOWER(COALESCE(d.file_name, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(d.title, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(kb.name, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
@@ -107,7 +112,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             FROM knowledge_documents d
             LEFT JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
             LEFT JOIN users u ON u.user_id = d.uploader_id
-            WHERE (:keyword IS NULL
+            WHERE d.deletion_status = 'ACTIVE' AND kb.deletion_status = 'ACTIVE' AND (:keyword IS NULL
                    OR LOWER(COALESCE(d.file_name, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(d.title, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
                    OR LOWER(COALESCE(kb.name, '')) LIKE CONCAT('%', LOWER(:keyword), '%')
@@ -124,7 +129,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             SELECT COUNT(*) AS document_count,
                    COUNT(DISTINCT uploader_id) AS uploader_count,
                    COALESCE(SUM(file_size), 0) AS total_file_size
-            FROM knowledge_documents
+            FROM knowledge_documents WHERE deletion_status = 'ACTIVE' AND knowledge_base_id IN (SELECT id FROM knowledge_bases WHERE deletion_status = 'ACTIVE')
             """)
     Mono<AdminDocumentSummaryProjection> summarizeForAdmin();
 
@@ -137,7 +142,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
             FROM knowledge_documents d
             LEFT JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
             LEFT JOIN users u ON u.user_id = d.uploader_id
-            WHERE d.uploader_id = :uploaderId
+            WHERE d.deletion_status = 'ACTIVE' AND kb.deletion_status = 'ACTIVE' AND d.uploader_id = :uploaderId
             ORDER BY d.created_at DESC
             LIMIT :limit OFFSET :offset
             """)
@@ -153,7 +158,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
                                      THEN 1 ELSE 0 END), 0)
                        AS embedded_document_count
             FROM knowledge_documents
-            WHERE knowledge_base_id = :knowledgeBaseId
+            WHERE deletion_status = 'ACTIVE' AND knowledge_base_id = :knowledgeBaseId
             """)
     Mono<KnowledgeBaseDocumentStatsProjection> summarizeByKnowledgeBaseId(Long knowledgeBaseId);
     
@@ -188,6 +193,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
      * @param knowledgeBaseId 知识库ID
      * @return 文档数量
      */
+    @Query("SELECT COUNT(*) FROM knowledge_documents d INNER JOIN knowledge_bases k ON k.id = d.knowledge_base_id WHERE d.knowledge_base_id = :knowledgeBaseId AND d.deletion_status = 'ACTIVE' AND k.deletion_status = 'ACTIVE'")
     Mono<Long> countByKnowledgeBaseId(Long knowledgeBaseId);
     
     /**
@@ -197,6 +203,7 @@ public interface KnowledgeDocumentRepository extends ReactiveCrudRepository<Know
      * @param parseStatus 解析状态
      * @return 文档数量
      */
+    @Query("SELECT COUNT(*) FROM knowledge_documents d INNER JOIN knowledge_bases k ON k.id = d.knowledge_base_id WHERE d.knowledge_base_id = :knowledgeBaseId AND d.parse_status = :parseStatus AND d.deletion_status = 'ACTIVE' AND k.deletion_status = 'ACTIVE'")
     Mono<Long> countByKnowledgeBaseIdAndParseStatus(Long knowledgeBaseId, String parseStatus);
     
     /**

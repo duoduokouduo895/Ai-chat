@@ -52,6 +52,7 @@ public class RetrievalContextAssembler {
 
         match.setChunkId(result.chunkId());
         match.setDocumentId(result.documentId());
+        match.setVersionId(result.versionId());
         match.setKnowledgeBaseId(result.knowledgeBaseId());
         match.setContent(result.content());
         match.setScore(result.score());

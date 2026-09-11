@@ -56,9 +56,9 @@ class KnowledgeControllerValidationTest {
                 ragService,
                 knowledgeBaseService,
                 knowledgeChunkSearchService,
-                accessContextResolver);
+                accessContextResolver, org.mockito.Mockito.mock(org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands.class));
         KnowledgeDocumentController documentController = new KnowledgeDocumentController(
-                documentService, documentChunkService, accessContextResolver, uploadFacade);
+                documentService, documentChunkService, accessContextResolver, uploadFacade, org.mockito.Mockito.mock(org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands.class));
         DocumentProcessingRecordController processingRecordController = new DocumentProcessingRecordController(
                 documentService, recordService, accessContextResolver);
         webTestClient = WebTestClient.bindToController(

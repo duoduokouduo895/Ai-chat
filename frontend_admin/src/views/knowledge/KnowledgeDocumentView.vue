@@ -1,4 +1,5 @@
 <script setup>
+import CleanupTasks from '@/components/common/CleanupTasks.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -99,7 +100,7 @@ async function handleDelete(document) {
   try {
     await deleteDocument(document.id)
     documents.value = documents.value.filter((item) => item.id !== document.id)
-    ElMessage.success('文档删除成功')
+    ElMessage.success('已移除，后台清理中')
     await fetchDocuments()
   } finally {
     deletingId.value = null
@@ -113,7 +114,8 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <PageHeader title="文档管理" description="查看用户上传文档，并支持直接删除后台文档数据。" />
+    <CleanupTasks />
+    <PageHeader title="文档管理" description="查看用户上传文档，移除后由后台清理关联资源。" />
 
     <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
       <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

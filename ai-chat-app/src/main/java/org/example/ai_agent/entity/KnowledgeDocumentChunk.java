@@ -30,6 +30,12 @@ public class KnowledgeDocumentChunk {
      * 所属文档ID
      */
     private Long documentId;
+
+    /** 所属 DocumentVersion；迁移期允许旧写入暂时为空。 */
+    private Long versionId;
+
+    /** 文档处理 generation；迁移期允许旧写入暂时为空。 */
+    private Long generation;
     
     /**
      * 所属知识库ID

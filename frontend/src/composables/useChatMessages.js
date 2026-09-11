@@ -39,6 +39,8 @@ export const toMessageList = (items = []) => items.map((msg, index) => ({
   id: msg.id || index,
   sender: msg.sender || (msg.isUser ? 'user' : 'ai'),
   text: msg.content || msg.text,
+  retrieval: msg.retrieval || null,
+  chatTurnId: msg.chatTurnId || null,
   timestamp: new Date(msg.timestamp || msg.createdAt).toLocaleString(),
   type: 'chat',
   completed: true

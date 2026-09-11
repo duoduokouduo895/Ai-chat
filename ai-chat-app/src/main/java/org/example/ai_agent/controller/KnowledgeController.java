@@ -28,6 +28,7 @@ import reactor.core.publisher.Mono;
 @RestController
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
+    private final org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands cleanup;
 
     private final RagService ragService;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -37,11 +38,12 @@ public class KnowledgeController {
     public KnowledgeController(RagService ragService,
                                KnowledgeBaseService knowledgeBaseService,
                                KnowledgeChunkSearchService knowledgeChunkSearchService,
-                               KnowledgeAccessContextResolver accessContextResolver) {
+                               KnowledgeAccessContextResolver accessContextResolver, org.example.ai_agent.service.impl.knowledge.KnowledgeCleanupCommands cleanup) {
         this.ragService = ragService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.knowledgeChunkSearchService = knowledgeChunkSearchService;
         this.accessContextResolver = accessContextResolver;
+        this.cleanup = cleanup;
     }
 
     @PostMapping("/search")
@@ -119,9 +121,10 @@ public class KnowledgeController {
     }
 
     @DeleteMapping("/bases/{id}")
-    public Mono<Void> deleteKnowledgeBase(@PathVariable Long id, Authentication authentication) {
+    public Mono<org.springframework.http.ResponseEntity<org.example.ai_agent.knowledge.ingestion.CleanupOperation>> deleteKnowledgeBase(@PathVariable Long id, Authentication authentication) {
         return accessContextResolver.resolve(authentication)
-                .flatMap(access -> knowledgeBaseService.deleteKnowledgeBase(id, access.userId(), access.isAdmin()));
+                .flatMap(access -> cleanup.deleteKnowledgeBase(id, access.userId(), access.isAdmin()))
+                .map(operation -> org.springframework.http.ResponseEntity.accepted().body(operation));
     }
 
     @GetMapping("/bases/{id}/exists")

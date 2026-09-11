@@ -20,7 +20,9 @@ public class ChatTurnRow implements Persistable<String> {
     @Column("actor_id") private Long actorId;
     @Column("conversation_id") private Long conversationId;
     @Column("client_request_id") private String clientRequestId;
+    @Column("request_fingerprint") private String requestFingerprint;
     @Column("model_id") private String modelId;
+    @Column("retrieval_json") private String retrievalJson;
     private String status;
     @Column("user_message_id") private Long userMessageId;
     @Column("assistant_message_id") private Long assistantMessageId;

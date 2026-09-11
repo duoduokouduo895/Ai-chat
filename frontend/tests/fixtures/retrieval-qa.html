@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>聊天来源组件验收</title></head>
+<body><main id="app"></main><script type="module">
+import { createApp, h } from 'vue';
+import ChatMessage from '../../src/components/chat/ChatMessage.vue';
+import '../../src/assets/styles/variables.css';
+const messages = [
+  { id: 1, sender: 'ai', text: '现有资料支持先检查处理记录，再核对搜索投影。部分检索通道暂不可用。', timestamp: '17:00', retrieval: { status: 'DEGRADED', sources: [
+    { knowledgeBaseId: 7, documentId: 20, versionId: 3, chunkId: 100, available: true, documentTitle: '文档处理与故障恢复说明', knowledgeBaseName: '项目知识库' },
+    { knowledgeBaseId: 7, documentId: 21, versionId: 2, chunkId: 101, available: false }
+  ] } },
+  { id: 2, sender: 'ai', text: '当前知识库中没有找到可用资料，暂时无法依据资料回答这个问题。', timestamp: '17:01', retrieval: { status: 'EMPTY', sources: [] } }
+];
+createApp({ render: () => [h('h1', '聊天参考资料'), ...messages.map(message => h(ChatMessage, { key: message.id, message }))] }).mount('#app');
+</script><style>body{margin:0;background:var(--surface-0,#12111a);color:var(--text-primary);font-family:system-ui,sans-serif}main{max-width:760px;margin:40px auto;padding:0 22px;display:flex;flex-direction:column;gap:24px}h1{font-size:20px;font-weight:600}@media(max-width:480px){main{margin:24px auto;padding:0 16px}}</style></body></html>

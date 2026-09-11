@@ -22,6 +22,9 @@ public class DocumentProcessingRecord {
      */
     @Id
     private Long id;
+
+    /** IngestionRun 标识；旧处理记录在兼容期保持为空。 */
+    private String runId;
     
     /**
      * 文档ID
@@ -32,6 +35,9 @@ public class DocumentProcessingRecord {
      * 知识库ID
      */
     private Long knowledgeBaseId;
+
+    /** 该阶段处理的文档 generation。 */
+    private Long generation;
     
     /**
      * 处理类型 (PARSE, CHUNK, EMBED)
@@ -62,6 +68,12 @@ public class DocumentProcessingRecord {
      * 重试次数
      */
     private Integer retryCount;
+
+    /** 当前阶段 claim 的 fencing token。 */
+    private String leaseToken;
+
+    /** 当前阶段 claim 的到期时间。 */
+    private LocalDateTime leaseUntil;
     
     /**
      * 错误信息

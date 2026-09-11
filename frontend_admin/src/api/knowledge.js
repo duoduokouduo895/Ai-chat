@@ -55,3 +55,11 @@ export function getAdminDocumentList(params) {
 export function getAdminDocumentPage(params) {
   return http.get('/knowledge/admin/documents/page', { params })
 }
+
+export function getFailedCleanupOperations() {
+  return http.get('/knowledge/cleanup-operations')
+}
+
+export function retryCleanupOperation(id) {
+  return http.post(`/knowledge/cleanup-operations/${id}/retry`)
+}

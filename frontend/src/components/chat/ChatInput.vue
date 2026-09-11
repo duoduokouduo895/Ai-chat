@@ -1,5 +1,5 @@
 <template>
-  <section class="composer" :class="{ immersive }" aria-label="消息输入">
+  <section data-intro="input" data-intro-surface class="composer" :class="{ immersive }" aria-label="消息输入">
     <textarea
       ref="textareaRef"
       v-model="localMessage"
@@ -11,7 +11,7 @@
       @keydown.enter.exact="handleEnterKey"
     ></textarea>
 
-    <div class="composer-footer">
+    <div class="composer-footer" data-intro="frame" data-intro-surface>
       <div class="composer-tools">
         <ModelPills
           v-model="localSelectedModel"

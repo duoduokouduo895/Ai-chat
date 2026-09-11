@@ -6,6 +6,10 @@ import java.util.List;
 
 public interface HybridRetrievalService {
 
+    Mono<org.example.ai_agent.knowledge.retrieval.RetrievalOutcome<RetrievalCandidate>> retrieveDetailed(
+            String query, List<Long> knowledgeBaseIds, Integer maxResults, Double minSimilarity,
+            Long requesterUserId, boolean isAdmin);
+
     Mono<List<RetrievalCandidate>> retrieve(String query, List<Long> knowledgeBaseIds,
                                             Integer maxResults, Double minSimilarity,
                                             Long requesterUserId, boolean isAdmin);
@@ -14,6 +18,7 @@ public interface HybridRetrievalService {
             String embeddingId,
             Long knowledgeBaseId,
             Long documentId,
+            Long versionId,
             Long chunkId,
             String content,
             String documentTitle,

@@ -3,10 +3,13 @@ package org.example.ai_agent.service.impl.document;
 import dev.langchain4j.data.embedding.Embedding;
 import org.example.ai_agent.dto.document.DocumentChunkDto;
 import org.example.ai_agent.dto.document.DocumentProcessingMessage;
+import org.example.ai_agent.config.properties.DocumentProcessingProperties;
 import org.example.ai_agent.entity.KnowledgeBase;
 import org.example.ai_agent.entity.KnowledgeDocument;
 import org.example.ai_agent.repository.knowledge.KnowledgeBaseRepository;
 import org.example.ai_agent.repository.knowledge.KnowledgeDocumentRepository;
+import org.example.ai_agent.knowledge.ingestion.AcceptedIngestionRun;
+import org.example.ai_agent.knowledge.ingestion.IngestionStage;
 import org.example.ai_agent.service.DocumentChunkService;
 import org.example.ai_agent.service.DocumentParserService;
 import org.example.ai_agent.service.DocumentProcessingRecordService;
@@ -71,11 +74,16 @@ class DocumentProcessingServiceImplTest {
     private TransactionalOperator transactionalOperator;
     @Mock
     private DocumentProcessingStages stages;
+    @Mock
+    private IngestionRunCommandService ingestionRunCommandService;
 
     private DocumentProcessingServiceImpl service;
+    private DocumentProcessingProperties processingProperties;
 
     @BeforeEach
     void setUp() {
+        lenient().when(ingestionRunCommandService.requireLegacyWritable(any())).thenReturn(Mono.empty());
+        processingProperties = new DocumentProcessingProperties();
         DocumentEmbeddingBatchProcessor embeddingBatchProcessor = new DocumentEmbeddingBatchProcessor(
                 documentRepository,
                 knowledgeBaseRepository,
@@ -93,6 +101,8 @@ class DocumentProcessingServiceImplTest {
                 embeddingBatchProcessor,
                 outboxService,
                 transactionalOperator,
+                ingestionRunCommandService,
+                processingProperties,
                 2);
         lenient().when(transactionalOperator.transactional(org.mockito.ArgumentMatchers.<Mono<Boolean>>any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -115,6 +125,7 @@ class DocumentProcessingServiceImplTest {
 
         when(documentChunkService.getPendingEmbeddingChunks(9L)).thenReturn(Flux.just(
                 chunk(1L), chunk(2L), chunk(3L), chunk(4L), chunk(5L)));
+        when(documentChunkService.getDocumentChunks(9L)).thenReturn(Flux.just(completedChunk(1L)));
         when(recordService.startProcessing(9L, "EMBED")).thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
         when(recordService.completeProcessing(9L, "EMBED", "Embedding completed"))
                 .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
@@ -161,6 +172,9 @@ class DocumentProcessingServiceImplTest {
         document.setFileType("md");
 
         DocumentProcessingMessage message = DocumentProcessingMessage.createParseMessage(9L, 77L, "auto", true);
+        message.setRunId("00000000-0000-0000-0000-000000000009");
+        message.setVersionId(91L);
+        message.setGeneration(2L);
         when(recordService.startProcessing(9L, "PARSE"))
                 .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
         when(documentRepository.findById(9L)).thenReturn(Mono.just(document), Mono.just(document));
@@ -186,6 +200,24 @@ class DocumentProcessingServiceImplTest {
                 eq(org.example.ai_agent.constants.DocumentProcessingConstants.RoutingKey.DOCUMENT_CHUNK));
         org.junit.jupiter.api.Assertions.assertEquals("CHUNK", messageCaptor.getValue().getProcessingType());
         org.junit.jupiter.api.Assertions.assertEquals(9L, messageCaptor.getValue().getDocumentId());
+        org.junit.jupiter.api.Assertions.assertEquals(message.getRunId(), messageCaptor.getValue().getRunId());
+        org.junit.jupiter.api.Assertions.assertEquals(91L, messageCaptor.getValue().getVersionId());
+        org.junit.jupiter.api.Assertions.assertEquals(2L, messageCaptor.getValue().getGeneration());
+    }
+
+    @Test
+    void startDocumentProcessingShouldUseAtomicRunAcceptanceWhenFeatureIsEnabled() {
+        processingProperties.setVersionedIngestionEnabled(true);
+        when(ingestionRunCommandService.acceptInitialIngestion(9L, 77L, "auto", true))
+                .thenReturn(Mono.just(new AcceptedIngestionRun(
+                        "run-9", 9L, 77L, 91L, 1L, IngestionStage.PARSE, true)));
+
+        StepVerifier.create(service.startDocumentProcessing(9L, 77L, "auto", true))
+                .expectNext(true)
+                .verifyComplete();
+
+        verify(ingestionRunCommandService).acceptInitialIngestion(9L, 77L, "auto", true);
+        verifyNoInteractions(recordService, outboxService);
     }
 
     @Test
@@ -202,6 +234,51 @@ class DocumentProcessingServiceImplTest {
                 .verify();
 
         verifyNoInteractions(recordService, documentRepository, documentChunkService, stages);
+    }
+
+    @Test
+    void embeddingRetryRepairsFinalizationWithoutRepeatingEmbedding() {
+        KnowledgeDocument document = new KnowledgeDocument();
+        document.setId(9L);
+        when(recordService.startProcessing(9L, "EMBED"))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+        when(documentChunkService.getPendingEmbeddingChunks(9L)).thenReturn(Flux.empty());
+        when(documentChunkService.getDocumentChunks(9L)).thenReturn(Flux.just(completedChunk(1L)));
+        when(knowledgeChunkSearchService.indexDocumentChunks(9L))
+                .thenReturn(Mono.error(new IllegalStateException("projection unavailable")), Mono.empty());
+        when(documentRepository.findById(9L)).thenReturn(Mono.just(document));
+        when(documentRepository.save(any(KnowledgeDocument.class)))
+                .thenAnswer(call -> Mono.just(call.getArgument(0)));
+        when(recordService.completeProcessing(9L, "EMBED", "Embedding completed"))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+        StepVerifier.create(service.processDocumentEmbedding(DocumentProcessingMessage.createEmbedMessage(9L, 77L)))
+                .expectErrorMessage("projection unavailable").verify();
+        org.mockito.Mockito.verify(recordService, org.mockito.Mockito.never())
+                .completeProcessing(any(), any(), any());
+        StepVerifier.create(service.processDocumentEmbedding(DocumentProcessingMessage.createEmbedMessage(9L, 77L)))
+                .expectNext(true).verifyComplete();
+        verifyNoInteractions(embeddingService);
+        org.junit.jupiter.api.Assertions.assertTrue(document.getIsEmbedded());
+    }
+
+    @Test
+    void embeddingPendingQueryFailureMustNotBeTreatedAsEmpty() {
+        when(recordService.startProcessing(9L, "EMBED"))
+                .thenReturn(Mono.just(new org.example.ai_agent.entity.DocumentProcessingRecord()));
+        when(documentChunkService.getPendingEmbeddingChunks(9L))
+                .thenReturn(Flux.error(new IllegalStateException("database unavailable")));
+        StepVerifier.create(service.processDocumentEmbedding(DocumentProcessingMessage.createEmbedMessage(9L, 77L)))
+                .expectErrorMessage("database unavailable").verify();
+        org.mockito.Mockito.verify(recordService, org.mockito.Mockito.never())
+                .completeProcessing(any(), any(), any());
+    }
+
+    private DocumentChunkDto completedChunk(Long id) {
+        DocumentChunkDto chunk = chunk(id);
+        chunk.setEmbeddingStatus("COMPLETED");
+        chunk.setIsEmbedded(true);
+        chunk.setEmbeddingId("embedding-" + id);
+        return chunk;
     }
 
     private DocumentChunkDto chunk(Long id) {

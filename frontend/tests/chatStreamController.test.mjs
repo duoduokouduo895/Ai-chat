@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { Buffer } from 'node:buffer'
-import { useChatMessages } from '../src/composables/useChatMessages.js'
+import { useChatMessages, toMessageList } from '../src/composables/useChatMessages.js'
+
+{
+  const retrieval = { status: 'DEGRADED', sources: [{ chunkId: 4, available: false }] }
+  const restored = toMessageList([{ id: 1, sender: 'ai', content: 'saved', timestamp: '2026-09-05T12:00:00', retrieval, chatTurnId: 'turn-1' }])
+  assert.deepEqual(restored[0].retrieval, retrieval)
+  assert.equal(restored[0].chatTurnId, 'turn-1')
+}
 
 const source = readFileSync(new URL('../src/composables/useChatStreamController.js', import.meta.url), 'utf8')
   .replace(

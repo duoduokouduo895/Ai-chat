@@ -8,6 +8,7 @@ import time
 from collections import defaultdict
 
 from common import RESULTS_DIR, json_request, latest_manifest, marker_hits, mean, percentile, read_questions, timestamp, write_csv, write_pointer
+from common import run_evidence
 
 CONFIGS = [
     {"name": "baseline", "maxResults": 5, "minScore": 0.3},
@@ -17,10 +18,10 @@ CONFIGS = [
 
 
 def evaluate(question, config, matches, search_time, elapsed_ms, error=""):
-    required = question["required_evidence_markers"]
+    required = list(dict.fromkeys(question["required_evidence_markers"]))
     hits = marker_hits(matches, required)
-    true_positive = len(hits)
-    false_negative = max(0, len(required) - true_positive)
+    true_positive = sum(bool(marker_hits([match], required)) for match in matches)
+    false_negative = max(0, len(required) - len(hits))
     false_positive = sum(1 for match in matches if not marker_hits([match], required))
     rank = next((index for index, match in enumerate(matches, 1) if marker_hits([match], required)), None)
     return {
@@ -31,14 +32,15 @@ def evaluate(question, config, matches, search_time, elapsed_ms, error=""):
         "maxResults": config["maxResults"],
         "minScore": config["minScore"],
         "returnedCount": len(matches),
+        "evidenceCoverage": round(len(hits) / len(required), 4) if required and not error else None,
         "tp": true_positive,
         "fp": false_positive,
         "fn": false_negative,
-        "precisionAtK": round(true_positive / len(matches), 4) if matches else (1.0 if not required else 0.0),
-        "recallAtK": round(true_positive / len(required), 4) if required else (1.0 if not matches else 0.0),
-        "hitAtK": bool(hits) if required else not matches,
+        "precisionAtK": (round(true_positive / len(matches), 4) if matches else 0.0) if not error else None,
+        "recallAtK": (round(len(hits) / len(required), 4) if required else (1.0 if not matches else 0.0)) if not error else None,
+        "hitAtK": (bool(hits) if required else not matches) if not error else None,
         "mrr": round(1 / rank, 4) if rank else 0.0,
-        "negativeFalsePositive": bool(not required and matches),
+        "negativeFalsePositive": bool(not required and matches) if not error else None,
         "searchTimeMs": search_time,
         "clientElapsedMs": elapsed_ms,
         "requiredMarkers": required,
@@ -52,8 +54,8 @@ def summarize(rows):
     summary = []
     for config in CONFIGS:
         selected = [row for row in rows if row["config"] == config["name"]]
-        positive = [row for row in selected if row["answerable"]]
-        negative = [row for row in selected if not row["answerable"]]
+        positive = [row for row in selected if row["answerable"] and not row["error"]]
+        negative = [row for row in selected if not row["answerable"] and not row["error"]]
         successful = [row for row in selected if not row["error"]]
         summary.append({
             "config": config["name"],
@@ -121,6 +123,7 @@ def main():
     output = RESULTS_DIR / f"retrieval-{run_id}.json"
     csv_output = RESULTS_DIR / f"retrieval-{run_id}.csv"
     payload = {"runId": run_id, "configs": CONFIGS, "summary": summarize(rows), "summaryByType": summarize_by_type(rows), "rows": rows}
+    payload["evidence"] = run_evidence(CONFIGS)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     write_csv(csv_output, [{key: value for key, value in row.items() if key != "matches"} for row in rows])
     write_pointer("latest-retrieval.txt", output)

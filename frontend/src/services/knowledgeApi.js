@@ -69,6 +69,10 @@ export const knowledgeApiService = {
   },
 
   // 删除知识库
+  getCleanupOperation(id) {
+    return apiClient.get(`/knowledge/cleanup-operations/${id}`)
+  },
+
   async deleteKnowledgeBase(id) {
     const response = await apiClient.delete(`/knowledge/bases/${id}`)
     this.invalidateKnowledgeBaseCache()
