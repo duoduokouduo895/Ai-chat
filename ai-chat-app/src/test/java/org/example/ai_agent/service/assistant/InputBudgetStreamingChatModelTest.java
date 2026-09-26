@@ -18,9 +18,40 @@ class InputBudgetStreamingChatModelTest {
         var handler = mock(StreamingChatResponseHandler.class);
         var model = new InputBudgetStreamingChatModel(delegate, 512, null);
         var input = ChatRequest.builder().messages(UserMessage.from("question"),
-                ToolExecutionResultMessage.from("1", "status", "x".repeat(200)),
-                ToolExecutionResultMessage.from("2", "status", "x".repeat(200))).build();
+                ToolExecutionResultMessage.from("1", "status", "x".repeat(220)),
+                ToolExecutionResultMessage.from("2", "status", "x".repeat(220))).build();
+        for (var result : input.messages().subList(1, input.messages().size())) {
+            model.chat(ChatRequest.builder().messages(UserMessage.from("question"), result).build(), handler);
+        }
+        verify(delegate, times(2)).chat(any(ChatRequest.class), eq(handler));
+        clearInvocations(delegate);
         model.chat(input, handler);
+        verify(handler).onError(any(ChatStreamClientException.class));
+        verifyNoInteractions(delegate);
+    }
+
+    @Test
+    void rejectsOversizedToolArgumentsEvenWithoutAssistantText() {
+        var delegate = mock(StreamingChatModel.class);
+        var handler = mock(StreamingChatResponseHandler.class);
+        var toolCall = dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
+                .id("1").name("lookup").arguments("x".repeat(600)).build();
+        var input = ChatRequest.builder().messages(UserMessage.from("question"),
+                dev.langchain4j.data.message.AiMessage.from(toolCall)).build();
+        new InputBudgetStreamingChatModel(delegate, 512, null).chat(input, handler);
+        verify(handler).onError(any(ChatStreamClientException.class));
+        verifyNoInteractions(delegate);
+    }
+
+    @Test
+    void exactBudgetPassesAndOneExtraByteFails() {
+        var delegate = mock(StreamingChatModel.class);
+        var handler = mock(StreamingChatResponseHandler.class);
+        var model = new InputBudgetStreamingChatModel(delegate, 512, null);
+        model.chat(ChatRequest.builder().messages(UserMessage.from("x".repeat(464))).build(), handler);
+        verify(delegate).chat(any(ChatRequest.class), eq(handler));
+        clearInvocations(delegate);
+        model.chat(ChatRequest.builder().messages(UserMessage.from("x".repeat(465))).build(), handler);
         verify(handler).onError(any(ChatStreamClientException.class));
         verifyNoInteractions(delegate);
     }

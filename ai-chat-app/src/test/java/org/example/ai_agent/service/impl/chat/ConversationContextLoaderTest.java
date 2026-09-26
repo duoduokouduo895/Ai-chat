@@ -17,7 +17,7 @@ import static org.mockito.Mockito.*;
 
 class ConversationContextLoaderTest {
     @Test
-    void dropsHistoryBeforeTrimmingLowestRankedEvidence() {
+    void trimsLowestRankedEvidenceAndRefillsRecentHistory() {
         var repository = mock(MessageRepository.class);
         var properties = new ModelCatalogProperties();
         var model = new ModelCatalogProperties.ModelConfig();
@@ -32,8 +32,8 @@ class ConversationContextLoaderTest {
         var context = new org.example.ai_agent.service.RagService.RetrievalContext("current", List.of(first, second),
                 "useful" + second.getContent(), 2, 1L);
         request.setRetrievalContext(context);
-        when(repository.findCompletedContext(8L)).thenReturn(Flux.just(new CompletedContextTurn(
-                "old", "history", "answer", LocalDateTime.of(2026, 1, 1, 0, 0))));
+        var recent = new CompletedContextTurn("old", "history", "answer", LocalDateTime.of(2026, 1, 1, 0, 0));
+        when(repository.findCompletedContext(8L)).thenReturn(Flux.just(recent));
         when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
         StepVerifier.create(new ConversationContextLoader(repository, properties).prepare(request,
                         AssistantInputBuilder.buildKnowledgeAugmentedPrompt(request, context)))
@@ -42,7 +42,7 @@ class ConversationContextLoaderTest {
                     assertFalse(input.contains("second"));
                     assertTrue(input.contains("current"));
                 }).verifyComplete();
-        assertTrue(request.getContextTurns().isEmpty());
+        assertEquals(List.of(recent), request.getContextTurns());
         assertEquals(List.of(first), request.getRetrievalContext().relevantDocuments());
         assertTrue(request.getEstimatedInputTokens() <= 2100);
     }

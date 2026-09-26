@@ -3,6 +3,7 @@ package org.example.ai_agent.service.impl.chat;
 import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.service.RagService;
+import org.example.ai_agent.service.assistant.RetrievalQueryRewriter;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -12,10 +13,13 @@ public class AssistantInputBuilder {
 
     private final RagService ragService;
     private final ConversationContextLoader contextLoader;
+    private final RetrievalQueryRewriter queryRewriter;
 
-    public AssistantInputBuilder(RagService ragService, ConversationContextLoader contextLoader) {
+    public AssistantInputBuilder(RagService ragService, ConversationContextLoader contextLoader,
+                                 RetrievalQueryRewriter queryRewriter) {
         this.ragService = ragService;
         this.contextLoader = contextLoader;
+        this.queryRewriter = queryRewriter;
     }
 
     public Mono<String> build(ChatRequest request) {
@@ -23,14 +27,15 @@ public class AssistantInputBuilder {
             return contextLoader.prepare(request, request.getTrimmedMessage());
         }
 
-        return ragService.retrieveContext(
-                        request.getTrimmedMessage(),
+        return contextLoader.load(request.getConversationId()).flatMap(history ->
+                queryRewriter.rewrite(request, history).flatMap(query -> ragService.retrieveContext(
+                        query,
                         request.getKnowledgeBaseIds(),
                         request.getMaxRetrievedDocs(),
                         request.getMinSimilarity(),
                         request.getUserId(),
                         request.isAdminRequest()
-                )
+                ))
                 .map(context -> {
                     request.setRetrievalContext(context);
                     if (context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.UNAVAILABLE) {
@@ -39,7 +44,7 @@ public class AssistantInputBuilder {
                     return context.status() == org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Status.EMPTY
                             ? request.getTrimmedMessage() : buildKnowledgeAugmentedPrompt(request, context);
                 })
-                .flatMap(input -> contextLoader.prepare(request, input))
+                .flatMap(input -> contextLoader.prepare(request, input, history)))
                 .doOnSuccess(prompt -> log.info("知识增强输入已构建: conversationId={}, knowledgeBaseCount={}",
                         request.getConversationId(),
                         request.getKnowledgeBaseIds() != null ? request.getKnowledgeBaseIds().size() : 0));

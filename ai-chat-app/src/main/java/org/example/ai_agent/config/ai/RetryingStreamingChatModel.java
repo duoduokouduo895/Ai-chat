@@ -7,6 +7,10 @@ import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.PartialThinking;
+import dev.langchain4j.model.chat.response.PartialThinkingContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,6 +59,18 @@ public class RetryingStreamingChatModel implements StreamingChatModel {
             public void onPartialResponse(String partialResponse) {
                 streamed.set(true);
                 handler.onPartialResponse(partialResponse);
+            }
+
+            @Override
+            public void onPartialResponse(PartialResponse response, PartialResponseContext context) {
+                streamed.set(true);
+                handler.onPartialResponse(response, context);
+            }
+
+            @Override
+            public void onPartialThinking(PartialThinking thinking, PartialThinkingContext context) {
+                streamed.set(true);
+                handler.onPartialThinking(thinking, context);
             }
 
             @Override

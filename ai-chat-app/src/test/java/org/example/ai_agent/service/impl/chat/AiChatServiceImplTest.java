@@ -45,7 +45,7 @@ class AiChatServiceImplTest {
         service = new AiChatServiceImpl(
                 generalAssistantFactory,
                 chatTurnLifecycle,
-                new AssistantInputBuilder(ragService, contextLoader()),
+                new AssistantInputBuilder(ragService, contextLoader(), queryRewriter()),
                 new ChatStreamEventFactory(objectMapper),
                 new ChatStreamTelemetry(new SimpleMeterRegistry(), objectMapper),
                 1000L, retrievalReader());
@@ -183,7 +183,7 @@ class AiChatServiceImplTest {
         AiChatServiceImpl timeoutService = new AiChatServiceImpl(
                 generalAssistantFactory,
                 chatTurnLifecycle,
-                new AssistantInputBuilder(ragService, contextLoader()),
+                new AssistantInputBuilder(ragService, contextLoader(), queryRewriter()),
                 new ChatStreamEventFactory(new ObjectMapper()),
                 new ChatStreamTelemetry(new SimpleMeterRegistry(), new ObjectMapper()),
                 10L, retrievalReader());
@@ -373,7 +373,17 @@ class AiChatServiceImplTest {
         ConversationContextLoader loader = org.mockito.Mockito.mock(ConversationContextLoader.class);
         org.mockito.Mockito.lenient().when(loader.prepare(any(), any()))
                 .thenAnswer(call -> Mono.just(call.getArgument(1)));
+        org.mockito.Mockito.lenient().when(loader.load(any())).thenReturn(Mono.just(List.of()));
+        org.mockito.Mockito.lenient().when(loader.prepare(any(), any(), any()))
+                .thenAnswer(call -> Mono.just(call.getArgument(1)));
         return loader;
+    }
+
+    private org.example.ai_agent.service.assistant.RetrievalQueryRewriter queryRewriter() {
+        var rewriter = org.mockito.Mockito.mock(org.example.ai_agent.service.assistant.RetrievalQueryRewriter.class);
+        org.mockito.Mockito.lenient().when(rewriter.rewrite(any(), any()))
+                .thenAnswer(call -> Mono.just(((ChatRequest) call.getArgument(0)).getTrimmedMessage()));
+        return rewriter;
     }
 
 }
