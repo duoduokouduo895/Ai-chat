@@ -19,9 +19,20 @@ app.component('FontAwesomeIcon', FontAwesomeIcon);
 app.use(router);
 app.mount('#app');
 
+// 骨架屏淡出后再移除；transitionend 不触发（如减少动态效果）时由定时器兜底
+const removeStartupShell = () => {
+  const shell = document.getElementById('startup-shell');
+  if (!shell) return;
+  shell.setAttribute('aria-busy', 'false');
+  shell.classList.add('is-leaving');
+  const remove = () => shell.remove();
+  shell.addEventListener('transitionend', remove, { once: true });
+  setTimeout(remove, 400);
+};
+
 router.isReady().then(async () => {
   await nextTick();
-  document.getElementById('startup-shell')?.remove();
+  removeStartupShell();
 }).catch((error) => {
   const shell = document.getElementById('startup-shell');
   shell?.setAttribute('aria-busy', 'false');

@@ -50,8 +50,19 @@
         overflow: hidden;
         pointer-events: none;
         position: fixed;
+        transition: opacity 180ms cubic-bezier(0.4, 0, 1, 1);
         width: 100%;
         z-index: 20;
+      }
+
+      #startup-shell.is-leaving {
+        opacity: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #startup-shell {
+          transition: none;
+        }
       }
 
       .startup-rail {

@@ -21,9 +21,20 @@ const drain = async (times = 8) => {
 const createHarness = ({ nextTick } = {}) => {
   const events = [];
   const copy = { textContent: '正在加载' };
+  const timers = [];
   const shell = {
     removed: false,
     attrs: { 'aria-busy': 'true' },
+    classes: new Set(),
+    listeners: {},
+    classList: {
+      add(name) {
+        shell.classes.add(name);
+      }
+    },
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
     copy,
     setAttribute(name, value) {
       this.attrs[name] = String(value);
@@ -86,7 +97,11 @@ const createHarness = ({ nextTick } = {}) => {
     }
   };
 
-  return { events, shell, copy, resolveReady, rejectReady, context };
+  context.setTimeout = (fn, ms) => {
+    timers.push({ fn, ms });
+  };
+
+  return { events, shell, copy, timers, resolveReady, rejectReady, context };
 };
 
 const runMain = (context) => {
@@ -123,6 +138,25 @@ const runMain = (context) => {
 
   settleTick();
   await drain();
+  // 先淡出，transitionend 后才移除
+  assert.equal(shell.removed, false);
+  assert.ok(shell.classes.has('is-leaving'));
+  assert.equal(shell.attrs['aria-busy'], 'false');
+  shell.listeners.transitionend();
+  assert.equal(shell.removed, true);
+}
+
+{
+  // transitionend 不触发时由定时器兜底移除
+  const { shell, timers, resolveReady, context } = createHarness();
+  runMain(context);
+  resolveReady();
+  await drain();
+  assert.ok(shell.classes.has('is-leaving'));
+  assert.equal(shell.removed, false);
+  assert.equal(timers.length, 1);
+  assert.ok(timers[0].ms <= 500);
+  timers[0].fn();
   assert.equal(shell.removed, true);
 }
 
@@ -134,6 +168,7 @@ const runMain = (context) => {
   await drain();
   assert.equal(shell.removed, false);
   assert.equal(shell.attrs['aria-busy'], 'false');
+  assert.equal(shell.classes.has('is-leaving'), false);
   assert.equal(copy.textContent, '页面加载失败，请刷新重试');
   assert.equal(events.includes('nextTick'), false);
   assert.equal(events.includes('console.error'), true);
