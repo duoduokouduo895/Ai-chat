@@ -1,5 +1,6 @@
 <template>
-  <aside class="history-drawer" :class="{ open: visible }" :aria-hidden="!visible">
+  <aside class="history-drawer" :class="{ open: visible }" :aria-hidden="!visible" :inert="!visible || undefined">
+    <div class="drawer-panel">
     <header class="drawer-header">
       <div>
         <span class="eyebrow">Workspace</span>
@@ -44,6 +45,7 @@
         </div>
       </div>
     </div>
+    </div>
   </aside>
 </template>
 
@@ -60,25 +62,40 @@ defineEmits(['close', 'new-conversation', 'open-conversation', 'delete-conversat
 </script>
 
 <style scoped>
+/* 外层只负责让出宽度，内容面板固定宽度并用 transform 滑入，避免内部文字随宽度重排 */
 .history-drawer {
-  background: var(--surface-1);
-  border-right: 1px solid var(--border-subtle);
-  display: flex;
+  --drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
   flex: 0 0 0;
-  flex-direction: column;
   height: 100dvh;
-  opacity: 0;
   overflow: hidden;
   pointer-events: none;
-  transition: opacity var(--transition-fast);
-  width: 0;
+  transition: flex-basis 200ms cubic-bezier(0.4, 0, 1, 1), visibility 0s linear 200ms;
+  visibility: hidden;
 }
 
 .history-drawer.open {
   flex-basis: var(--history-drawer-width);
-  opacity: 1;
   pointer-events: auto;
+  transition: flex-basis 280ms var(--drawer-ease), visibility 0s;
+  visibility: visible;
+}
+
+.drawer-panel {
+  background: var(--surface-1);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity 140ms linear, transform 200ms cubic-bezier(0.4, 0, 1, 1);
   width: var(--history-drawer-width);
+}
+
+.history-drawer.open .drawer-panel {
+  opacity: 1;
+  transform: none;
+  transition: opacity 200ms linear 60ms, transform 280ms var(--drawer-ease);
 }
 
 .drawer-header {

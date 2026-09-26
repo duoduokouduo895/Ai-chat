@@ -33,7 +33,9 @@
     </div>
 
     <template v-else>
-      <div ref="messageContainer" class="chat-messages custom-scroll">
+      <div class="chat-scroll-area">
+      <div ref="messageContainer" class="chat-messages custom-scroll" @scroll.passive="handleScroll"
+        @wheel.passive="cancelAutoScroll" @touchstart.passive="cancelAutoScroll">
         <div class="message-column">
           <div v-if="isLoadingConversation" class="conversation-loading" role="status" aria-live="polite">
             <span class="conversation-loading-spinner"></span>
@@ -54,6 +56,14 @@
             </div>
           </template>
         </div>
+      </div>
+
+      <Transition name="jump-latest">
+        <button v-if="!stickToBottom" class="jump-latest" type="button" @click="jumpToLatest">
+          <span aria-hidden="true">↓</span>
+          {{ hasUnseenContent ? '有新内容' : '回到底部' }}
+        </button>
+      </Transition>
       </div>
 
       <footer class="chat-composer-area" data-intro="divider">
@@ -129,11 +139,27 @@ const handleSendMessage = (message, model, knowledgeBaseIds) => {
   inputMessage.value = '';
 };
 
-const scrollToBottom = () => {
+// 距底部小于该值视为“贴底”，此时新内容会自动跟随滚动
+const STICK_THRESHOLD = 64;
+const stickToBottom = ref(true);
+const hasUnseenContent = ref(false);
+let smoothScrolling = false;
+
+const distanceFromBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight;
+
+const scrollToBottom = ({ force = false } = {}) => {
+  if (force) {
+    stickToBottom.value = true;
+    hasUnseenContent.value = false;
+  }
+  if (!stickToBottom.value) {
+    hasUnseenContent.value = true;
+    return;
+  }
   nextTick(() => {
     if (scrollFrame) cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
-      if (messageContainer.value) {
+      if (messageContainer.value && !smoothScrolling) {
         messageContainer.value.scrollTop = messageContainer.value.scrollHeight;
       }
       scrollFrame = 0;
@@ -141,7 +167,44 @@ const scrollToBottom = () => {
   });
 };
 
-watch(() => props.messages, scrollToBottom, { deep: true });
+const handleScroll = () => {
+  const el = messageContainer.value;
+  if (!el) return;
+  const nearBottom = distanceFromBottom(el) <= STICK_THRESHOLD;
+  if (smoothScrolling) {
+    // 平滑滚动途中的中间位置不代表用户意图，到底后再恢复正常判定
+    if (nearBottom) smoothScrolling = false;
+    return;
+  }
+  stickToBottom.value = nearBottom;
+  if (nearBottom) hasUnseenContent.value = false;
+};
+
+const cancelAutoScroll = () => {
+  smoothScrolling = false;
+};
+
+const jumpToLatest = () => {
+  const el = messageContainer.value;
+  if (!el) return;
+  stickToBottom.value = true;
+  hasUnseenContent.value = false;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  smoothScrolling = !reduceMotion;
+  el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
+};
+
+let previousLength = props.messages.length;
+
+watch(() => props.messages, (messages, previous) => {
+  // 用户自己发出新消息，或整组消息被替换（切换/新建对话）时，总是回到底部
+  const replaced = messages !== previous;
+  const userJustSent = messages.slice(previousLength).some((message) => message.sender === 'user');
+  previousLength = messages.length;
+  scrollToBottom({ force: replaced || userJustSent });
+}, { deep: true });
+
+watch(() => [props.conversationId, props.isLoadingConversation], () => scrollToBottom({ force: true }));
 
 onBeforeUnmount(() => {
   if (scrollFrame) cancelAnimationFrame(scrollFrame);
@@ -250,6 +313,54 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   margin: 8px 0 22px;
+}
+
+.chat-scroll-area {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.jump-latest {
+  align-items: center;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  bottom: 14px;
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 18%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  gap: 6px;
+  left: 50%;
+  min-height: 34px;
+  padding: 0 14px;
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.jump-latest:hover {
+  background: var(--surface-2);
+}
+
+.jump-latest:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition: opacity 160ms ease, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
 }
 
 .chat-messages {

@@ -1,13 +1,15 @@
 <template>
   <div v-if="plain" class="message-content plain-message-content">{{ text }}</div>
-  <div v-else ref="contentRef" class="message-content" v-html="renderedHtml"></div>
+  <div v-else ref="contentRef" class="message-content" :class="{ 'is-streaming': !completed }">
+    <div v-for="(html, index) in renderedBlocks" :key="index" class="md-block" v-html="html"></div>
+    <span v-if="!completed && renderedBlocks.length === 0" class="stream-caret" aria-hidden="true"></span>
+  </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import DOMPurify from 'dompurify';
-import { marked } from 'marked';
-import hljs from '@/utils/highlight.js';
+import { renderMarkdownBlocks } from '@/utils/markdownBlocks.mjs';
 import 'highlight.js/styles/atom-one-dark.css';
 
 const props = defineProps({
@@ -27,25 +29,6 @@ const props = defineProps({
 
 const contentRef = ref(null);
 let purifierHooksRegistered = false;
-
-marked.setOptions({
-  highlight(code, lang) {
-    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-    return hljs.highlight(code, { language }).value;
-  },
-  langPrefix: 'hljs language-',
-  gfm: true,
-  breaks: true
-});
-
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function isSafeUrl(value) {
   const normalized = value.trim().toLowerCase();
@@ -72,34 +55,55 @@ if (!purifierHooksRegistered) {
   purifierHooksRegistered = true;
 }
 
-const renderedHtml = computed(() => {
+const SANITIZE_OPTIONS = {
+  ALLOWED_TAGS: [
+    'a', 'b', 'blockquote', 'br', 'button', 'code', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5',
+    'h6', 'hr', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody', 'td', 'th',
+    'thead', 'tr', 'ul'
+  ],
+  ALLOWED_ATTR: ['class', 'data-copy-code', 'href', 'rel', 'target', 'type'],
+  FORBID_ATTR: [/^on/i]
+};
+
+function renderBlock(rawHtml) {
+  return DOMPurify.sanitize(rawHtml, SANITIZE_OPTIONS);
+}
+
+// 在最后一个可见文本节点后插入光标，让光标跟随正文（包括未闭合的代码块）
+function appendCaret(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+  let lastText = null;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.nodeValue.trim() && !node.parentElement?.closest('.code-header')) {
+      lastText = node;
+    }
+  }
+  const caret = document.createElement('span');
+  caret.className = 'stream-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  if (lastText) {
+    lastText.nodeValue = lastText.nodeValue.replace(/\s+$/, '');
+    lastText.after(caret);
+  } else {
+    template.content.append(caret);
+  }
+  return template.innerHTML;
+}
+
+// 已完成的块字符串不变，Vue 不会重写它们的 innerHTML，选区和复制按钮状态得以保留
+const renderedBlocks = computed(() => {
   if (!props.text) {
-    return '';
+    return [];
   }
 
-  const rawHtml = marked.parse(escapeHtml(props.text));
-  const withCopyButton = rawHtml.replace(
-    /<pre><code class="(.*?)">/g,
-    `<div class="code-container">
-       <div class="code-header">
-         <span class="code-language">$1</span>
-         <button class="copy-btn" type="button" data-copy-code="true">复制</button>
-       </div>
-       <pre><code class="$1">`
-  );
-
-  return DOMPurify.sanitize(
-    withCopyButton.replace(/<\/code><\/pre>/g, '</code></pre></div>'),
-    {
-      ALLOWED_TAGS: [
-        'a', 'b', 'blockquote', 'br', 'button', 'code', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5',
-        'h6', 'hr', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody', 'td', 'th',
-        'thead', 'tr', 'ul'
-      ],
-      ALLOWED_ATTR: ['class', 'data-copy-code', 'href', 'rel', 'target', 'type'],
-      FORBID_ATTR: [/^on/i]
-    }
-  );
+  const blocks = renderMarkdownBlocks(props.text).map(renderBlock);
+  if (!props.completed && blocks.length > 0) {
+    blocks[blocks.length - 1] = appendCaret(blocks[blocks.length - 1]);
+  }
+  return blocks;
 });
 
 async function handleCopyClick(event) {
@@ -140,6 +144,31 @@ onBeforeUnmount(() => {
   user-select: text;
 }
 
+.md-block {
+  display: contents;
+}
+
+.message-content :deep(.stream-caret) {
+  animation: caretBlink 1s steps(1, end) infinite;
+  background: var(--text-primary);
+  display: inline-block;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  width: 0.5em;
+}
+
+@keyframes caretBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-content :deep(.stream-caret) {
+    animation: none;
+  }
+}
+
 .plain-message-content {
   white-space: pre-wrap;
 }
@@ -148,7 +177,7 @@ onBeforeUnmount(() => {
   margin-bottom: 1rem;
 }
 
-.message-content :deep(p:last-child) {
+.md-block:last-child > :deep(:last-child) {
   margin-bottom: 0;
 }
 

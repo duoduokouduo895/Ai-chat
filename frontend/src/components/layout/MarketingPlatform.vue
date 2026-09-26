@@ -15,7 +15,6 @@
     />
 
     <HistoryDrawer
-      v-if="isHistoryDrawerOpen"
       :visible="isHistoryDrawerOpen"
       :conversations="displayedConversations"
       :conversation-id="conversationId"
@@ -34,6 +33,7 @@
         <span><DecryptText :text="viewLabel" /></span>
       </header>
 
+      <Transition name="view-switch" mode="out-in">
       <ChatPanel
         v-if="currentView === 'chat'"
         :messages="messages"
@@ -59,6 +59,7 @@
         @close="openView('chat')"
         @open-conversation="openConversation"
       />
+      </Transition>
     </main>
 
     <MobileDrawer
@@ -255,6 +256,24 @@ onBeforeUnmount(() => {
 
 .mobile-workspace-header {
   display: none;
+}
+
+/* 视图切换：旧视图快速淡出，新视图轻微上浮进入 */
+.view-switch-enter-active {
+  transition: opacity 200ms cubic-bezier(0.22, 1, 0.36, 1), transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.view-switch-leave-active {
+  transition: opacity 120ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.view-switch-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.view-switch-leave-to {
+  opacity: 0;
 }
 
 @media (max-width: 768px) {

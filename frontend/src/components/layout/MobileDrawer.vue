@@ -1,4 +1,5 @@
 <template>
+  <Transition name="drawer-layer" :duration="{ enter: 300, leave: 220 }">
   <div v-if="visible" class="mobile-drawer-layer">
     <button class="drawer-backdrop" type="button" aria-label="关闭菜单" @click="$emit('close')"></button>
     <aside class="mobile-drawer" aria-label="移动端菜单">
@@ -51,6 +52,7 @@
       </footer>
     </aside>
   </div>
+  </Transition>
 </template>
 
 <script setup>
@@ -228,6 +230,33 @@ const openView = (view) => {
   footer {
     border-top: 1px solid var(--border-subtle);
     padding-top: 10px;
+  }
+
+  /* 遮罩淡入，抽屉从左侧滑入；退场更短并使用 ease-in */
+  .drawer-layer-enter-active .drawer-backdrop {
+    transition: opacity 240ms linear;
+  }
+
+  .drawer-layer-enter-active .mobile-drawer {
+    transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .drawer-layer-leave-active .drawer-backdrop {
+    transition: opacity 200ms linear;
+  }
+
+  .drawer-layer-leave-active .mobile-drawer {
+    transition: transform 220ms cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  .drawer-layer-enter-from .drawer-backdrop,
+  .drawer-layer-leave-to .drawer-backdrop {
+    opacity: 0;
+  }
+
+  .drawer-layer-enter-from .mobile-drawer,
+  .drawer-layer-leave-to .mobile-drawer {
+    transform: translateX(-100%);
   }
 }
 </style>
