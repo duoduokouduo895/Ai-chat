@@ -1,5 +1,5 @@
 <template>
-  <AuthShell title-id="login-title" title="欢迎回来" description="登录后继续你的对话、搜索和知识库工作。">
+  <AuthShell title-id="login-title" title="欢迎回来">
     <div class="test-account">
       <span>测试账户已预填充</span>
       <span>Dduo</span>

@@ -9,22 +9,10 @@
         </div>
       </header>
 
-      <p class="auth-description">{{ description }}</p>
+      <p v-if="description" class="auth-description">{{ description }}</p>
       <slot />
     </section>
 
-    <aside class="auth-context" aria-label="产品说明">
-      <div class="context-content">
-        <span class="context-kicker">AI CHAT WORKSPACE</span>
-        <h2>让对话、搜索与知识库保持在同一个安静的工作区。</h2>
-        <p>选择模型，沉浸提问，需要时再打开历史与知识库。</p>
-        <div class="context-points">
-          <span>多模型切换</span>
-          <span>知识库问答</span>
-          <span>历史检索</span>
-        </div>
-      </div>
-    </aside>
   </main>
 </template>
 
@@ -32,7 +20,7 @@
 defineProps({
   titleId: { type: String, required: true },
   title: { type: String, required: true },
-  description: { type: String, required: true }
+  description: { type: String, default: '' }
 });
 </script>
 
@@ -42,19 +30,21 @@ defineProps({
   color: var(--text-primary);
   display: grid;
   font-family: var(--font-family);
-  grid-template-columns: minmax(360px, 480px) 1fr;
+  place-items: center;
   min-height: 100dvh;
 }
 
 .auth-panel {
   align-self: center;
-  padding: 46px clamp(24px, 5vw, 72px);
+  padding: 40px 24px;
+  width: min(100%, 408px);
 }
 
 .auth-brand {
   align-items: center;
   display: flex;
   gap: 14px;
+  margin-bottom: 26px;
 }
 
 .brand-wordmark {
@@ -70,8 +60,7 @@ defineProps({
   margin: 0;
 }
 
-.auth-brand p,
-.context-kicker {
+.auth-brand p {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   font-weight: 700;
@@ -92,59 +81,4 @@ defineProps({
   margin: 20px 0 26px;
 }
 
-.auth-context {
-  align-items: center;
-  background: var(--surface-1);
-  border-left: 1px solid var(--border-subtle);
-  display: flex;
-  padding: 7vw;
-}
-
-.context-content {
-  max-width: 620px;
-}
-
-.context-content h2 {
-  font-size: clamp(28px, 4vw, 50px);
-  letter-spacing: -0.05em;
-  line-height: 1.12;
-  margin: 14px 0;
-}
-
-.context-content p {
-  color: var(--text-secondary);
-  line-height: 1.75;
-  max-width: 54ch;
-}
-
-.context-points {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 26px;
-}
-
-.context-points span {
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  padding: 7px 10px;
-}
-
-@media (max-width: 860px) {
-  .auth-shell {
-    display: flex;
-  }
-
-  .auth-panel {
-    margin: auto;
-    max-width: 480px;
-    width: 100%;
-  }
-
-  .auth-context {
-    display: none;
-  }
-}
 </style>

@@ -103,7 +103,6 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'mode-change']);
 
 const PANEL_MAX_HEIGHT = 260;
-const PANEL_MIN_WIDTH = 240;
 const PANEL_GAP = 6;
 const VIEWPORT_MARGIN = 8;
 
@@ -169,7 +168,7 @@ const updatePosition = () => {
   const rect = field.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
-  const width = Math.min(Math.max(rect.width, PANEL_MIN_WIDTH), viewportWidth - VIEWPORT_MARGIN * 2);
+  const width = Math.min(rect.width, viewportWidth - VIEWPORT_MARGIN * 2);
   const left = Math.min(Math.max(rect.left, VIEWPORT_MARGIN), viewportWidth - width - VIEWPORT_MARGIN);
   const spaceBelow = viewportHeight - rect.bottom - PANEL_GAP - VIEWPORT_MARGIN;
   const spaceAbove = rect.top - PANEL_GAP - VIEWPORT_MARGIN;
@@ -426,6 +425,7 @@ onBeforeUnmount(removeListeners);
 }
 
 .kb-panel {
+  box-sizing: border-box;
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--border-radius-lg);
