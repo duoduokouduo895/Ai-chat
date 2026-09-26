@@ -8,7 +8,7 @@
     "build": "vite build && node tests/productionBundle.test.mjs",
     "serve": "vite preview",
     "test": "npm run test:unit",
-    "test:unit": "node tests/searchHighlight.test.mjs && node tests/sessionStore.test.mjs && node tests/sseEventStream.test.mjs && node tests/chatStreamController.test.mjs && node tests/introModel.test.mjs && node tests/introEngine.test.mjs && node tests/startup.test.mjs && node tests/markdownBlocks.test.mjs",
+    "test:unit": "node tests/searchHighlight.test.mjs && node tests/sessionStore.test.mjs && node tests/sseEventStream.test.mjs && node tests/chatStreamController.test.mjs && node tests/introModel.test.mjs && node tests/introEngine.test.mjs && node tests/startup.test.mjs && node tests/markdownBlocks.test.mjs && node tests/feedback.test.mjs",
     "test:security": "node tests/searchHighlight.test.mjs"
   },
   "dependencies": {
@@ -17,7 +17,6 @@
     "@fortawesome/vue-fontawesome": "^3.0.8",
     "axios": "^1.16.1",
     "dompurify": "^3.4.7",
-    "element-plus": "^2.14.1",
     "highlight.js": "^11.11.1",
     "marked": "^16.2.1",
     "marked-highlight": "^2.2.4",

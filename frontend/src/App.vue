@@ -1,11 +1,13 @@
 <template>
   <div id="app">
     <router-view />
+    <FeedbackHost />
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted } from 'vue';
+import FeedbackHost from './components/common/FeedbackHost.vue';
 import { userApiService } from './services/userApi.js';
 import heartbeatService from './services/heartbeatService.js';
 import guestSessionService from './services/guestSessionService.js';

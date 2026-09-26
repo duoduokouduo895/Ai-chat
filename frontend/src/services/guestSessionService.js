@@ -1,5 +1,5 @@
 import heartbeatService from './heartbeatService.js';
-import { ElMessage } from 'element-plus/es/components/message/index';
+import { notify } from './feedback.mjs';
 import {
   clearGuestState,
   clearSessionState,
@@ -53,7 +53,7 @@ class GuestSessionService {
 
     if (!this.hasShownExpiryNotice) {
       this.hasShownExpiryNotice = true;
-      ElMessage.warning('游客会话已过期，请重新体验或登录后继续使用。');
+      notify.warning('游客会话已过期，请重新体验或登录后继续使用。');
     }
 
     window.location.href = '/login';

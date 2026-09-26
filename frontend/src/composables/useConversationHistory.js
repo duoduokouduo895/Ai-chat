@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import { ElMessageBox } from 'element-plus/es/components/message-box/index';
+import { confirmDialog } from '@/services/feedback.mjs';
 import { aiApiService } from '@/services/aiApi.js';
 import apiClient from '@/services/apiClient.js';
 import {
@@ -44,15 +44,13 @@ export function useConversationHistory({
       loadError.value = '无法获取要删除的对话ID。';
       return;
     }
-    const confirmed = await ElMessageBox.confirm(
-      '确定要删除这个对话记录及其所有消息吗？此操作不可恢复。',
-      '删除对话',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    ).then(() => true).catch(() => false);
+    const confirmed = await confirmDialog({
+      title: '删除对话',
+      message: '确定要删除这个对话记录及其所有消息吗？此操作不可恢复。',
+      confirmText: '删除',
+      cancelText: '取消',
+      tone: 'danger'
+    });
 
     if (!confirmed) {
       return;

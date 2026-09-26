@@ -50,9 +50,6 @@ export default defineConfig(({ mode }) => {
             if (!id.includes('node_modules')) {
               return undefined;
             }
-            if (id.includes('element-plus')) {
-              return 'ui-libs';
-            }
             if (id.includes('highlight.js') || id.includes('marked') || id.includes('dompurify')) {
               return 'markdown';
             }

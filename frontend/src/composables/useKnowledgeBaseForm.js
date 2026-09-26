@@ -1,5 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus/es/components/message/index';
+import { notify } from '@/services/feedback.mjs';
 import { getApiErrorMessage } from '@/services/apiErrorService.js';
 
 const defaultFormData = () => ({
@@ -71,7 +71,7 @@ export function useKnowledgeBaseForm(props, emit) {
         enableRAG: formData.enableRAG
       });
     } catch (error) {
-      ElMessage.error(getApiErrorMessage(error, '表单提交失败，请稍后重试'));
+      notify.error(getApiErrorMessage(error, '表单提交失败，请稍后重试'));
     } finally {
       isSubmitting.value = false;
     }

@@ -1,5 +1,5 @@
 import { computed, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus/es/components/message/index';
+import { notify } from '@/services/feedback.mjs';
 import { knowledgeApiService } from '@/services/knowledgeApi.js';
 import { getApiErrorMessage } from '@/services/apiErrorService.js';
 
@@ -97,7 +97,7 @@ export function useDocumentUploadQueue(props, emit) {
       .slice(0, capabilities.maxBatchFiles);
     if (retained.length !== selectedFiles.value.length) {
       selectedFiles.value = retained;
-      ElMessage.warning('上传限制已更新，不符合新限制的文件已移除');
+      notify.warning('上传限制已更新，不符合新限制的文件已移除');
     }
   };
 
@@ -110,7 +110,7 @@ export function useDocumentUploadQueue(props, emit) {
       reconcileSelectedFiles();
     } catch (error) {
       uploadCapabilities.value = normalizeCapabilities(uploadCapabilities.value);
-      ElMessage.warning('无法读取当前上传限制，已按安全默认值处理');
+      notify.warning('无法读取当前上传限制，已按安全默认值处理');
     } finally {
       isCapabilitiesLoading.value = false;
     }
@@ -124,24 +124,24 @@ export function useDocumentUploadQueue(props, emit) {
 
   const addFiles = (files) => {
     if (isCapabilitiesLoading.value) {
-      ElMessage.info('正在读取上传限制，请稍候');
+      notify.info('正在读取上传限制，请稍候');
       return;
     }
 
     const capabilities = uploadCapabilities.value;
     const validFiles = files.filter((file) => {
       if (!isAllowedFile(file, capabilities)) {
-        ElMessage.warning(`文件 "${file.name}" 格式不支持`);
+        notify.warning(`文件 "${file.name}" 格式不支持`);
         return false;
       }
 
       if (file.size > capabilities.maxFileBytes) {
-        ElMessage.warning(`文件 "${file.name}" 超过 ${formatFileSize(capabilities.maxFileBytes)} 大小限制`);
+        notify.warning(`文件 "${file.name}" 超过 ${formatFileSize(capabilities.maxFileBytes)} 大小限制`);
         return false;
       }
 
       if (selectedFiles.value.some((item) => item.name === file.name && item.size === file.size)) {
-        ElMessage.warning(`文件 "${file.name}" 已经选择`);
+        notify.warning(`文件 "${file.name}" 已经选择`);
         return false;
       }
 
@@ -150,7 +150,7 @@ export function useDocumentUploadQueue(props, emit) {
 
     const remainingSlots = Math.max(0, capabilities.maxBatchFiles - selectedFiles.value.length);
     if (validFiles.length > remainingSlots) {
-      ElMessage.warning(`最多只能选择 ${capabilities.maxBatchFiles} 个文件，当前剩余 ${Math.max(0, remainingSlots)} 个位置`);
+      notify.warning(`最多只能选择 ${capabilities.maxBatchFiles} 个文件，当前剩余 ${Math.max(0, remainingSlots)} 个位置`);
       validFiles.splice(remainingSlots);
     }
 
@@ -206,7 +206,7 @@ export function useDocumentUploadQueue(props, emit) {
         } catch (error) {
           uploadProgress.value[index].status = 'error';
           uploadProgress.value[index].percent = 0;
-          ElMessage.error(`${file.name} 上传失败：${getApiErrorMessage(error, '请稍后重试')}`);
+          notify.error(`${file.name} 上传失败：${getApiErrorMessage(error, '请稍后重试')}`);
         }
       });
 
@@ -219,7 +219,7 @@ export function useDocumentUploadQueue(props, emit) {
         }, 1000);
       }
     } catch (error) {
-      ElMessage.error(getApiErrorMessage(error, '批量上传失败，请稍后重试'));
+      notify.error(getApiErrorMessage(error, '批量上传失败，请稍后重试'));
     } finally {
       isUploading.value = false;
     }

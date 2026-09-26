@@ -81,8 +81,6 @@ const createHarness = ({ nextTick } = {}) => {
     nextTick: nextTick ?? (async () => {
       events.push('nextTick');
     }),
-    ElSelect: {},
-    ElOption: {},
     FontAwesomeIcon: {},
     document: {
       getElementById(id) {
@@ -122,8 +120,6 @@ const runMain = (context) => {
   runMain(context);
   assert.deepEqual(events, [
     'create:Root',
-    'register:ElSelect',
-    'register:ElOption',
     'register:FontAwesomeIcon',
     'use-router',
     'mount:#app',
