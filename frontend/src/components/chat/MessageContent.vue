@@ -1,16 +1,18 @@
 <template>
   <div v-if="plain" class="message-content plain-message-content">{{ text }}</div>
   <div v-else ref="contentRef" class="message-content" :class="{ 'is-streaming': !completed }">
-    <div v-for="(html, index) in renderedBlocks" :key="index" class="md-block" v-html="html"></div>
-    <span v-if="!completed && renderedBlocks.length === 0" class="stream-caret" aria-hidden="true"></span>
+    <template v-if="renderedBlocks">
+      <div v-for="(html, index) in renderedBlocks" :key="index" class="md-block" v-html="html"></div>
+      <span v-if="!completed && renderedBlocks.length === 0" class="stream-caret" aria-hidden="true"></span>
+    </template>
+    <!-- 渲染器尚未加载完成时先显示纯文本，加载后自动替换为 Markdown -->
+    <div v-else class="md-fallback">{{ text }}<span v-if="!completed" class="stream-caret" aria-hidden="true"></span></div>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import DOMPurify from 'dompurify';
-import { renderMarkdownBlocks } from '@/utils/markdownBlocks.mjs';
-import 'highlight.js/styles/atom-one-dark.css';
+import { loadMarkdownRenderer, markdownRenderer } from '@/utils/loadMarkdownRenderer.js';
 
 const props = defineProps({
   text: {
@@ -28,45 +30,9 @@ const props = defineProps({
 });
 
 const contentRef = ref(null);
-let purifierHooksRegistered = false;
 
-function isSafeUrl(value) {
-  const normalized = value.trim().toLowerCase();
-  return normalized.startsWith('http://') ||
-    normalized.startsWith('https://') ||
-    normalized.startsWith('mailto:') ||
-    normalized.startsWith('/') ||
-    normalized.startsWith('#');
-}
-
-if (!purifierHooksRegistered) {
-  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-    if (node.nodeName === 'A') {
-      const href = node.getAttribute('href');
-      if (href && !isSafeUrl(href)) {
-        node.removeAttribute('href');
-      }
-      if (node.hasAttribute('href')) {
-        node.setAttribute('target', '_blank');
-        node.setAttribute('rel', 'noopener noreferrer');
-      }
-    }
-  });
-  purifierHooksRegistered = true;
-}
-
-const SANITIZE_OPTIONS = {
-  ALLOWED_TAGS: [
-    'a', 'b', 'blockquote', 'br', 'button', 'code', 'div', 'em', 'h1', 'h2', 'h3', 'h4', 'h5',
-    'h6', 'hr', 'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody', 'td', 'th',
-    'thead', 'tr', 'ul'
-  ],
-  ALLOWED_ATTR: ['class', 'data-copy-code', 'href', 'rel', 'target', 'type'],
-  FORBID_ATTR: [/^on/i]
-};
-
-function renderBlock(rawHtml) {
-  return DOMPurify.sanitize(rawHtml, SANITIZE_OPTIONS);
+if (!props.plain && !markdownRenderer.value) {
+  loadMarkdownRenderer().catch(() => {});
 }
 
 // 在最后一个可见文本节点后插入光标，让光标跟随正文（包括未闭合的代码块）
@@ -95,11 +61,15 @@ function appendCaret(html) {
 
 // 已完成的块字符串不变，Vue 不会重写它们的 innerHTML，选区和复制按钮状态得以保留
 const renderedBlocks = computed(() => {
+  const renderer = markdownRenderer.value;
+  if (!renderer) {
+    return null;
+  }
   if (!props.text) {
     return [];
   }
 
-  const blocks = renderMarkdownBlocks(props.text).map(renderBlock);
+  const blocks = renderer.renderSafeMarkdownBlocks(props.text);
   if (!props.completed && blocks.length > 0) {
     blocks[blocks.length - 1] = appendCaret(blocks[blocks.length - 1]);
   }
@@ -146,6 +116,10 @@ onBeforeUnmount(() => {
 
 .md-block {
   display: contents;
+}
+
+.md-fallback {
+  white-space: pre-wrap;
 }
 
 .message-content :deep(.stream-caret) {

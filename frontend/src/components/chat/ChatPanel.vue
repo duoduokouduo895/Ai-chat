@@ -89,13 +89,14 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useGuestMessageGate } from '@/composables/useGuestMessageGate.js';
 import ChatInput from './ChatInput.vue';
 import ChatMessage from './ChatMessage.vue';
 import SystemMessage from './SystemMessage.vue';
 import StateBlock from '../common/StateBlock.vue';
 import DecryptText from '../intro/DecryptText.vue';
+import { prewarmMarkdownRenderer } from '@/utils/loadMarkdownRenderer.js';
 
 const props = defineProps({
   messages: { type: Array, required: true },
@@ -217,6 +218,8 @@ watch(() => props.messages, (messages, previous) => {
 }, { deep: true });
 
 watch(() => [props.conversationId, props.isLoadingConversation], () => scrollToBottom({ force: true }));
+
+onMounted(prewarmMarkdownRenderer);
 
 onBeforeUnmount(() => {
   if (scrollFrame) cancelAnimationFrame(scrollFrame);

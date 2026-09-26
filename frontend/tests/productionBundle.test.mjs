@@ -91,6 +91,34 @@ for (const [file, imports] of graph.entries()) {
   }
 }
 
+// 首屏关键路径：入口与工作区路由都不应静态依赖 Markdown 渲染器，UI 库已移除
+const reachable = (start) => {
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const dependency of graph.get(file) ?? []) walk(dependency);
+  };
+  walk(start);
+  return seen;
+};
+const entryChunk = chunkFiles.find((file) => file.startsWith('index-'));
+const workspaceChunk = chunkFiles.find((file) => file.startsWith('MarketingPlatform-'));
+assert.ok(entryChunk && workspaceChunk, 'entry and workspace chunks must exist');
+for (const start of [entryChunk, workspaceChunk]) {
+  const staticDeps = [...reachable(start)];
+  assert.equal(
+    staticDeps.some((file) => file.startsWith('markdown-')),
+    false,
+    `${start} must load the markdown renderer lazily, got: ${staticDeps.join(', ')}`
+  );
+}
+assert.equal(chunkFiles.some((file) => file.startsWith('ui-libs-')), false, 'element-plus chunk should be gone');
+for (const file of chunkFiles) {
+  const source = fs.readFileSync(path.join(jsDir, file), 'utf8');
+  assert.equal(/el-select|ElMessageBox|element-plus/.test(source), false, `Element Plus code found in ${file}`);
+}
+
 const hashedJs = /^[A-Za-z0-9_-]+-[A-Za-z0-9_-]+\.js$/;
 for (const file of chunkFiles) {
   assert.match(file, hashedJs, `JS chunk must be content-hashed: ${file}`);
