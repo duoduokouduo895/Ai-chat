@@ -83,11 +83,9 @@
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import AsciiIntro from '../intro/AsciiIntro.vue';
 import DecryptText from '../intro/DecryptText.vue';
 import { introSession } from '../intro/introModel.mjs';
 import { provideIntroReveal } from '../intro/introReveal.mjs';
-import { readIntroLayout } from '../intro/workspaceRaster.mjs';
 import { useChatWorkspace } from '@/composables/useChatWorkspace.js';
 import ActivityRail from './ActivityRail.vue';
 import HistoryDrawer from './HistoryDrawer.vue';
@@ -96,6 +94,26 @@ import ChatPanel from '../chat/ChatPanel.vue';
 
 const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'));
 const SearchPanel = defineAsyncComponent(() => import('../search/SearchPanel.vue'));
+
+// 开场动画引擎只在首次访问或重播时需要，按需加载；布局采样函数随组件一起加载。
+// 加载失败或超时则直接跳过开场，避免工作区一直处于隐藏状态。
+let readIntroLayout = null;
+const loadIntro = () => Promise.all([
+  import('../intro/AsciiIntro.vue'),
+  import('../intro/workspaceRaster.mjs')
+]).then(([component, raster]) => {
+  readIntroLayout = raster.readIntroLayout;
+  return component.default;
+});
+const AsciiIntro = defineAsyncComponent({
+  loader: loadIntro,
+  timeout: 4000,
+  onError(error, retry, fail) {
+    console.error('Intro failed to load, skipping it:', error);
+    fail();
+    finishIntro();
+  }
+});
 
 const workspaceRoot = ref(null);
 const introVisible = ref(introSession.shouldPlay(window.matchMedia('(prefers-reduced-motion: reduce)').matches));
@@ -112,7 +130,7 @@ provideIntroReveal({
   paused: computed(() => introPaused.value)
 });
 
-const collectIntroLayout = (rect) => readIntroLayout(workspaceRoot.value, rect);
+const collectIntroLayout = (rect) => readIntroLayout?.(workspaceRoot.value, rect) ?? [];
 
 const introHeld = computed(() => introVisible.value && !workspaceRevealed.value);
 const introRevealing = computed(() => introVisible.value && workspaceRevealed.value);

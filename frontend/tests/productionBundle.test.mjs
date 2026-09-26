@@ -113,6 +113,11 @@ for (const start of [entryChunk, workspaceChunk]) {
     `${start} must load the markdown renderer lazily, got: ${staticDeps.join(', ')}`
   );
 }
+const introChunk = chunkFiles.find((file) => file.startsWith('AsciiIntro-'));
+assert.ok(introChunk, 'intro engine must be split into its own lazy chunk');
+for (const start of [entryChunk, workspaceChunk]) {
+  assert.equal(reachable(start).has(introChunk), false, `${start} must not statically load the intro engine`);
+}
 assert.equal(chunkFiles.some((file) => file.startsWith('ui-libs-')), false, 'element-plus chunk should be gone');
 for (const file of chunkFiles) {
   const source = fs.readFileSync(path.join(jsDir, file), 'utf8');
