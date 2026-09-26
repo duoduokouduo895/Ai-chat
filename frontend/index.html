@@ -4,9 +4,227 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dduo Chat</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --canvas: #0c0c0d;
+        --surface-1: #141416;
+        --surface-2: #18181b;
+        --surface-3: #232326;
+        --border-subtle: #27272a;
+        --text-primary: #f4f4f5;
+        --text-secondary: #a1a1aa;
+        --text-muted: #a1a1aa;
+        --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+        --activity-rail-width: 64px;
+      }
+
+      html, body {
+        background: var(--canvas);
+        color: var(--text-primary);
+        font-family: var(--font-family);
+        margin: 0;
+        min-height: 100%;
+        overflow-x: hidden;
+        padding: 0;
+        width: 100%;
+      }
+
+      #app {
+        min-height: 100%;
+        width: 100%;
+      }
+
+      #startup-shell,
+      #startup-shell * {
+        box-sizing: border-box;
+      }
+
+      #startup-shell {
+        background: var(--canvas);
+        color: var(--text-primary);
+        display: flex;
+        inset: 0;
+        max-width: 100%;
+        overflow: hidden;
+        pointer-events: none;
+        position: fixed;
+        width: 100%;
+        z-index: 20;
+      }
+
+      .startup-rail {
+        align-items: center;
+        background: var(--surface-1);
+        border-right: 1px solid var(--border-subtle);
+        display: flex;
+        flex: 0 0 var(--activity-rail-width);
+        flex-direction: column;
+        gap: 6px;
+        height: 100%;
+        padding: 10px 8px;
+        width: var(--activity-rail-width);
+      }
+
+      .startup-brand {
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        line-height: 44px;
+        margin-bottom: 12px;
+      }
+
+      .startup-rail-slot,
+      .startup-rail-foot {
+        background: var(--surface-2);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        display: block;
+        flex: 0 0 44px;
+        height: 44px;
+        width: 44px;
+      }
+
+      .startup-rail-foot {
+        margin-top: auto;
+      }
+
+      .startup-main {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .startup-mobile-header {
+        display: none;
+      }
+
+      .startup-empty {
+        align-items: center;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        overflow: hidden;
+        padding: 36px 20px 12px;
+        text-align: center;
+      }
+
+      .startup-wordmark {
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+
+      .startup-kicker {
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        margin: 12px 0 0;
+      }
+
+      .startup-copy {
+        color: var(--text-muted);
+        font-size: 14px;
+        margin: 8px 0 0;
+      }
+
+      .startup-composer {
+        background: var(--surface-2);
+        border: 1px solid var(--border-subtle);
+        border-radius: 4px;
+        margin: 14px auto 18px;
+        max-width: 860px;
+        padding: 13px;
+        width: calc(100% - 36px);
+      }
+
+      .startup-input {
+        background: transparent;
+        border: 0;
+        color: var(--text-muted);
+        display: block;
+        font: inherit;
+        min-height: 52px;
+        opacity: 0.7;
+        outline: none;
+        resize: none;
+        width: 100%;
+      }
+
+      @media (max-width: 768px) {
+        .startup-rail {
+          display: none;
+        }
+
+        .startup-mobile-header {
+          align-items: center;
+          background: var(--surface-1);
+          border-bottom: 1px solid var(--border-subtle);
+          display: flex;
+          flex: 0 0 54px;
+          justify-content: space-between;
+          min-width: 0;
+          padding: 5px 10px;
+        }
+
+        .startup-mobile-header strong {
+          font-size: 14px;
+        }
+
+        .startup-mobile-header span {
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+
+        .startup-empty {
+          padding: 24px 12px 8px;
+        }
+
+        .startup-kicker {
+          font-size: 26px;
+        }
+
+        .startup-composer {
+          margin: 10px auto 12px;
+          width: calc(100% - 24px);
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="startup-shell" role="status" aria-live="polite" aria-busy="true">
+      <aside class="startup-rail" aria-hidden="true">
+        <span class="startup-brand">dduo</span>
+        <span class="startup-rail-slot"></span>
+        <span class="startup-rail-slot"></span>
+        <span class="startup-rail-slot"></span>
+        <span class="startup-rail-foot"></span>
+      </aside>
+      <div class="startup-main">
+        <div class="startup-mobile-header" aria-hidden="true">
+          <strong>Dduo AI-Chat</strong>
+          <span>聊天</span>
+        </div>
+        <div class="startup-empty">
+          <span class="startup-wordmark" aria-hidden="true">dduo</span>
+          <p class="startup-kicker">Dduo AI-Chat</p>
+          <p class="startup-copy">正在加载</p>
+        </div>
+        <div class="startup-composer" aria-hidden="true">
+          <textarea class="startup-input" disabled placeholder="开始新的聊天" rows="1" tabindex="-1"></textarea>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

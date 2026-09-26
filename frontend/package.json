@@ -8,7 +8,7 @@
     "build": "vite build && node tests/productionBundle.test.mjs",
     "serve": "vite preview",
     "test": "npm run test:unit",
-    "test:unit": "node tests/searchHighlight.test.mjs && node tests/sessionStore.test.mjs && node tests/sseEventStream.test.mjs && node tests/chatStreamController.test.mjs && node tests/introModel.test.mjs && node tests/introEngine.test.mjs && node tests/markdownBlocks.test.mjs",
+    "test:unit": "node tests/searchHighlight.test.mjs && node tests/sessionStore.test.mjs && node tests/sseEventStream.test.mjs && node tests/chatStreamController.test.mjs && node tests/introModel.test.mjs && node tests/introEngine.test.mjs && node tests/startup.test.mjs && node tests/markdownBlocks.test.mjs",
     "test:security": "node tests/searchHighlight.test.mjs"
   },
   "dependencies": {

@@ -4,7 +4,32 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
-const jsDir = path.resolve(testDir, '../dist/js');
+const distDir = path.resolve(testDir, '../dist');
+const jsDir = path.join(distDir, 'js');
+const assetsDir = path.join(distDir, 'assets');
+
+const parseCfHeaders = (text) => {
+  const rules = [];
+  let current = null;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trim().startsWith('#')) {
+      continue;
+    }
+
+    if (/^[ \t]/.test(rawLine)) {
+      const idx = rawLine.indexOf(':');
+      assert.ok(current, `header line has no path: ${rawLine}`);
+      current.headers[rawLine.slice(0, idx).trim().toLowerCase()] = rawLine.slice(idx + 1).trim();
+      continue;
+    }
+
+    current = { path: rawLine.trim(), headers: {} };
+    rules.push(current);
+  }
+
+  return rules;
+};
 
 assert.ok(fs.existsSync(jsDir), 'dist/js does not exist; run the production build first');
 
@@ -65,5 +90,30 @@ for (const [file, imports] of graph.entries()) {
     );
   }
 }
+
+const hashedJs = /^[A-Za-z0-9_-]+-[A-Za-z0-9_-]+\.js$/;
+for (const file of chunkFiles) {
+  assert.match(file, hashedJs, `JS chunk must be content-hashed: ${file}`);
+}
+
+assert.ok(fs.existsSync(assetsDir), 'dist/assets does not exist; run the production build first');
+const assetFiles = fs.readdirSync(assetsDir);
+assert.ok(assetFiles.some((file) => /^[A-Za-z0-9_-]+-[A-Za-z0-9_-]+\.css$/.test(file)), 'hashed CSS assets are missing');
+
+const builtIndex = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+assert.match(builtIndex, /\/js\/index-[A-Za-z0-9_-]+\.js/);
+assert.match(builtIndex, /\/assets\/index-[A-Za-z0-9_-]+\.css/);
+assert.ok(builtIndex.includes('id="startup-shell"'));
+assert.ok(builtIndex.includes('<div id="app"></div>'));
+assert.ok(builtIndex.indexOf('<div id="app"></div>') < builtIndex.indexOf('id="startup-shell"'));
+
+const headersPath = path.join(distDir, '_headers');
+assert.ok(fs.existsSync(headersPath), 'Vite must copy public/_headers into dist');
+const headerRules = parseCfHeaders(fs.readFileSync(headersPath, 'utf8'));
+assert.deepEqual(headerRules.map((rule) => rule.path), ['/js/*', '/assets/*']);
+for (const rule of headerRules) {
+  assert.equal(rule.headers['cache-control'], 'public, max-age=31536000, immutable');
+}
+assert.equal(headerRules.some((rule) => rule.path === '/*' || rule.path === '/'), false);
 
 console.log(`production_bundle_test=PASS chunks=${chunkFiles.length}`);

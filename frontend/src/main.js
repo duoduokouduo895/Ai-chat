@@ -1,8 +1,6 @@
-import { createApp } from 'vue';
+import { createApp, nextTick } from 'vue';
 import App from './App.vue';
 import router from './router';
-import userApiService from './services/userApi.js';
-import { getToken } from './services/sessionStore.mjs';
 import { ElOption, ElSelect } from 'element-plus/es/components/select/index';
 import 'element-plus/es/components/message/style/css';
 import 'element-plus/es/components/message-box/style/css';
@@ -14,26 +12,22 @@ import './assets/styles/common.css';
 import './assets/styles/auth.css';
 import { FontAwesomeIcon } from '../icon/icons.js';
 
-async function initializeApp() {
-  const token = getToken();
+const app = createApp(App);
+app.component('ElSelect', ElSelect);
+app.component('ElOption', ElOption);
+app.component('FontAwesomeIcon', FontAwesomeIcon);
+app.use(router);
+app.mount('#app');
 
-  if (token) {
-    try {
-      await userApiService.getMe();
-      console.log('Token is valid. Proceeding with app mount.');
-    } catch (error) {
-      console.log('Token validation failed, global interceptor will handle redirection.');
-    }
+router.isReady().then(async () => {
+  await nextTick();
+  document.getElementById('startup-shell')?.remove();
+}).catch((error) => {
+  const shell = document.getElementById('startup-shell');
+  shell?.setAttribute('aria-busy', 'false');
+  const copy = shell?.querySelector('.startup-copy');
+  if (copy) {
+    copy.textContent = '页面加载失败，请刷新重试';
   }
-
-  const app = createApp(App);
-
-  app.component('ElSelect', ElSelect);
-  app.component('ElOption', ElOption);
-  app.component('FontAwesomeIcon', FontAwesomeIcon);
-
-  app.use(router);
-  app.mount('#app');
-}
-
-initializeApp();
+  console.error(error);
+});
