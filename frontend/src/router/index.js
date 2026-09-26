@@ -47,6 +47,8 @@ router.beforeEach((to, from, next) => {
     }
 
     if (to.path === '/') {
+      // 游客登录与工作区代码下载并行，避免首屏多等一个完整的接口往返
+      MarketingPlatform().catch(() => {});
       userApiService.loginGuest().then(result => {
         if (result.success) {
           next();
