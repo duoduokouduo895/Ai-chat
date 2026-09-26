@@ -9,7 +9,7 @@
           :aria-label="`移除知识库 ${firstSelected.name}`"
           @click="removeKnowledgeBase(firstSelected.id)"
         >
-          <font-awesome-icon icon="xmark" aria-hidden="true" />
+          <app-icon icon="xmark" aria-hidden="true" />
         </button>
       </span>
       <span v-if="extraCount > 0" class="kb-tag kb-tag-more" :title="extraNames">+{{ extraCount }}</span>

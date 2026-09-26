@@ -5,10 +5,10 @@ import router from './router';
 import './assets/styles/variables.css';
 import './assets/styles/common.css';
 import './assets/styles/auth.css';
-import { FontAwesomeIcon } from '../icon/icons.js';
+import AppIcon from './components/common/AppIcon.vue';
 
 const app = createApp(App);
-app.component('FontAwesomeIcon', FontAwesomeIcon);
+app.component('AppIcon', AppIcon);
 app.use(router);
 app.mount('#app');
 

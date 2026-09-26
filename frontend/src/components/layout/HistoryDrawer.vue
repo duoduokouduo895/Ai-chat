@@ -7,18 +7,18 @@
         <h2>最近对话</h2>
       </div>
       <button class="icon-button" type="button" aria-label="关闭最近对话" @click="$emit('close')">
-        <font-awesome-icon icon="xmark" aria-hidden="true" />
+        <app-icon icon="xmark" aria-hidden="true" />
       </button>
     </header>
 
     <button class="new-chat-button" type="button" @click="$emit('new-conversation')">
-      <font-awesome-icon icon="plus" aria-hidden="true" />
+      <app-icon icon="plus" aria-hidden="true" />
       <span>开始新对话</span>
     </button>
 
     <div class="drawer-content custom-scroll">
       <div v-if="conversations.length === 0" class="drawer-empty">
-        <font-awesome-icon icon="message" aria-hidden="true" />
+        <app-icon icon="message" aria-hidden="true" />
         <p>还没有历史对话</p>
         <span>发送第一条消息后，会话会显示在这里。</span>
       </div>
@@ -40,7 +40,7 @@
             :aria-label="`删除对话 ${conversation.title || '新的对话'}`"
             @click="$emit('delete-conversation', conversation)"
           >
-            <font-awesome-icon icon="trash-can" aria-hidden="true" />
+            <app-icon icon="trash-can" aria-hidden="true" />
           </button>
         </div>
       </div>

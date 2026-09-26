@@ -9,7 +9,7 @@
           <strong>Dduo AI-Chat</strong>
         </div>
         <button class="icon-button" type="button" aria-label="关闭菜单" @click="$emit('close')">
-          <font-awesome-icon icon="xmark" aria-hidden="true" />
+          <app-icon icon="xmark" aria-hidden="true" />
         </button>
       </header>
 
@@ -21,7 +21,7 @@
           :class="{ active: currentView === item.id }"
           @click="openView(item.id)"
         >
-          <font-awesome-icon :icon="item.icon" aria-hidden="true" />
+          <app-icon :icon="item.icon" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
       </nav>
@@ -46,7 +46,7 @@
 
       <footer>
         <button type="button" @click="$emit('auth-action')">
-          <font-awesome-icon :icon="isLoggedIn && !isGuest ? 'right-from-bracket' : 'right-to-bracket'" aria-hidden="true" />
+          <app-icon :icon="isLoggedIn && !isGuest ? 'right-from-bracket' : 'right-to-bracket'" aria-hidden="true" />
           <span>{{ isLoggedIn && !isGuest ? '退出账号' : '登录账号' }}</span>
         </button>
       </footer>

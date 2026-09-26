@@ -116,6 +116,10 @@ for (const start of [entryChunk, workspaceChunk]) {
 assert.equal(chunkFiles.some((file) => file.startsWith('ui-libs-')), false, 'element-plus chunk should be gone');
 for (const file of chunkFiles) {
   const source = fs.readFileSync(path.join(jsDir, file), 'utf8');
+  assert.equal(/fortawesome|svg-inline--fa|axios/i.test(source), false, `Font Awesome / axios code found in ${file}`);
+}
+for (const file of chunkFiles) {
+  const source = fs.readFileSync(path.join(jsDir, file), 'utf8');
   assert.equal(/el-select|ElMessageBox|element-plus/.test(source), false, `Element Plus code found in ${file}`);
 }
 

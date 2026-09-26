@@ -17,16 +17,16 @@
         :aria-pressed="item.id === 'history' ? historyOpen : item.id === currentView"
         @click="handleItem(item.id)"
       >
-        <font-awesome-icon :icon="item.icon" aria-hidden="true" />
+        <app-icon :icon="item.icon" aria-hidden="true" />
       </button>
     </nav>
 
     <div class="rail-footer">
       <button class="rail-button" type="button" title="代码仓库" aria-label="打开代码仓库" @click="openRepository">
-        <font-awesome-icon icon="code-branch" aria-hidden="true" />
+        <app-icon icon="code-branch" aria-hidden="true" />
       </button>
       <button class="rail-button" type="button" title="账号" aria-label="账号操作" @click="$emit('auth-action')">
-        <font-awesome-icon :icon="isLoggedIn && !isGuest ? 'right-from-bracket' : 'right-to-bracket'" aria-hidden="true" />
+        <app-icon :icon="isLoggedIn && !isGuest ? 'right-from-bracket' : 'right-to-bracket'" aria-hidden="true" />
       </button>
     </div>
   </aside>

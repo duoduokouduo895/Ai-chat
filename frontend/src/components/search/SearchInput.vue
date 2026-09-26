@@ -18,7 +18,7 @@
         class="search-btn"
         aria-label="搜索"
       >
-        <font-awesome-icon icon="magnifying-glass" aria-hidden="true" />
+        <app-icon icon="magnifying-glass" aria-hidden="true" />
       </button>
     </div>
     

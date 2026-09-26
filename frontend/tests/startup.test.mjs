@@ -81,7 +81,7 @@ const createHarness = ({ nextTick } = {}) => {
     nextTick: nextTick ?? (async () => {
       events.push('nextTick');
     }),
-    FontAwesomeIcon: {},
+    AppIcon: {},
     document: {
       getElementById(id) {
         return id === 'startup-shell' && !shell.removed ? shell : null;
@@ -120,7 +120,7 @@ const runMain = (context) => {
   runMain(context);
   assert.deepEqual(events, [
     'create:Root',
-    'register:FontAwesomeIcon',
+    'register:AppIcon',
     'use-router',
     'mount:#app',
     'isReady'

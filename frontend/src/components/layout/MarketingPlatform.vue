@@ -27,7 +27,7 @@
     <main class="main-content">
       <header class="mobile-workspace-header" data-intro="nav" data-intro-text="Dduo AI-Chat">
         <button type="button" aria-label="打开菜单" @click="isMobileDrawerOpen = true">
-          <font-awesome-icon icon="bars" aria-hidden="true" />
+          <app-icon icon="bars" aria-hidden="true" />
         </button>
         <strong><DecryptText text="Dduo AI-Chat" /></strong>
         <span><DecryptText :text="viewLabel" /></span>
