@@ -4,16 +4,20 @@
       <span>{{ message.sender === 'user' ? '[YOU]' : '[AI]' }}</span>
     </div>
     <div class="message-body">
-      <div v-if="!message.text && message.completed === false" class="message-status" role="status" aria-live="polite">
-        <span class="status-dot"></span>
-        <span>{{ message.status || '正在准备回答' }}</span>
-      </div>
-      <MessageContent
-        v-else
-        :text="message.text"
-        :plain="message.sender === 'user'"
-        :completed="message.completed !== false"
-      />
+      <Transition name="reply-reveal">
+        <div v-if="!message.text && message.completed === false" class="message-status" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <Transition name="status-text" mode="out-in">
+            <span :key="message.status">{{ message.status || '正在准备回答' }}</span>
+          </Transition>
+        </div>
+        <MessageContent
+          v-else
+          :text="message.text"
+          :plain="message.sender === 'user'"
+          :completed="message.completed !== false"
+        />
+      </Transition>
       <ChatSources v-if="message.retrieval" :retrieval="message.retrieval" />
       <time>{{ message.timestamp }}</time>
     </div>
@@ -125,6 +129,25 @@ time {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* 首个 token 到达时正文淡入；状态提示不设退场过渡，立即让位，避免两者同时占位 */
+.reply-reveal-enter-active {
+  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reply-reveal-enter-from {
+  opacity: 0;
+}
+
+.status-text-enter-active,
+.status-text-leave-active {
+  transition: opacity 120ms linear;
+}
+
+.status-text-enter-from,
+.status-text-leave-to {
+  opacity: 0;
 }
 
 @media (max-width: 980px) {

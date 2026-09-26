@@ -154,9 +154,19 @@ const handleEnterKey = (event) => {
 
 const adjustHeight = () => {
   nextTick(() => {
-    if (!textareaRef.value) return;
-    textareaRef.value.style.height = 'auto';
-    textareaRef.value.style.height = `${Math.min(textareaRef.value.scrollHeight, 180)}px`;
+    const el = textareaRef.value;
+    if (!el) return;
+    // 先关闭过渡量出目标高度，再从当前高度过渡过去；直接从 auto 设值无法产生过渡
+    const from = el.offsetHeight;
+    el.style.transition = 'none';
+    el.style.height = 'auto';
+    const target = Math.min(el.scrollHeight, 180);
+    el.style.height = `${from}px`;
+    void el.offsetHeight;
+    el.style.transition = '';
+    if (target !== from) {
+      el.style.height = `${target}px`;
+    }
   });
 };
 
@@ -197,6 +207,7 @@ watch(knowledgeBaseIds, (value) => emit('update:selectedKnowledgeBaseIds', value
   outline: none;
   padding: 2px 4px 10px;
   resize: none;
+  transition: height 140ms cubic-bezier(0.22, 1, 0.36, 1);
   width: 100%;
 }
 

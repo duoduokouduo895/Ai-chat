@@ -50,7 +50,12 @@
             @action="$emit('new-conversation')"
           />
           <template v-else>
-            <div v-for="message in messages" :key="message.id" class="message-wrapper" :class="message.sender">
+            <div
+              v-for="message in messages"
+              :key="message.id"
+              class="message-wrapper"
+              :class="[message.sender, { 'is-entering': !settledMessageIds.has(message.id) }]"
+            >
               <SystemMessage v-if="message.type === 'system'" :message="message.text" />
               <ChatMessage v-else :message="message" />
             </div>
@@ -195,10 +200,17 @@ const jumpToLatest = () => {
 };
 
 let previousLength = props.messages.length;
+// 批量载入（打开历史、切换对话）的消息直接显示，只有之后追加的新消息播放入场动画。
+// 默认 pre 刷新的 watch 在渲染前更新该集合，因此无需响应式。
+const settledMessageIds = new Set(props.messages.map((message) => message.id));
 
 watch(() => props.messages, (messages, previous) => {
   // 用户自己发出新消息，或整组消息被替换（切换/新建对话）时，总是回到底部
   const replaced = messages !== previous;
+  if (replaced) {
+    settledMessageIds.clear();
+    messages.forEach((message) => settledMessageIds.add(message.id));
+  }
   const userJustSent = messages.slice(previousLength).some((message) => message.sender === 'user');
   previousLength = messages.length;
   scrollToBottom({ force: replaced || userJustSent });
@@ -383,6 +395,22 @@ onBeforeUnmount(() => {
 
 .message-wrapper.user {
   justify-content: flex-end;
+}
+
+.message-wrapper.is-entering {
+  animation: message-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 用户消息先出现，AI 占位稍后跟上 */
+.message-wrapper.ai.is-entering {
+  animation-delay: 80ms;
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .conversation-loading {
