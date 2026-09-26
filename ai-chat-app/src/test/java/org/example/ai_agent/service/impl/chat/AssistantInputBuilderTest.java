@@ -24,13 +24,13 @@ class AssistantInputBuilderTest {
         var repository = mock(MessageRepository.class);
         var rewriter = mock(RetrievalQueryRewriter.class);
         var rag = mock(RagService.class);
-        var loader = new ConversationContextLoader(repository, new ModelCatalogProperties());
+        var loader = new ConversationContextLoader(repository, new ModelCatalogProperties(), org.example.ai_agent.service.memory.MemoryTestSupport.disabled());
         var request = ChatRequest.builder().conversationId(8L).userId(42L).model("chat-fast")
                 .prompt("它支持多少并发连接？").knowledgeBaseIds(List.of(7L)).build();
         var history = List.of(new CompletedContextTurn("previous", "介绍 A 产品", "A 产品介绍", LocalDateTime.now()));
         when(repository.findCompletedContext(8L)).thenReturn(Flux.fromIterable(history));
         when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
-        when(rewriter.rewrite(request, history)).thenReturn(Mono.just("A 产品支持多少并发连接？"));
+        when(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(history))).thenReturn(Mono.just("A 产品支持多少并发连接？"));
         var match = new KnowledgeSearchMatch();
         match.setDocumentTitle("A 产品手册");
         match.setContent("支持 100 个并发连接。");
@@ -64,7 +64,7 @@ class AssistantInputBuilderTest {
         var request = ChatRequest.builder().conversationId(8L).model("chat-fast").prompt("你好").build();
 
         StepVerifier.create(new AssistantInputBuilder(rag,
-                        new ConversationContextLoader(repository, new ModelCatalogProperties()), rewriter).build(request))
+                        new ConversationContextLoader(repository, new ModelCatalogProperties(), org.example.ai_agent.service.memory.MemoryTestSupport.disabled()), rewriter).build(request))
                 .expectNext("你好").verifyComplete();
         verifyNoInteractions(rag, rewriter);
     }

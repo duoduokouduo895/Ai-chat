@@ -48,7 +48,8 @@ class GeneralAssistantFactoryTest {
                 modelRegistry,
                 memoryProvider,
                 mock(KnowledgeBaseService.class),
-                mock(DocumentService.class)
+                mock(DocumentService.class),
+                org.example.ai_agent.service.memory.MemoryTestSupport.disabled()
         );
     }
 
@@ -87,7 +88,7 @@ class GeneralAssistantFactoryTest {
         config.setInputBudgetTokens(limit);
         properties.getModels().put("chat-fast", config);
 
-        var input = new ConversationContextLoader(repository, properties).prepare(request, request.getPrompt()).block();
+        var input = new ConversationContextLoader(repository, properties, org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request, request.getPrompt()).block();
         factory.createAssistant(request).chat("8:chat-fast", input).collectList().block();
 
         assertEquals(List.of(recent), request.getContextTurns());
@@ -114,7 +115,7 @@ class GeneralAssistantFactoryTest {
         config.setInputBudgetTokens(limit);
         properties.getModels().put("chat-fast", config);
 
-        var input = new ConversationContextLoader(repository, properties).prepare(request, request.getPrompt()).block();
+        var input = new ConversationContextLoader(repository, properties, org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request, request.getPrompt()).block();
         factory.createAssistant(request).chat("8:chat-fast", input).collectList().block();
 
         assertTrue(request.getContextTurns().isEmpty());
@@ -137,7 +138,7 @@ class GeneralAssistantFactoryTest {
         config.setTokenEstimatorModel("gpt-4o");
         properties.getModels().put("chat-fast", config);
 
-        var input = new ConversationContextLoader(repository, properties).prepare(request, request.getPrompt()).block();
+        var input = new ConversationContextLoader(repository, properties, org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request, request.getPrompt()).block();
         factory.createAssistant(request).chat("8:chat-fast", input).collectList().block();
 
         assertEquals(List.of(recent), request.getContextTurns());
@@ -147,6 +148,41 @@ class GeneralAssistantFactoryTest {
         long sent = new AssistantInputBudget(2100, "gpt-4o").estimateInput(capturedRequest.get().messages(), descriptions);
         assertEquals(sent + 128, request.getEstimatedInputTokens().longValue());
         assertTrue(sent + 128 <= 2100);
+    }
+
+    @Test
+    void memoryBlockPrecedesRecentTurnsAndRecallToolIsBudgeted() {
+        var request = baseRequest();
+        request.setConversationId(8L);
+        var recent = new CompletedContextTurn("recent", "最近的问题", "最近的回答", LocalDateTime.now(), 30L);
+        var repository = mock(MessageRepository.class);
+        when(repository.findCompletedContext(8L)).thenReturn(Flux.just(recent));
+        when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
+        var store = mock(org.example.ai_agent.service.memory.ConversationMemoryStore.class);
+        when(store.load(8L)).thenReturn(reactor.core.publisher.Mono.just(new org.example.ai_agent.service.memory.ConversationMemory(
+                2, 20, "早期：用户决定使用 PostgreSQL。", List.of())));
+        var memory = new org.example.ai_agent.service.memory.ConversationMemoryService(store,
+                new org.example.ai_agent.service.memory.ConversationMemoryProperties());
+        var properties = new ModelCatalogProperties();
+        var config = new ModelCatalogProperties.ModelConfig();
+        config.setInputBudgetTokens(4096);
+        config.setToolOutputReserveTokens(128);
+        config.setTokenEstimatorModel("gpt-4o");
+        properties.getModels().put("chat-fast", config);
+
+        var input = new ConversationContextLoader(repository, properties, memory).prepare(request, request.getPrompt()).block();
+        factory.createAssistant(request).chat("8:chat-fast", input).collectList().block();
+
+        var messages = capturedRequest.get().messages();
+        assertTrue(messages.get(0) instanceof SystemMessage);
+        assertEquals(UserMessage.from(request.getMemoryBlock()), messages.get(1));
+        assertEquals(UserMessage.from(recent.userText()), messages.get(3));
+        var descriptions = capturedRequest.get().toolSpecifications().stream()
+                .map(dev.langchain4j.agent.tool.ToolSpecification::toJson).toList();
+        assertTrue(capturedRequest.get().toolSpecifications().stream()
+                .anyMatch(tool -> tool.name().equals("searchConversationHistory")));
+        long sent = new AssistantInputBudget(4096, "gpt-4o").estimateInput(messages, descriptions);
+        assertEquals(sent + 128, request.getEstimatedInputTokens().longValue());
     }
 
     private org.example.ai_agent.dto.chat.ChatRequest baseRequest() {

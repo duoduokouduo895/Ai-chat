@@ -16,6 +16,18 @@ public interface MessageRepository extends R2dbcRepository<Message, Long> {
             """)
     Flux<org.example.ai_agent.conversation.CompletedContextTurn> findCompletedContext(Long conversationId);
 
+    /** Completed turns after a memory watermark, oldest first, for compaction. */
+    @org.springframework.data.r2dbc.repository.Query("""
+            SELECT t.id AS turn_id, u.content AS user_text, a.content AS assistant_text,
+                   a.timestamp AS completed_at, a.id AS sequence_id
+            FROM chat_turn t JOIN message u ON u.id = t.user_message_id
+            JOIN message a ON a.id = t.assistant_message_id
+            WHERE t.conversation_id = :conversationId AND t.status = 'COMPLETED' AND a.id > :afterSeq
+            ORDER BY a.id ASC LIMIT :limit
+            """)
+    Flux<org.example.ai_agent.conversation.CompletedContextTurn> findCompletedContextAfter(Long conversationId,
+                                                                                           Long afterSeq, int limit);
+
     @org.springframework.data.r2dbc.repository.Query("""
             SELECT m.id, m.conversation_id, m.timestamp, m.model,
                    CASE WHEN EXISTS (SELECT 1 FROM chat_turn t

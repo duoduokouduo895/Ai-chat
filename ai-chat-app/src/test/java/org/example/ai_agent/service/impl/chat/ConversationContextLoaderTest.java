@@ -35,7 +35,7 @@ class ConversationContextLoaderTest {
         var recent = new CompletedContextTurn("old", "history", "answer", LocalDateTime.of(2026, 1, 1, 0, 0));
         when(repository.findCompletedContext(8L)).thenReturn(Flux.just(recent));
         when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
-        StepVerifier.create(new ConversationContextLoader(repository, properties).prepare(request,
+        StepVerifier.create(new ConversationContextLoader(repository, properties, org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request,
                         AssistantInputBuilder.buildKnowledgeAugmentedPrompt(request, context)))
                 .assertNext(input -> {
                     assertTrue(input.contains("useful"));
@@ -60,7 +60,7 @@ class ConversationContextLoaderTest {
         var newer = new CompletedContextTurn("new", "recent", "answer", older.completedAt().plusSeconds(1));
         when(repository.findCompletedContext(8L)).thenReturn(Flux.just(newer, older));
         when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
-        StepVerifier.create(new ConversationContextLoader(repository, properties).prepare(request, "current"))
+        StepVerifier.create(new ConversationContextLoader(repository, properties, org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request, "current"))
                 .expectNext("current").verifyComplete();
         assertEquals(List.of(newer), request.getContextTurns());
         assertTrue(request.getEstimatedInputTokens() <= 2100);
@@ -73,7 +73,7 @@ class ConversationContextLoaderTest {
         when(repository.findLegacyContext(8L)).thenReturn(Flux.empty());
         var question = "字".repeat(4000);
         var request = ChatRequest.builder().conversationId(8L).model("test").prompt(question).build();
-        StepVerifier.create(new ConversationContextLoader(repository, new ModelCatalogProperties()).prepare(request, question))
+        StepVerifier.create(new ConversationContextLoader(repository, new ModelCatalogProperties(), org.example.ai_agent.service.memory.MemoryTestSupport.disabled()).prepare(request, question))
                 .expectError(ChatStreamClientException.class).verify();
         assertEquals(question, request.getPrompt());
         assertNull(request.getContextTurns());

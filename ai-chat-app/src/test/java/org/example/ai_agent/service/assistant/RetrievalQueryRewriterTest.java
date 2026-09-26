@@ -35,7 +35,7 @@ class RetrievalQueryRewriterTest {
 
     @Test
     void firstTurnDoesNotCallModel() {
-        StepVerifier.create(rewriter.rewrite(request, List.of()))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of())))
                 .expectNext(request.getPrompt()).verifyComplete();
         verifyNoInteractions(registry);
     }
@@ -51,7 +51,7 @@ class RetrievalQueryRewriterTest {
                         .finishReason(FinishReason.STOP).build());
             }
         });
-        StepVerifier.create(rewriter.rewrite(request, List.of(turn("old"), turn("middle"), turn("recent"), turn("A 产品"))))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("old"), turn("middle"), turn("recent"), turn("A 产品")))))
                 .expectNext("A 产品支持多少并发连接？").verifyComplete();
 
         var input = captured.get();
@@ -67,7 +67,7 @@ class RetrievalQueryRewriterTest {
 
     @Test
     void oversizedHistoryFallsBackWithoutCallingModel() {
-        StepVerifier.create(rewriter.rewrite(request, List.of(turn("字".repeat(4000)))))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("字".repeat(4000))))))
                 .expectNext(request.getPrompt()).verifyComplete();
         verifyNoInteractions(registry);
     }
@@ -80,7 +80,7 @@ class RetrievalQueryRewriterTest {
             ((StreamingChatResponseHandler) call.getArgument(1)).onError(new IllegalStateException("provider failed"));
             return null;
         }).when(model).chat(any(ChatRequest.class), any());
-        StepVerifier.create(rewriter.rewrite(request, List.of(turn("A 产品"))))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
                 .expectNext(request.getPrompt()).verifyComplete();
     }
 
@@ -97,7 +97,7 @@ class RetrievalQueryRewriterTest {
                     handler.onCompleteResponse(response);
                 }
             });
-            StepVerifier.create(rewriter.rewrite(request, List.of(turn("A 产品"))))
+            StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
                     .expectNext(request.getPrompt()).verifyComplete();
         }
     }
@@ -114,7 +114,7 @@ class RetrievalQueryRewriterTest {
         when(registry.getStreamingModel("chat-fast"))
                 .thenReturn(new RetryingStreamingChatModel(model, "chat-fast", 2, 0, Runnable::run));
 
-        StepVerifier.create(rewriter.rewrite(request, List.of(turn("A 产品"))))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
                 .expectNext(request.getPrompt()).expectComplete().verify(Duration.ofSeconds(7));
         verify(handle).cancel();
         verify(model, times(1)).chat(any(ChatRequest.class), any());
@@ -133,7 +133,7 @@ class RetrievalQueryRewriterTest {
         }).when(model).chat(any(ChatRequest.class), any());
         when(registry.getStreamingModel("chat-fast")).thenReturn(model);
 
-        StepVerifier.create(rewriter.rewrite(request, List.of(turn("A 产品"))))
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
                 .then(() -> {
                     try {
                         assertTrue(started.await(2, TimeUnit.SECONDS));

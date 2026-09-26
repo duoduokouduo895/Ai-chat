@@ -38,7 +38,16 @@ public class ChatRequest {
     private Integer resolvedInputBudgetTokens;
     @JsonIgnore
     private String resolvedTokenEstimatorModel;
-    
+    /** Rendered long-conversation memory placed before the selected recent turns. */
+    @JsonIgnore
+    private String memoryBlock;
+    /** Older turns are archived, so the history recall tool can find them. */
+    @JsonIgnore
+    private boolean historyRecallAvailable;
+    /** Un-summarized history is close to (or already over) the budget. */
+    @JsonIgnore
+    private boolean memoryCompactionDue;
+
     /**
      * 用户ID
      * 必填字段，用于标识发送消息的用户

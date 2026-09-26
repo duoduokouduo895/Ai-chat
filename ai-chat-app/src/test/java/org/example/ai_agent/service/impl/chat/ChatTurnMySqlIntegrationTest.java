@@ -230,7 +230,7 @@ class ChatTurnMySqlIntegrationTest {
         assertEquals(null, unavailable.documentTitle());
         var next = request("cross-model-" + UUID.randomUUID(), "next question");
         next.setConversationId(request.getConversationId()); next.setModel("different-model");
-        new ConversationContextLoader(contextMessages, new org.example.ai_agent.config.ai.ModelCatalogProperties())
+        new ConversationContextLoader(contextMessages, new org.example.ai_agent.config.ai.ModelCatalogProperties(), org.example.ai_agent.service.memory.MemoryTestSupport.disabled())
                 .prepare(next, "next question").block();
         assertEquals(1, next.getContextTurns().size());
         assertEquals("original question", next.getContextTurns().getFirst().userText());

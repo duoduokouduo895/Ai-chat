@@ -6,6 +6,7 @@ import org.example.ai_agent.observability.ChatStreamTelemetry;
 import org.example.ai_agent.service.AiChatService;
 import org.example.ai_agent.service.assistant.GeneralAssistant;
 import org.example.ai_agent.service.assistant.GeneralAssistantFactory;
+import org.example.ai_agent.service.memory.ConversationMemoryService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class AiChatServiceImpl implements AiChatService {
     private final ChatStreamTelemetry telemetry;
     private final long streamTimeoutMs;
     private final ChatRetrievalReader retrievalReader;
+    private final ConversationMemoryService conversationMemory;
     @Value("${assistant.chat-turn.max-duration-ms:300000}")
     private long maxTurnDurationMs = 300000;
 
@@ -36,7 +38,8 @@ public class AiChatServiceImpl implements AiChatService {
                              AssistantInputBuilder inputBuilder,
                              ChatStreamEventFactory eventFactory,
                              ChatStreamTelemetry telemetry,
-                             @Value("${assistant.stream.timeout-ms:60000}") long streamTimeoutMs, ChatRetrievalReader retrievalReader) {
+                             @Value("${assistant.stream.timeout-ms:60000}") long streamTimeoutMs, ChatRetrievalReader retrievalReader,
+                             ConversationMemoryService conversationMemory) {
         this.generalAssistantFactory = generalAssistantFactory;
         this.chatTurnLifecycle = chatTurnLifecycle;
         this.inputBuilder = inputBuilder;
@@ -44,6 +47,7 @@ public class AiChatServiceImpl implements AiChatService {
         this.telemetry = telemetry;
         this.streamTimeoutMs = streamTimeoutMs;
         this.retrievalReader = retrievalReader;
+        this.conversationMemory = conversationMemory;
     }
 
     @Override
@@ -187,6 +191,7 @@ public class AiChatServiceImpl implements AiChatService {
                             return chatTurnLifecycle.completeWithAiMessage(
                                             claim, chatRequest, responseBuilder.toString())
                                     .doOnNext(savedAiMessage -> log.info("Assistant AI消息已保存，ID: {}", savedAiMessage.getId()))
+                                    .doOnNext(savedAiMessage -> conversationMemory.afterTurnCompleted(chatRequest))
                                     .thenReturn(eventFactory.complete(claim.turnId()));
                         }
                         return chatTurnLifecycle.markEmptyResponse(claim)
