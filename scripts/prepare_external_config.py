@@ -24,7 +24,7 @@ SOURCE_FILES = (
 )
 KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 SENSITIVE_PARTS = re.compile(
-    r"password|passphrase|secret|credential|privatekey|apikey|accesskey|auth.?token",
+    r"password|passphrase|secret|credential|private[._-]?key|api[._-]?key|access[._-]?key|auth[._-]?token",
     re.IGNORECASE,
 )
 
@@ -71,7 +71,8 @@ def unescape(value: str) -> str:
         else:
             result.append(special.get(char, char))
             index += 1
-    return "".join(result)
+    # Java Unicode escapes encode UTF-16 code units, including surrogate pairs.
+    return "".join(result).encode("utf-16-le", "surrogatepass").decode("utf-16-le")
 
 
 def parse_line(line: str):

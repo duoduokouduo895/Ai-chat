@@ -31,7 +31,13 @@ class PrepareExternalConfigTest(unittest.TestCase):
         self.assertEqual(parsed[1], module.unescape(module.escape_property(parsed[1])))
 
     def test_camel_case_secret_is_flagged(self):
-        self.assertIsNotNone(module.SENSITIVE_PARTS.search("aliyun.oss.accessKeySecret"))
+        for key in ("aliyun.oss.accessKeySecret", "aliyun.oss.access-key-id",
+                    "langchain4j.open-ai.api-key", "provider.api_key"):
+            with self.subTest(key=key):
+                self.assertIsNotNone(module.SENSITIVE_PARTS.search(key))
+
+    def test_unicode_surrogate_pair_is_decoded_for_utf8_secret_file(self):
+        self.assertEqual("密钥😀", module.unescape(r"\u5bc6\u94a5\ud83d\ude00"))
 
     def test_multiline_secret_is_rejected_before_output_exists(self):
         with tempfile.TemporaryDirectory() as temporary:

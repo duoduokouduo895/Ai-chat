@@ -5,6 +5,16 @@
 [`prepare_external_config.py`](prepare_external_config.py) 中的 `SOURCE_FILES` 一致。
 不要把导出、密钥清单或生成目录放进 Git 仓库。
 
+家庭服务器也可使用 `export_nacos_config_from_mysql.py`：它在服务器内读取当前
+runtime 的 group/namespace，核对 MySQL 中的九份配置，再导出到新的 root 专用目录。
+MySQL bootstrap 密码由容器内的 Secret 提供，脚本不会打印配置值或密码。
+此入口只适用于现有家庭部署的 `mysql` 容器和 `nacos_v3_candidate` 数据库：
+
+```bash
+sudo python3 scripts/export_nacos_config_from_mysql.py
+sudo python3 scripts/export_nacos_config_from_mysql.py --output-dir /root/nacos-export
+```
+
 在服务器上使用 Python 3.10+，以 root 身份执行。以下命令只打印键名和数量，不打印值：
 
 ```bash
