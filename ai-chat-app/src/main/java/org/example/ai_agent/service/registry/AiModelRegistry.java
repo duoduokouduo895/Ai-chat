@@ -13,8 +13,6 @@ import org.example.ai_agent.config.ai.ModelCatalogProperties.ModelType;
 import org.example.ai_agent.config.ai.RetryingStreamingChatModel;
 import org.example.ai_agent.config.ai.http.Utf8SpringRestClientBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -35,8 +33,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class AiModelRegistry {
 
-    private static final String CONFIG_PREFIX = "langchain4j.open-ai";
-
     private final ModelCatalogProperties properties;
     private final Executor aiStreamingExecutor;
     private final AtomicReference<ModelSnapshot> snapshot = new AtomicReference<>(ModelSnapshot.empty());
@@ -50,13 +46,6 @@ public class AiModelRegistry {
     @PostConstruct
     public void init() {
         refresh();
-    }
-
-    @EventListener
-    public void handleEnvironmentChange(EnvironmentChangeEvent event) {
-        if (event.getKeys().stream().anyMatch(key -> key.startsWith(CONFIG_PREFIX))) {
-            refresh();
-        }
     }
 
     /**
@@ -191,7 +180,7 @@ public class AiModelRegistry {
             }
             if (config.getType() == null) {
                 config.setType(ModelType.CHAT);
-                log.warn("模型 {} 使用旧配置格式，已临时按 CHAT 类型加载，请迁移 Nacos 配置", alias);
+                log.warn("模型 {} 使用旧配置格式，已临时按 CHAT 类型加载，请迁移模型目录配置", alias);
             }
             if (!StringUtils.hasText(config.getProviderModelName()) && StringUtils.hasText(config.getModelName())) {
                 config.setProviderModelName(config.getModelName());
@@ -210,7 +199,7 @@ public class AiModelRegistry {
             embedding.setDimension(legacy.getEmbeddingDimension());
             embedding.setVersion(legacy.getEmbeddingVersion());
             prepared.putIfAbsent(properties.getDefaultEmbeddingModel(), embedding);
-            log.warn("未配置 EMBEDDING 模型，已启用迁移兼容模型 {}，请补齐 Nacos 模型目录",
+            log.warn("未配置 EMBEDDING 模型，已启用迁移兼容模型 {}，请补齐模型目录",
                     properties.getDefaultEmbeddingModel());
         }
         return prepared;

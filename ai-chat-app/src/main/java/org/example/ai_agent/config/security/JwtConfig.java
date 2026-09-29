@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * JWT 配置类
  * <p>
- * 该类使用 @ConfigurationProperties 注解从应用的配置文件（例如 application.properties 或 Nacos）
+ * 该类使用 @ConfigurationProperties 注解从应用的配置文件（例如 application.properties 或外部配置文件）
  * 中加载所有以 "jwt" 为前缀的配置项。
  * </p>
  */

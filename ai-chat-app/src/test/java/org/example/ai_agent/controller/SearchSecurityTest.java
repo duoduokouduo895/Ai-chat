@@ -38,8 +38,7 @@ import static org.mockito.Mockito.when;
 @WebFluxTest(controllers = {SearchController.class, AdminSearchController.class, SearchSecurityTest.TestOnlyController.class})
 @Import({SecurityConfig.class, RequestActorResolver.class})
 @TestPropertySource(properties = {
-        "app.security.cors.allowed-origins=http://localhost:3000",
-        "spring.cloud.nacos.config.import-check.enabled=false"
+        "app.security.cors.allowed-origins=http://localhost:3000"
 })
 @Tag("high-risk")
 class SearchSecurityTest {

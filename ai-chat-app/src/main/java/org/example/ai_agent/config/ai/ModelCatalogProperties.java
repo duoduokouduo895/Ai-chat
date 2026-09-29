@@ -2,7 +2,6 @@ package org.example.ai_agent.config.ai;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -14,7 +13,6 @@ import java.util.Map;
  */
 @Data
 @Component
-@RefreshScope
 @ConfigurationProperties(prefix = "langchain4j.open-ai")
 public class ModelCatalogProperties {
 
@@ -50,7 +48,7 @@ public class ModelCatalogProperties {
     }
 
     /**
-     * 旧 Nacos 配置发布期间的短期兼容参数。
+     * 旧模型目录配置格式的短期兼容参数。
      * 完成线上配置迁移后可以删除。
      */
     @Data

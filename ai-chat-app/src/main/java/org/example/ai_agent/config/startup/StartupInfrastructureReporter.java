@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 @Slf4j
 @Component
@@ -68,7 +69,7 @@ public class StartupInfrastructureReporter {
     @EventListener(ApplicationReadyEvent.class)
     public void reportAfterApplicationReady() {
         log.info("启动组件摘要开始");
-        reportNacos();
+        reportExternalConfig();
 
         Map<String, CompletableFuture<CheckResult>> checks = new LinkedHashMap<>();
         checks.put("MySQL", CompletableFuture.supplyAsync(this::checkMysql));
@@ -93,33 +94,22 @@ public class StartupInfrastructureReporter {
         log.info("启动组件摘要完成");
     }
 
-    private void reportNacos() {
-        boolean configEnabled = environment.getProperty("spring.cloud.nacos.config.enabled", Boolean.class, false);
-        boolean discoveryEnabled = environment.getProperty("spring.cloud.nacos.discovery.enabled", Boolean.class, false);
-        if (!configEnabled && !discoveryEnabled) {
-            log.warn("组件状态 | Nacos=DOWN | 未启用云端 Nacos 配置源，请使用 prod,nacos profile 启动");
-            return;
-        }
-
-        List<String> nacosSources = nacosPropertySources();
-        List<String> expectedDataIds = expectedNacosDataIds();
+    private void reportExternalConfig() {
+        List<String> configFiles = propertySourceNames(name -> name.contains("'file ["));
+        List<String> secretTrees = propertySourceNames(name -> name.startsWith("Config tree"));
         List<String> missingKeys = missingImportantConfigKeys();
 
-        String detail = "server=" + property("spring.cloud.nacos.config.server-addr", "未配置")
-                + ", group=" + property("spring.cloud.nacos.config.group", "DEFAULT_GROUP")
-                + ", namespace=" + property("spring.cloud.nacos.config.namespace", "")
-                + ", loadedSources=" + nacosSources.size()
-                + ", expectedDataIds=" + expectedDataIds.size()
+        String detail = "files=" + configFiles.size()
+                + ", secretTrees=" + secretTrees.size()
                 + ", keyConfig=" + (missingKeys.isEmpty() ? "齐全" : "缺失" + missingKeys);
 
-        if (nacosSources.isEmpty() || !missingKeys.isEmpty()) {
-            log.warn("组件状态 | Nacos=WARN | {}", detail);
+        if (configFiles.isEmpty() || secretTrees.isEmpty() || !missingKeys.isEmpty()) {
+            log.warn("组件状态 | ExternalConfig=WARN | {}，请检查 AICHAT_CONFIG_DIR / AICHAT_CONFIG_SECRETS_DIR", detail);
             return;
         }
 
-        log.info("组件状态 | Nacos=UP | {}", detail);
-        log.debug("Nacos PropertySource: {}", nacosSources);
-        log.debug("Nacos expected dataIds: {}", expectedDataIds);
+        log.info("组件状态 | ExternalConfig=UP | {}", detail);
+        log.debug("External PropertySource: files={}, secretTrees={}", configFiles, secretTrees);
     }
 
     private CheckResult checkMysql() {
@@ -225,7 +215,7 @@ public class StartupInfrastructureReporter {
         }
     }
 
-    private List<String> nacosPropertySources() {
+    private List<String> propertySourceNames(Predicate<String> filter) {
         List<String> names = new ArrayList<>();
         if (!(environment instanceof ConfigurableEnvironment configurableEnvironment)) {
             return names;
@@ -233,25 +223,11 @@ public class StartupInfrastructureReporter {
 
         for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
             String name = propertySource.getName();
-            if (name != null && name.toLowerCase().contains("nacos")) {
+            if (name != null && filter.test(name)) {
                 names.add(name);
             }
         }
         return names;
-    }
-
-    private List<String> expectedNacosDataIds() {
-        String configImport = property("spring.config.import", "");
-        if (configImport.isBlank()) {
-            return List.of();
-        }
-
-        return Arrays.stream(configImport.split(","))
-                .map(String::trim)
-                .filter(item -> item.contains("nacos:"))
-                .map(item -> item.substring(item.indexOf("nacos:") + "nacos:".length()))
-                .filter(item -> !item.isBlank())
-                .toList();
     }
 
     private List<String> missingImportantConfigKeys() {

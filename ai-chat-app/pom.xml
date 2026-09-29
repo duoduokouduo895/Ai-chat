@@ -114,16 +114,6 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- Nacos 配置中心和服务发现依赖 -->
-        <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
-        </dependency>
-
 
         <!-- RabbitMQ 消息队列依赖 -->
         <dependency>

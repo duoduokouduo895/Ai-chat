@@ -2,14 +2,12 @@ package org.example.ai_agent.config.properties;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 /** 上传入口的硬资源边界。配置中心值会再被代码上限约束。 */
 @Data
 @Component
-@RefreshScope
 @ConfigurationProperties(prefix = "knowledge-base.upload")
 public class DocumentUploadProperties {
 

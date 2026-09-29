@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
  * Flyway 数据库版本管理配置
  *
  * <p>本项目使用 R2DBC（响应式）作为业务数据源，而 Flyway 仅支持传统 JDBC。
- * 因此这里从 Nacos 已有的 spring.r2dbc.* 属性推导出 JDBC 连接字符串，
+ * 因此这里从已有的 spring.r2dbc.* 属性推导出 JDBC 连接字符串，
  * 用于启动期执行迁移脚本，不影响运行时业务链路。</p>
  *
  * <p>迁移脚本位于 classpath:db/migration/ 目录下，遵循 Flyway 命名规范：

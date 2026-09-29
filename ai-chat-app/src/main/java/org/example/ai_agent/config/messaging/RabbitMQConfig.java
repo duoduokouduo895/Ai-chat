@@ -6,7 +6,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.boot.amqp.autoconfigure.RabbitTemplateCustomizer;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.slf4j.Logger;
@@ -19,7 +18,6 @@ import org.slf4j.LoggerFactory;
  * 2. 支持异步AI请求处理，提升系统响应速度
  * 3. 实现任务重试机制，提高处理成功率
  * 4. 支持流量削峰，保护系统资源
- * 5. 集成Nacos配置中心，支持动态配置管理
  * 
  * 故障排除说明：
  * 如果遇到 "Failed to check/redeclare auto-delete queue(s)" 错误：
@@ -33,7 +31,6 @@ import org.slf4j.LoggerFactory;
  * 4. 重启应用程序以重新创建队列和交换机
  */
 @Configuration
-@RefreshScope
 public class RabbitMQConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(RabbitMQConfig.class);

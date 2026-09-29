@@ -2,7 +2,6 @@ package org.example.ai_agent.config.properties;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component;
  */
 @Data
 @Component
-@RefreshScope
 @ConfigurationProperties(prefix = "aliyun.oss")
 public class OssProperties {
     
@@ -54,7 +52,6 @@ public class OssProperties {
  */
 @Data
 @Component
-@RefreshScope
 @ConfigurationProperties(prefix = "knowledge-base")
 class KnowledgeBaseProperties {
     
