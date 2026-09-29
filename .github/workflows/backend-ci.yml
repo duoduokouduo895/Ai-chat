@@ -1,0 +1,119 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, "architecture/**"]
+    paths:
+      - "ai-chat-*/**"
+      - "pom.xml"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "ai-chat-*/**"
+      - "pom.xml"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Mirrors ../AI-ops/deployment/home/compose.middleware.yaml.
+  MYSQL_IMAGE: mysql:8.0.30
+  # Throwaway container that exists only for this job; not a real credential.
+  MYSQL_ROOT_PASSWORD: ci-only-root
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # MySQL integration tests skip themselves here: AI_CHAT_MYSQL_IT_ENABLED is unset.
+      - run: mvn -B -ntp -pl ai-chat-app -am test
+
+  mysql-integration:
+    name: MySQL integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # A plain container instead of a service container: services cannot pass the
+      # mysqld flags production uses (charset, collation, name resolution).
+      - name: Start MySQL
+        run: |
+          docker run -d --name mysql -p 3306:3306 \
+            -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" -e MYSQL_ROOT_HOST=% -e TZ=Asia/Shanghai \
+            "$MYSQL_IMAGE" mysqld \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci \
+            --skip-name-resolve
+          for attempt in $(seq 1 60); do
+            # The image's temporary initialization server has networking disabled.
+            # Check TCP to wait for the final server, rather than its initial socket.
+            if docker exec mysql mysql --protocol=TCP -h127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+              echo "MySQL is ready"; exit 0
+            fi
+            sleep 2
+          done
+          docker logs mysql
+          exit 1
+
+      - name: Compile once
+        run: mvn -B -ntp -pl ai-chat-app -am test-compile
+
+      # Each class migrates its own schema from a known version (e.g. V6 -> V7 upgrade
+      # probes), so every class gets a fresh database named ai_chat_it_<class>.
+      - name: Run each MySQL integration test class in its own database
+        env:
+          AI_CHAT_MYSQL_IT_ENABLED: "true"
+          AI_CHAT_MYSQL_IT_HOST: 127.0.0.1
+          AI_CHAT_MYSQL_IT_PORT: "3306"
+          AI_CHAT_MYSQL_IT_USERNAME: root
+          AI_CHAT_MYSQL_IT_PASSWORD: ${{ env.MYSQL_ROOT_PASSWORD }}
+        run: |
+          classes=$(grep -rl 'AI_CHAT_MYSQL_IT_ENABLED' ai-chat-app/src/test/java \
+            | xargs -n1 basename | sed 's/\.java$//' | sort)
+          test -n "$classes" || { echo "No MySQL integration test classes found"; exit 1; }
+          failed=""
+          for class in $classes; do
+            database="ai_chat_it_$(echo "$class" | tr '[:upper:]' '[:lower:]')"
+            docker exec mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e \
+              "CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            echo "::group::$class ($database)"
+            if ! AI_CHAT_MYSQL_IT_DATABASE="$database" mvn -B -ntp -pl ai-chat-app -am test \
+                -Dtest="$class" -Dsurefire.failIfNoSpecifiedTests=false; then
+              failed="$failed $class"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::MySQL integration tests failed:$failed"
+            exit 1
+          fi
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-integration-surefire-reports
+          path: ai-chat-app/target/surefire-reports/
+          retention-days: 7
