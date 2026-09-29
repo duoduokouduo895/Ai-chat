@@ -4,8 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.service.RagService;
 import org.example.ai_agent.service.assistant.RetrievalQueryRewriter;
+import org.example.ai_agent.service.impl.knowledge.RetrievalBudget;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+
+import java.time.Duration;
 
 @Slf4j
 @Component
@@ -14,6 +18,9 @@ public class AssistantInputBuilder {
     private final RagService ragService;
     private final ConversationContextLoader contextLoader;
     private final RetrievalQueryRewriter queryRewriter;
+    /** Pre-generation budget shared by the optional retrieval steps (rewrite, rerank). */
+    @Value("${assistant.retrieval.budget-ms:2500}")
+    private long retrievalBudgetMs = 2500;
 
     public AssistantInputBuilder(RagService ragService, ConversationContextLoader contextLoader,
                                  RetrievalQueryRewriter queryRewriter) {
@@ -45,6 +52,7 @@ public class AssistantInputBuilder {
                             ? request.getTrimmedMessage() : buildKnowledgeAugmentedPrompt(request, context);
                 })
                 .flatMap(input -> contextLoader.prepare(request, input, history)))
+                .contextWrite(context -> RetrievalBudget.start(context, Duration.ofMillis(Math.max(0L, retrievalBudgetMs))))
                 .doOnSuccess(prompt -> log.info("知识增强输入已构建: conversationId={}, knowledgeBaseCount={}",
                         request.getConversationId(),
                         request.getKnowledgeBaseIds() != null ? request.getKnowledgeBaseIds().size() : 0));

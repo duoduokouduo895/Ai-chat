@@ -28,6 +28,31 @@ class RerankClientTest {
                 .verifyComplete();
     }
 
+    @Test
+    void exhaustedBudgetSkipsRerankAndCapKeepsCallWithinBudget() throws Exception {
+        // Accepts connections but never answers: an uncapped call would wait the full 3s timeout.
+        try (var silentServer = new java.net.ServerSocket(0)) {
+            RerankClient budgeted = new RerankClient();
+            ReflectionTestUtils.setField(budgeted, "enabled", true);
+            ReflectionTestUtils.setField(budgeted, "baseUrl", "http://127.0.0.1:" + silentServer.getLocalPort());
+            ReflectionTestUtils.setField(budgeted, "model", "rerank-model");
+            ReflectionTestUtils.setField(budgeted, "timeoutMs", 3000);
+            ReflectionTestUtils.setField(budgeted, "topN", 20);
+            var failed = org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.FAILED;
+
+            StepVerifier.create(budgeted.rerankDetailed("query", candidates, 1, java.time.Duration.ofMillis(20)))
+                    .assertNext(result -> {
+                        assertEquals(List.of("first"), result.candidates().stream().map(RetrievalCandidate::content).toList());
+                        assertEquals(failed, result.channel().status());
+                    })
+                    .expectComplete().verify(java.time.Duration.ofMillis(500));
+
+            StepVerifier.create(budgeted.rerankDetailed("query", candidates, 2, java.time.Duration.ofMillis(300)))
+                    .assertNext(result -> assertEquals(failed, result.channel().status()))
+                    .expectComplete().verify(java.time.Duration.ofMillis(2000));
+        }
+    }
+
     private final RerankClient client = new RerankClient();
     private final List<RetrievalCandidate> candidates = List.of(
             candidate("first", 0.4),

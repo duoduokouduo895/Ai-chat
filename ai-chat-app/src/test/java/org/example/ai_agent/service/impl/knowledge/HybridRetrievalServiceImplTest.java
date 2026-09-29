@@ -91,4 +91,50 @@ class HybridRetrievalServiceImplTest {
                 })
                 .verifyComplete();
     }
+
+    @Test
+    void rerankIsCappedByTheCallersRemainingBudget() {
+        KnowledgeBase knowledgeBase = new KnowledgeBase();
+        knowledgeBase.setId(7L);
+        knowledgeBase.setCreatorId(42L);
+        knowledgeBase.setIsPublic(false);
+        knowledgeBase.setStatus("ACTIVE");
+
+        KnowledgeChunkDocument document = new KnowledgeChunkDocument();
+        document.setChunkId(100L);
+        document.setDocumentId(20L);
+        document.setKnowledgeBaseId(7L);
+        document.setContent("BM25 命中的内容");
+
+        HybridRetrievalServiceImpl service = new HybridRetrievalServiceImpl(
+                embeddingService,
+                embeddingStoreRegistry,
+                knowledgeChunkSearchService,
+                rerankClient,
+                new KnowledgeBaseAccessResolver(knowledgeBaseRepository));
+        ReflectionTestUtils.setField(service, "retrievalMode", "bm25");
+        ReflectionTestUtils.setField(service, "bm25TimeoutMs", 1000);
+
+        when(knowledgeBaseRepository.findAllById(any(Iterable.class))).thenReturn(Flux.just(knowledgeBase));
+        when(knowledgeChunkSearchService.searchAuthorizedChunks(any()))
+                .thenReturn(Flux.just(new KnowledgeChunkSearchService.KnowledgeChunkSearchHit(document, 8.5D)));
+        var cap = new java.util.concurrent.atomic.AtomicReference<java.time.Duration>();
+        when(rerankClient.rerankDetailed(eq("退款规则"), anyList(), eq(5), any(java.time.Duration.class)))
+                .thenAnswer(invocation -> {
+                    cap.set(invocation.getArgument(3));
+                    return Mono.just(new RerankClient.RerankResult(
+                            invocation.getArgument(1),
+                            new org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel(
+                                    "Rerank",
+                                    org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.SUCCEEDED,
+                                    0)));
+                });
+
+        StepVerifier.create(service.retrieveDetailed("退款规则", List.of(7L), 5, 0.3D, 42L, false)
+                        .contextWrite(context -> RetrievalBudget.start(context, java.time.Duration.ofSeconds(2))))
+                .assertNext(outcome -> org.junit.jupiter.api.Assertions.assertEquals(1, outcome.candidates().size()))
+                .verifyComplete();
+        org.junit.jupiter.api.Assertions.assertTrue(cap.get().compareTo(java.time.Duration.ofSeconds(2)) <= 0);
+        org.junit.jupiter.api.Assertions.assertTrue(cap.get().toMillis() > 0);
+    }
 }

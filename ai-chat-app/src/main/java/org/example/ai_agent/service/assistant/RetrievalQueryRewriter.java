@@ -11,13 +11,16 @@ import org.example.ai_agent.conversation.CompletedContextTurn;
 import org.example.ai_agent.dto.chat.ChatRequest;
 import org.example.ai_agent.service.memory.ConversationHistory;
 import org.example.ai_agent.service.registry.AiModelRegistry;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -30,8 +33,19 @@ public class RetrievalQueryRewriter {
             """;
     private static final String SUMMARY_PREFIX = "更早对话的摘要（仅用于理解指代）：\n";
     private static final String SUMMARY_ACK = "已了解更早的对话背景。";
+    /** Pronouns, deictics and follow-up particles that make a question depend on earlier turns. */
+    private static final Pattern CONTEXT_CUE = Pattern.compile(
+            "[它他她这那该其此]|上述|上面|前面|前者|后者|刚才|之前|以上|同样|还有|呢[？?]?$"
+                    + "|(?i)\\b(it|its|they|them|their|this|that|these|those|he|she|him|her|above|previous|same)\\b");
+    /** Questions this short are usually elliptical follow-ups ("价格呢？", "为什么"). */
+    private static final int SHORT_QUESTION_CODE_POINTS = 8;
     private final AiModelRegistry models;
     private final ModelCatalogProperties properties;
+    @Value("${assistant.query-rewrite.timeout-ms:1500}")
+    private long timeoutMs = 1500;
+    /** Optional small, fast chat model for rewriting; blank uses the conversation's model. */
+    @Value("${assistant.query-rewrite.model-id:}")
+    private String rewriteModelId = "";
 
     public RetrievalQueryRewriter(AiModelRegistry models, ModelCatalogProperties properties) {
         this.models = models;
@@ -43,8 +57,10 @@ public class RetrievalQueryRewriter {
         List<CompletedContextTurn> history = conversation.turns();
         String summary = conversation.memory().summary();
         if (history.isEmpty() && (summary == null || summary.isBlank())) return Mono.just(question);
+        if (!dependsOnContext(question)) return Mono.just(question);
+        String modelId = StringUtils.hasText(rewriteModelId) ? rewriteModelId.trim() : request.getEffectiveModelId();
         return Mono.defer(() -> {
-            var config = properties.getModels().get(request.getEffectiveModelId());
+            var config = properties.getModels().get(modelId);
             String tokenizer = config == null ? null : config.getTokenEstimatorModel();
             var modelBudget = new AssistantInputBudget(config == null ? null : config.getInputBudgetTokens(), tokenizer);
             var budget = new AssistantInputBudget(Math.min(4096, modelBudget.limit()), tokenizer);
@@ -81,7 +97,7 @@ public class RetrievalQueryRewriter {
                     ? 256 : Math.min(256, config.getMaxTokens());
             var input = dev.langchain4j.model.chat.request.ChatRequest.builder()
                     .messages(messages).maxOutputTokens(outputLimit).build();
-            return ModelCompletions.complete(models.getStreamingModel(request.getEffectiveModelId()), input,
+            return ModelCompletions.complete(models.getStreamingModel(modelId), input,
                             budget.limit(), tokenizer)
                     .map(response -> {
                         String rewritten = response.aiMessage().text();
@@ -92,11 +108,21 @@ public class RetrievalQueryRewriter {
                                 ? rewritten.strip() : question;
                     });
         }).subscribeOn(Schedulers.boundedElastic())
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofMillis(Math.max(1L, timeoutMs)))
                 .onErrorResume(error -> {
                     log.warn("检索问题改写失败，使用原问题: conversationId={}, errorType={}",
                             request.getConversationId(), error.getClass().getSimpleName());
                     return Mono.just(question);
                 });
+    }
+
+    /**
+     * Rewriting costs a full model round trip before retrieval, so it only runs for questions
+     * that cannot stand alone: short follow-ups or ones carrying a reference to earlier turns.
+     */
+    static boolean dependsOnContext(String question) {
+        if (question == null || question.isBlank()) return false;
+        String text = question.strip();
+        return text.codePointCount(0, text.length()) <= SHORT_QUESTION_CODE_POINTS || CONTEXT_CUE.matcher(text).find();
     }
 }

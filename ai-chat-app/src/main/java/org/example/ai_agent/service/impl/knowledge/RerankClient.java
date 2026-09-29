@@ -25,6 +25,9 @@ public class RerankClient {
     public record RerankResult(List<RetrievalCandidate> candidates,
                                org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.Channel channel) { }
 
+    /** Below this a rerank round trip cannot realistically finish, so it is not attempted. */
+    static final long MIN_BUDGETED_TIMEOUT_MS = 100;
+
     @Value("${knowledge-base.rag.enable-reranking:false}")
     private boolean enabled;
 
@@ -48,6 +51,15 @@ public class RerankClient {
     }
 
     public Mono<RerankResult> rerankDetailed(String query, List<RetrievalCandidate> candidates, int maxResults) {
+        return rerankDetailed(query, candidates, maxResults, null);
+    }
+
+    /**
+     * Reranks within {@code timeoutCap} when given: the call never outlives the caller's budget,
+     * and a budget too small for a round trip degrades to the RRF order without calling out.
+     */
+    public Mono<RerankResult> rerankDetailed(String query, List<RetrievalCandidate> candidates, int maxResults,
+                                             Duration timeoutCap) {
         long started = System.nanoTime();
         if (!enabled || candidates == null || candidates.isEmpty()) {
             return Mono.just(new RerankResult(limit(candidates, maxResults), channel(
@@ -55,6 +67,14 @@ public class RerankClient {
         }
         if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(model)) {
             log.warn("Rerank 已启用但缺少调用配置，降级使用 RRF 结果");
+            return Mono.just(new RerankResult(limit(candidates, maxResults), channel(
+                    org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.FAILED, started)));
+        }
+
+        long effectiveTimeoutMs = timeoutCap == null
+                ? Math.max(1, timeoutMs) : Math.min(Math.max(1, timeoutMs), timeoutCap.toMillis());
+        if (timeoutCap != null && effectiveTimeoutMs < MIN_BUDGETED_TIMEOUT_MS) {
+            log.info("检索预算不足以完成 Rerank，降级使用 RRF 结果: remainingMs={}", effectiveTimeoutMs);
             return Mono.just(new RerankResult(limit(candidates, maxResults), channel(
                     org.example.ai_agent.knowledge.retrieval.RetrievalOutcome.ChannelStatus.FAILED, started)));
         }
@@ -81,7 +101,7 @@ public class RerankClient {
         return request.bodyValue(payload)
                 .retrieve()
                 .bodyToMono(String.class)
-                .timeout(Duration.ofMillis(Math.max(1, timeoutMs)))
+                .timeout(Duration.ofMillis(effectiveTimeoutMs))
                 .map(body -> parseScores(rerankCandidates, body, maxResults))
                 .map(parsed -> new RerankResult(parsed.candidates(), channel(
                         parsed.valid()

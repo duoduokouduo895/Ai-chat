@@ -41,6 +41,41 @@ class RetrievalQueryRewriterTest {
     }
 
     @Test
+    void standaloneQuestionDoesNotCallModelEvenWithHistory() {
+        var standalone = org.example.ai_agent.dto.chat.ChatRequest.builder()
+                .conversationId(8L).model("chat-fast").prompt("请介绍 Redis 持久化机制的原理").build();
+        StepVerifier.create(rewriter.rewrite(standalone, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
+                .expectNext(standalone.getPrompt()).verifyComplete();
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    void onlyShortOrReferringQuestionsDependOnContext() {
+        assertTrue(RetrievalQueryRewriter.dependsOnContext("价格呢？"));
+        assertTrue(RetrievalQueryRewriter.dependsOnContext("它支持多少并发连接？"));
+        assertTrue(RetrievalQueryRewriter.dependsOnContext("上面提到的方案有什么缺点"));
+        assertTrue(RetrievalQueryRewriter.dependsOnContext("How many connections does it support?"));
+        assertFalse(RetrievalQueryRewriter.dependsOnContext("请介绍 Redis 持久化机制的原理"));
+        assertFalse(RetrievalQueryRewriter.dependsOnContext("How does Redis persist data to disk?"));
+        assertFalse(RetrievalQueryRewriter.dependsOnContext(" "));
+    }
+
+    @Test
+    void configuredRewriteModelIsUsedInsteadOfConversationModel() {
+        org.springframework.test.util.ReflectionTestUtils.setField(rewriter, "rewriteModelId", "rewrite-small");
+        when(registry.getStreamingModel("rewrite-small")).thenReturn(new StreamingChatModel() {
+            @Override
+            public void chat(ChatRequest input, StreamingChatResponseHandler handler) {
+                handler.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from("A 产品支持多少并发连接？"))
+                        .finishReason(FinishReason.STOP).build());
+            }
+        });
+        StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
+                .expectNext("A 产品支持多少并发连接？").verifyComplete();
+        verify(registry, never()).getStreamingModel("chat-fast");
+    }
+
+    @Test
     void rewritesUsingOnlyThreeRecentWholeTurnsWithoutTools() {
         var captured = new AtomicReference<ChatRequest>();
         when(registry.getStreamingModel("chat-fast")).thenReturn(new StreamingChatModel() {
@@ -115,7 +150,7 @@ class RetrievalQueryRewriterTest {
                 .thenReturn(new RetryingStreamingChatModel(model, "chat-fast", 2, 0, Runnable::run));
 
         StepVerifier.create(rewriter.rewrite(request, org.example.ai_agent.service.memory.ConversationHistory.of(List.of(turn("A 产品")))))
-                .expectNext(request.getPrompt()).expectComplete().verify(Duration.ofSeconds(7));
+                .expectNext(request.getPrompt()).expectComplete().verify(Duration.ofSeconds(3));
         verify(handle).cancel();
         verify(model, times(1)).chat(any(ChatRequest.class), any());
     }

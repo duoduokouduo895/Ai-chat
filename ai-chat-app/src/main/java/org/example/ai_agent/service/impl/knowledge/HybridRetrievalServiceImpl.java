@@ -109,7 +109,11 @@ public class HybridRetrievalServiceImpl implements HybridRetrievalService {
                                 if (candidates.isEmpty()) {
                                     return Mono.just(RetrievalOutcome.of(candidates, channels, elapsedMs(started)));
                                 }
-                                return rerankClient.rerankDetailed(query, candidates, finalMaxResults)
+                                return Mono.deferContextual(context -> RetrievalBudget.remaining(context)
+                                                .map(remaining -> rerankClient.rerankDetailed(
+                                                        query, candidates, finalMaxResults, remaining))
+                                                .orElseGet(() -> rerankClient.rerankDetailed(
+                                                        query, candidates, finalMaxResults)))
                                         .map(ranked -> {
                                             List<Channel> allChannels = new ArrayList<>(channels);
                                             allChannels.add(ranked.channel());
