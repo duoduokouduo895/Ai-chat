@@ -58,7 +58,6 @@ compose_for() {
   AICHAT_RELEASE="$(basename "${target_release}")" AICHAT_APP_PORT="${app_port}" \
   docker compose --project-name "${project_name}" --project-directory "${target_release}" \
     -f "${target_release}/compose.cloud.yaml" \
-    -f "${target_release}/deploy/compose.nacos-auth.yaml" \
     -f "${target_release}/deploy/compose.elasticsearch-auth.yaml" \
     --env-file "${target_release}/versions.env" --env-file "${runtime_env}" "$@"
 }

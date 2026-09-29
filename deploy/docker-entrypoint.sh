@@ -20,19 +20,6 @@ load_secret() {
   unset secret_value
 }
 
-case "${AICHAT_REQUIRE_NACOS_AUTH:-false}" in
-  true)
-    load_secret NACOS_USERNAME /run/secrets/nacos.username
-    load_secret NACOS_PASSWORD /run/secrets/nacos.password
-    ;;
-  false)
-    ;;
-  *)
-    echo "AICHAT_REQUIRE_NACOS_AUTH must be true or false" >&2
-    exit 78
-    ;;
-esac
-
 case "${AICHAT_REQUIRE_ELASTICSEARCH_AUTH:-false}" in
   true)
     load_secret SPRING_ELASTICSEARCH_USERNAME /run/secrets/elasticsearch.username

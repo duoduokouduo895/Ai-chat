@@ -8,11 +8,13 @@ services:
     init: true
     environment:
       SPRING_APPLICATION_NAME: ${AICHAT_SERVICE_NAME:?Set a mode-specific service name}
-      SPRING_PROFILES_ACTIVE: prod,nacos
-      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:?Set the mode-specific Nacos server address}
-      NACOS_GROUP: ${NACOS_GROUP:-DEFAULT_GROUP}
-      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
-      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "${AICHAT_NACOS_DISCOVERY_ENABLED:?Set the Nacos discovery mode}"
+      SPRING_PROFILES_ACTIVE: prod
+      # External configuration mounted read-only below: application.properties plus
+      # secrets/ holding one property per file (Spring configtree).
+      AICHAT_CONFIG_DIR: /opt/aichat/config
+      AICHAT_CONFIG_SECRETS_DIR: /opt/aichat/config/secrets
+      # Production must fail during config loading when either mount member is absent.
+      SPRING_CONFIG_IMPORT: file:/opt/aichat/config/application.properties,configtree:/opt/aichat/config/secrets/
       SPRING_R2DBC_HOST: mysql
       SPRING_DATA_REDIS_HOST: redis
       SPRING_RABBITMQ_HOST: rabbitmq
@@ -29,7 +31,6 @@ services:
       AIDIAG_SERVICE_NAME: ${AICHAT_SERVICE_NAME:?Set a mode-specific service name}
       AICHAT_OBSERVABILITY_OPS_LOG_FILE: ${AICHAT_OPS_LOG_FILE:?Set a mode-specific operations log file}
       LANGCHAIN4J_OPEN_AI_RELIABILITY_WARMUP_ENABLED: "${AICHAT_MODEL_WARMUP_ENABLED:?Set the model warm-up mode}"
-      AICHAT_REQUIRE_NACOS_AUTH: "${AICHAT_REQUIRE_NACOS_AUTH:-false}"
       AICHAT_REQUIRE_ELASTICSEARCH_AUTH: "${AICHAT_REQUIRE_ELASTICSEARCH_AUTH:-false}"
       SERVER_SHUTDOWN: graceful
       SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 20s
@@ -49,7 +50,6 @@ services:
       - "9091"
     networks:
       middleware:
-      nacos:
       telemetry:
         aliases:
           - ${AICHAT_NETWORK_ALIAS:?Set a mode-specific network alias}
@@ -66,10 +66,14 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=512m,mode=1777
-      - /opt/aichat/nacos:size=32m,mode=0700,uid=10001,gid=10001
-      - /opt/aichat/logs/nacos:size=32m,mode=0700,uid=10001,gid=10001
     volumes:
       - ${AICHAT_LOG_DIR:-/opt/ai-chat/logs}:/var/log/ai-chat
+      - type: bind
+        source: ${AICHAT_CONFIG_HOST_DIR:?Set the host directory holding application.properties and secrets/}
+        target: /opt/aichat/config
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - source: aidiag_read_api_secret
         target: aidiag.read-api.secret
@@ -80,9 +84,6 @@ networks:
   middleware:
     external: true
     name: middleware-net
-  nacos:
-    external: true
-    name: nacos-net
   telemetry:
     external: true
     name: aidiag-telemetry

@@ -66,10 +66,7 @@ if [[ "${mode}" == candidate ]]; then
   expected_service="ai-chat-candidate"
   expected_environment="cloud-candidate"
   expected_ops_log="/var/log/ai-chat/operations.jsonl"
-  expected_nacos_server="nacos-v3-candidate:8848"
   expected_elasticsearch_server="elasticsearch-v9-candidate:9200"
-  require_value AICHAT_REQUIRE_NACOS_AUTH true
-  require_value AICHAT_NACOS_DISCOVERY_ENABLED true
   require_value AICHAT_RABBITMQ_DYNAMIC false
   require_value AICHAT_RABBITMQ_LISTENER_AUTO_STARTUP false
   require_value AICHAT_SCHEDULING_ENABLED false
@@ -84,14 +81,11 @@ else
   expected_service="ai-chat-production"
   expected_environment="cloud-production"
   expected_ops_log="/var/log/ai-chat/production-operations.jsonl"
-  expected_nacos_server="nacos-v3:8848"
   expected_elasticsearch_server="elasticsearch-v9:9200"
   require_value AICHAT_PRODUCTION_CONFIRMED true
   cutover_id="$(env_value AICHAT_CUTOVER_ID)"
   [[ "${cutover_id}" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$ ]] \
     || { echo "AICHAT_CUTOVER_ID must identify the approved maintenance window" >&2; exit 69; }
-  require_value AICHAT_REQUIRE_NACOS_AUTH true
-  require_value AICHAT_NACOS_DISCOVERY_ENABLED true
   require_value AICHAT_RABBITMQ_DYNAMIC true
   require_value AICHAT_RABBITMQ_LISTENER_AUTO_STARTUP true
   require_value AICHAT_SCHEDULING_ENABLED true
@@ -109,7 +103,6 @@ require_value AICHAT_NETWORK_ALIAS "${expected_service}"
 require_value DEPLOYMENT_ENVIRONMENT "${expected_environment}"
 require_value AICHAT_OPS_LOG_FILE "${expected_ops_log}"
 require_value AICHAT_HEALTH_CHECK_ENABLED false
-require_value NACOS_SERVER_ADDR "${expected_nacos_server}"
 require_value ELASTICSEARCH_SERVER_ADDR "${expected_elasticsearch_server}"
 
 if [[ "${mode}" == production ]]; then
@@ -132,7 +125,7 @@ management_port="$(env_value AICHAT_MANAGEMENT_PORT)"
 export AICHAT_APP_PORT="${app_port}"
 export AICHAT_RELEASE="$(basename "${release}")"
 
-for network in middleware-net nacos-net aidiag-telemetry; do
+for network in middleware-net aidiag-telemetry; do
   docker network inspect "${network}" >/dev/null
 done
 
@@ -140,21 +133,6 @@ aidiag_secrets_dir="$(env_value AIDIAG_SECRETS_DIR)"
 aidiag_secrets_dir="${aidiag_secrets_dir:-/opt/aidiag/runtime/.secrets}"
 [[ -s "${aidiag_secrets_dir}/aidiag_read_api_secret" ]] \
   || { echo "AIDiag read secret is missing or empty" >&2; exit 69; }
-
-require_nacos_auth="$(env_value AICHAT_REQUIRE_NACOS_AUTH)"
-require_nacos_auth="${require_nacos_auth:-false}"
-[[ "${require_nacos_auth}" == true || "${require_nacos_auth}" == false ]] \
-  || { echo "AICHAT_REQUIRE_NACOS_AUTH must be true or false" >&2; exit 69; }
-
-if [[ "${require_nacos_auth}" == true ]]; then
-  [[ -f "${release}/deploy/compose.nacos-auth.yaml" \
-    && -x "${release}/deploy/verify-runtime-secret-permissions.sh" ]] \
-    || { echo "Nacos auth overlay or Secret permission gate is missing" >&2; exit 69; }
-  aichat_secrets_dir="$(env_value AICHAT_SECRETS_DIR)"
-  aichat_secrets_dir="${aichat_secrets_dir:-${runtime_dir}/.secrets}"
-  "${release}/deploy/verify-runtime-secret-permissions.sh" \
-    "${aichat_secrets_dir}" nacos_username nacos_password
-fi
 
 require_elasticsearch_auth="$(env_value AICHAT_REQUIRE_ELASTICSEARCH_AUTH)"
 require_elasticsearch_auth="${require_elasticsearch_auth:-false}"
@@ -190,16 +168,12 @@ compose_for() {
   local target_files=()
   if [[ -f "${target_release}/compose.cloud.yaml" ]]; then
     target_files=(-f "${target_release}/compose.cloud.yaml")
-    if [[ "${require_nacos_auth}" == true ]]; then
-      target_files+=(-f "${target_release}/deploy/compose.nacos-auth.yaml")
-    fi
     if [[ "${require_elasticsearch_auth}" == true ]]; then
       target_files+=(-f "${target_release}/deploy/compose.elasticsearch-auth.yaml")
     fi
   elif [[ "${mode}" == candidate && -f "${target_release}/compose.candidate.yaml" ]]; then
-    # One-release compatibility seam: the first authenticated Nacos 3 candidate can
-    # still restore the currently active pre-module Stage 5 candidate if its health
-    # gate fails. The legacy Compose file owns its old Nacos/auth semantics.
+    # One-release compatibility seam: restores the pre-module Stage 5 candidate if a
+    # health gate fails. The legacy Compose file owns its own configuration semantics.
     target_files=(-f "${target_release}/compose.candidate.yaml")
   else
     echo "Release does not support the required ${mode} deployment mode: ${target_release}" >&2

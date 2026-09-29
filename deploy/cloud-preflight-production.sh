@@ -61,9 +61,7 @@ require_value AICHAT_IMAGE ai-chat-backend:production
 require_value AICHAT_SERVICE_NAME ai-chat-production
 require_value AICHAT_NETWORK_ALIAS ai-chat-production
 require_value DEPLOYMENT_ENVIRONMENT cloud-production
-require_value NACOS_SERVER_ADDR nacos-v3:8848
 require_value ELASTICSEARCH_SERVER_ADDR elasticsearch-v9:9200
-require_value AICHAT_NACOS_DISCOVERY_ENABLED true
 require_value AICHAT_RABBITMQ_DYNAMIC true
 require_value AICHAT_RABBITMQ_LISTENER_AUTO_STARTUP true
 require_value AICHAT_SCHEDULING_ENABLED true
@@ -71,7 +69,6 @@ require_value AICHAT_FLYWAY_ENABLED true
 require_value AICHAT_ELASTICSEARCH_SYNC_ENABLED true
 require_value AICHAT_HEALTH_CHECK_ENABLED false
 require_value AICHAT_MODEL_WARMUP_ENABLED true
-require_value AICHAT_REQUIRE_NACOS_AUTH true
 require_value AICHAT_REQUIRE_ELASTICSEARCH_AUTH true
 require_value AICHAT_ELASTICSEARCH_REQUIRED_VERSION 9.3.2
 require_value AICHAT_ELASTICSEARCH_REQUIRE_IK true
@@ -98,14 +95,12 @@ done
 [[ "$(env_value AICHAT_APP_PORT)" != "$(env_value AICHAT_MANAGEMENT_PORT)" ]] \
   || { echo "Production application and management ports must differ" >&2; exit 69; }
 
-for network in middleware-net nacos-net aidiag-telemetry; do
+for network in middleware-net aidiag-telemetry; do
   docker network inspect "${network}" >/dev/null \
     || { echo "Required Docker network is missing: ${network}" >&2; exit 70; }
 done
 
 for spec in \
-  'nacos_username:400:10001:10001' \
-  'nacos_password:400:10001:10001' \
   'elasticsearch_username:400:10001:10001' \
   'elasticsearch_password:400:10001:10001'; do
   IFS=: read -r name mode uid gid <<<"${spec}"
@@ -121,7 +116,7 @@ for spec in \
     || { echo "Production and candidate must not share the same Secret: ${name}" >&2; exit 78; }
 done
 
-for spec in nacos-v3-candidate:nacos-v3:nacos-net elasticsearch-v9-candidate:elasticsearch-v9:middleware-net; do
+for spec in elasticsearch-v9-candidate:elasticsearch-v9:middleware-net; do
   IFS=: read -r container stable_alias network <<<"${spec}"
   [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container}" 2>/dev/null || true)" == healthy \
     && "$(docker inspect --format '{{.RestartCount}}' "${container}")" == 0 ]] \
@@ -146,7 +141,6 @@ available_disk_mib="$(df -Pm "${base_dir}" | awk 'NR == 2 {print $4}')"
 
 compose=(docker compose --project-name ai-chat-production --project-directory "${release}" \
   -f "${release}/compose.cloud.yaml" \
-  -f "${release}/deploy/compose.nacos-auth.yaml" \
   -f "${release}/deploy/compose.elasticsearch-auth.yaml" \
   --env-file "${release}/versions.env" --env-file "${runtime_env}")
 "${compose[@]}" config --quiet
@@ -192,6 +186,5 @@ echo "production_preflight=${phase#--}"
 echo "cutover_id=${cutover_id}"
 echo "release=${release_name}"
 echo "release_manifest_sha256=${release_manifest_sha256}"
-echo "nacos=3.2.2-authenticated-stable-alias"
 echo "elasticsearch=9.3.2-ik-authenticated-stable-alias"
 echo "mutation=none"

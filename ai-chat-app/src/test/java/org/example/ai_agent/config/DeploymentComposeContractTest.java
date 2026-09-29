@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DeploymentComposeContractTest {
 
     @Test
-    void shouldUseTheReviewedModeSpecificNameForSpringNacosMetricsAndTraces() throws IOException {
+    void shouldUseTheReviewedModeSpecificNameForSpringMetricsAndTraces() throws IOException {
         String compose = Files.readString(rootFile("compose.cloud.yaml"));
 
         assertTrue(compose.contains(
@@ -24,16 +24,30 @@ class DeploymentComposeContractTest {
     }
 
     @Test
+    void shouldLoadConfigurationFromAReadOnlyMountInsteadOfNacos() throws IOException {
+        String compose = Files.readString(rootFile("compose.cloud.yaml"));
+
+        assertTrue(compose.contains("SPRING_PROFILES_ACTIVE: prod\n"));
+        assertTrue(compose.contains("AICHAT_CONFIG_DIR: /opt/aichat/config\n"));
+        assertTrue(compose.contains("AICHAT_CONFIG_SECRETS_DIR: /opt/aichat/config/secrets\n"));
+        assertTrue(compose.contains("SPRING_CONFIG_IMPORT: file:/opt/aichat/config/application.properties,configtree:/opt/aichat/config/secrets/"));
+        assertTrue(compose.contains("target: /opt/aichat/config"));
+        assertTrue(compose.contains("read_only: true"));
+        assertTrue(compose.contains("create_host_path: false"));
+        assertFalse(compose.toLowerCase().contains("nacos"));
+    }
+
+    @Test
     void shouldFailClosedBeforeTheFirstProductionCutover() throws IOException {
         String productionEnv = Files.readString(rootFile("deploy/production.env.example"));
         String activation = Files.readString(rootFile("deploy/cloud-activate.sh"));
         String preflight = Files.readString(rootFile("deploy/cloud-preflight-production.sh"));
 
-        assertTrue(productionEnv.contains("NACOS_SERVER_ADDR=nacos-v3:8848"));
+        assertTrue(productionEnv.contains("AICHAT_CONFIG_HOST_DIR=/opt/ai-chat/runtime/config/production"));
         assertTrue(productionEnv.contains("ELASTICSEARCH_SERVER_ADDR=elasticsearch-v9:9200"));
         assertTrue(productionEnv.contains("AICHAT_PRODUCTION_CONFIRMED=false"));
         assertTrue(productionEnv.contains("AICHAT_CUTOVER_ID="));
-        assertFalse(productionEnv.contains("NACOS_SERVER_ADDR=nacos:8848"));
+        assertFalse(productionEnv.contains("NACOS"));
 
         assertTrue(activation.contains("cloud-preflight-production.sh\" --ready"));
         assertTrue(preflight.contains("OLD_PRODUCTION_WRITERS_STOPPED=true"));

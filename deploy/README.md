@@ -1,5 +1,13 @@
 # AI-chat 云端发布 Module
 
+> **状态：已停用。** GCP 云端发布流程不再维护，当前运行环境是家庭服务器（部署文件见
+> `../AI-ops/deployment/home/`）。应用已移除 Nacos，改为读取只读挂载的外部配置目录：
+> `application.properties` 加 `secrets/`（每个属性一个文件，Spring configtree）。本目录脚本
+> 仅删掉了 Nacos 相关门禁，没有针对新配置方式重新验收；重新启用前需要完整复核。
+> 下文中关于 Nacos 的内容仅作历史记录。
+> 家庭服务器的 Nacos 导出转换步骤见 `../scripts/README-external-config.md`；
+> 不要按旧说明直接拼接或逐行拆分 properties 文件。
+
 第一版发布只使用一份 `compose.cloud.yaml`。候选和生产的差异来自 root-owned runtime env，
 并由 `cloud-activate.sh` 在 Docker 构建前做强校验，避免把候选环境的“禁写配置”误当成生产。
 
@@ -8,9 +16,7 @@
 | 范围 | 固定版本 | 说明 |
 |---|---:|---|
 | Java / Maven | Temurin 21.0.11+10 / Maven 3.9.16 | 本地编译、Docker builder 和容器 runtime 统一 Java 21 |
-| Spring Boot / Cloud | 4.0.7 / 2025.1.2 | 使用受支持的 Oakwood release train，不再使用已 EOL 的 2023.x/2025.0.x |
-| Spring Cloud Alibaba | 2025.1.0.0 | 与 Boot 4、Cloud 2025.1 对齐 |
-| Nacos Client | 3.1.1 | 由 Alibaba BOM 管理，不手工覆盖 |
+| Spring Boot | 4.0.7 | Spring Cloud / Alibaba / Nacos Client 已随 Nacos 一并移除 |
 | Elasticsearch | server / IK 9.3.2；Java client 9.2.8；legacy REST client 9.3.1 | server 与 IK 精确一致；客户端保持 BOM 解析结果 |
 | LangChain4j | 1.15.1 / Spring `1.15.1-beta25` | 使用 Boot 4 专用 starter；beta 仅指 Spring 集成层 |
 | Apache Tika | 3.2.3（LangChain4j 传递管理） | 不再用显式 2.9.4 覆盖 parser 模块，避免 Tika 2/3 主版本混用 |
@@ -93,10 +99,10 @@ bash deploy/tests/legacy-writer-lifecycle-test.sh \
 
 ## 安全边界
 
-- AIDiag、Nacos 和 Elasticsearch 密钥只通过 Compose file secrets 挂载，不写入镜像、runtime env 或 `docker inspect`。
-- `docker-entrypoint.sh` 只在容器内部读取 Nacos/Elasticsearch 文件密钥并导出给 Java 进程。
-- 根文件系统保持只读；Nacos 客户端快照与内部日志只写入有大小上限、容器销毁即清空的 tmpfs。
-- 生产模式强制要求 Nacos 鉴权；候选模式可以在鉴权切换前暂时使用匿名 Nacos，切换后应改为 `true`。
+- AIDiag 和 Elasticsearch 密钥只通过 Compose file secrets 挂载；应用配置密钥位于只读挂载的
+  `AICHAT_CONFIG_HOST_DIR/secrets/`。三者都不写入镜像、runtime env 或 `docker inspect`。
+- `docker-entrypoint.sh` 只在容器内部读取 Elasticsearch 文件密钥并导出给 Java 进程。
+- 根文件系统保持只读。
 - 启动失败只收集 `ai-chat-backend` 最后 500 行日志，先脱敏再写入有大小上限的独立文件。
 - 健康门禁失败会恢复同模式的上一个 immutable release，不会触碰另一个模式或 DNS。
 
@@ -106,8 +112,9 @@ bash deploy/tests/legacy-writer-lifecycle-test.sh \
 /opt/ai-chat/releases/<release-name>       immutable source release
 /opt/ai-chat/runtime/candidate.env         候选非密钥配置，mode 600/640
 /opt/ai-chat/runtime/production.env        生产非密钥配置，mode 600/640
-/opt/ai-chat/runtime/.secrets/candidate/   候选 Nacos 文件密钥，uid/gid 10001:10001、mode 400
-/opt/ai-chat/runtime/.secrets/production/  生产 Nacos 文件密钥，uid/gid 10001:10001、mode 400
+/opt/ai-chat/runtime/.secrets/candidate/   候选 Elasticsearch 文件密钥，uid/gid 10001:10001、mode 400
+/opt/ai-chat/runtime/.secrets/production/  生产 Elasticsearch 文件密钥，uid/gid 10001:10001、mode 400
+/opt/ai-chat/runtime/config/<mode>/        应用外部配置：application.properties + secrets/
 /opt/ai-chat/candidate                     当前候选 release 软链接
 /opt/ai-chat/runtime/cutovers/<id>/        生产切换备份、停写与批准证据（root:root、mode 600）
 /opt/ai-chat/current                       当前生产 release 软链接
