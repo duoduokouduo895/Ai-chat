@@ -4,7 +4,7 @@
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
     <springProperty scope="context" name="OPS_LOG_FILE" source="aichat.observability.ops-log-file"
-                    defaultValue="/var/log/ai-chat/operations.jsonl"/>
+                    defaultValue="${java.io.tmpdir}/ai-chat/operations.jsonl"/>
 
     <appender name="OPS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${OPS_LOG_FILE}</file>
