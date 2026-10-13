@@ -37,7 +37,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         return adminUserRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new SecurityException("管理员账号或密码无效")))
                 .flatMap(admin -> {
-                    if (!"ACTIVE".equalsIgnoreCase(admin.getStatus())) {
+                    if (!AdminUser.STATUS_ACTIVE.equalsIgnoreCase(admin.getStatus())) {
                         return Mono.error(new SecurityException("管理员账号已禁用"));
                     }
 

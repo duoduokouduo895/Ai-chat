@@ -1,5 +1,6 @@
 package org.example.ai_agent.auth.security;
 
+import org.example.ai_agent.auth.entity.AdminUser;
 import org.example.ai_agent.auth.repository.AdminUserRepository;
 import org.example.ai_agent.auth.repository.UserRepository;
 import org.example.ai_agent.auth.service.TicketService;
@@ -52,7 +53,10 @@ class SecurityConfigTest {
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
-                properties.getProperty("app.security.cors.allowed-origins")
+                properties.getProperty("app.security.cors.allowed-origins"),
+                false,
+                "",
+                ""
         );
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .options("/api/ai/models")
@@ -81,7 +85,10 @@ class SecurityConfigTest {
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
-                "http://localhost:3000"
+                "http://localhost:3000",
+                false,
+                "",
+                ""
         );
         when(jwtUtil.parseAuthenticationClaims("user-token")).thenReturn(
                 new JwtUtil.AuthenticationClaims("alice", "jti-42", "USER", 42L, null, false));
@@ -107,7 +114,10 @@ class SecurityConfigTest {
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
-                "http://localhost:3000"
+                "http://localhost:3000",
+                false,
+                "",
+                ""
         );
         when(jwtUtil.parseAuthenticationClaims("user-token")).thenReturn(
                 new JwtUtil.AuthenticationClaims("alice", "jti-42", "USER", 42L, null, false));
@@ -128,7 +138,10 @@ class SecurityConfigTest {
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
-                "http://localhost:3000"
+                "http://localhost:3000",
+                false,
+                "",
+                ""
         );
         when(jwtUtil.parseAuthenticationClaims("guest-token")).thenReturn(
                 new JwtUtil.AuthenticationClaims("guest", "guest-jti", "USER", 99L, null, true));
@@ -154,7 +167,10 @@ class SecurityConfigTest {
                 adminUserRepository,
                 ticketService,
                 redisTemplate,
-                "http://localhost:3000"
+                "http://localhost:3000",
+                false,
+                "",
+                ""
         );
         when(jwtUtil.parseAuthenticationClaims("expired-token"))
                 .thenThrow(new JwtUtil.InvalidAuthenticationTokenException("Token已过期"));
@@ -165,5 +181,66 @@ class SecurityConfigTest {
                 .verify();
 
         org.mockito.Mockito.verifyNoInteractions(redisTemplate);
+    }
+
+    @Test
+    void jwtAuthenticationRejectsDisabledAdminEvenWhenJtiRemains() {
+        SecurityConfig securityConfig = new SecurityConfig(
+                jwtUtil,
+                userRepository,
+                adminUserRepository,
+                ticketService,
+                redisTemplate,
+                "http://localhost:3000",
+                false,
+                "",
+                ""
+        );
+        when(jwtUtil.parseAuthenticationClaims("admin-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("ops", "admin-jti", "ADMIN", null, 7L, false));
+        when(redisTemplate.hasKey("token:jti:admin-jti")).thenReturn(Mono.just(true));
+        AdminUser disabled = new AdminUser();
+        disabled.setAdminId(7L);
+        disabled.setUsername("ops");
+        disabled.setStatus("DISABLED");
+        when(adminUserRepository.findByUsername("ops")).thenReturn(Mono.just(disabled));
+
+        StepVerifier.create(securityConfig.combinedAuthenticationManager()
+                        .authenticate(new UsernamePasswordAuthenticationToken("jwt", "admin-token")))
+                .expectError(org.springframework.security.authentication.BadCredentialsException.class)
+                .verify();
+    }
+
+    @Test
+    void jwtAuthenticationAllowsActiveAdminAfterStatusCheck() {
+        SecurityConfig securityConfig = new SecurityConfig(
+                jwtUtil,
+                userRepository,
+                adminUserRepository,
+                ticketService,
+                redisTemplate,
+                "http://localhost:3000",
+                false,
+                "",
+                ""
+        );
+        when(jwtUtil.parseAuthenticationClaims("admin-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("ops", "admin-jti", "ADMIN", null, 7L, false));
+        when(redisTemplate.hasKey("token:jti:admin-jti")).thenReturn(Mono.just(true));
+        AdminUser active = new AdminUser();
+        active.setAdminId(7L);
+        active.setUsername("ops");
+        active.setStatus("ACTIVE");
+        when(adminUserRepository.findByUsername("ops")).thenReturn(Mono.just(active));
+
+        StepVerifier.create(securityConfig.combinedAuthenticationManager()
+                        .authenticate(new UsernamePasswordAuthenticationToken("jwt", "admin-token")))
+                .assertNext(authentication -> {
+                    org.junit.jupiter.api.Assertions.assertEquals("ops", authentication.getName());
+                    org.junit.jupiter.api.Assertions.assertEquals(7L, authentication.getDetails());
+                    org.junit.jupiter.api.Assertions.assertTrue(authentication.getAuthorities().stream()
+                            .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority())));
+                })
+                .verifyComplete();
     }
 }
