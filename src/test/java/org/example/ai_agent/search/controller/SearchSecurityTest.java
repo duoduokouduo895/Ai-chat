@@ -2,6 +2,7 @@ package org.example.ai_agent.search.controller;
 
 import org.example.ai_agent.auth.security.SecurityConfig;
 import org.example.ai_agent.auth.security.RequestActorResolver;
+import org.example.ai_agent.auth.entity.AdminUser;
 import org.example.ai_agent.search.entity.ConversationDocument;
 import org.example.ai_agent.auth.repository.AdminUserRepository;
 import org.example.ai_agent.auth.repository.UserRepository;
@@ -214,6 +215,24 @@ class SearchSecurityTest {
                 .jsonPath("$.message").isEqualTo("索引重建任务已完成");
     }
 
+    @Test
+    void adminRebuildEndpoint_shouldRejectDisabledAdminRequests() {
+        when(jwtUtil.parseAuthenticationClaims("disabled-admin-token")).thenReturn(
+                new JwtUtil.AuthenticationClaims("blocked", "admin-jti-8", "ADMIN", null, 8L, false));
+        when(redisTemplate.hasKey("token:jti:admin-jti-8")).thenReturn(Mono.just(true));
+        AdminUser disabled = new AdminUser();
+        disabled.setAdminId(8L);
+        disabled.setUsername("blocked");
+        disabled.setStatus("DISABLED");
+        when(adminUserRepository.findByUsername("blocked")).thenReturn(Mono.just(disabled));
+
+        webTestClient.post()
+                .uri("/api/admin/search/rebuild-indexes")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer disabled-admin-token")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
     private void mockUserJwt(String token, String username, Long userId) {
         when(jwtUtil.parseAuthenticationClaims(token)).thenReturn(
                 new JwtUtil.AuthenticationClaims(username, "jti-" + userId, "USER", userId, null, false));
@@ -225,6 +244,11 @@ class SearchSecurityTest {
         when(jwtUtil.parseAuthenticationClaims(token)).thenReturn(
                 new JwtUtil.AuthenticationClaims(username, "admin-jti-" + adminId, "ADMIN", null, adminId, false));
         when(redisTemplate.hasKey("token:jti:admin-jti-" + adminId)).thenReturn(Mono.just(true));
+        AdminUser admin = new AdminUser();
+        admin.setAdminId(adminId);
+        admin.setUsername(username);
+        admin.setStatus("ACTIVE");
+        when(adminUserRepository.findByUsername(username)).thenReturn(Mono.just(admin));
     }
 
     @RestController
