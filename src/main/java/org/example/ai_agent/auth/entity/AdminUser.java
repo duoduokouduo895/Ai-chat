@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 @Table("admin_users")
 public class AdminUser {
 
+    public static final String STATUS_ACTIVE = "ACTIVE";
+
     @Id
     @Column("admin_id")
     private Long adminId;

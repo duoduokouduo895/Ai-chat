@@ -84,8 +84,12 @@ class PrometheusScrapeAuthWebFilterTest {
     }
 
     @Test
-    void enabledWithoutCredentialsStaysInactive() {
-        PrometheusScrapeAuthWebFilter filter = new PrometheusScrapeAuthWebFilter(true, "", "");
-        assertThat(filter.isAuthActive()).isFalse();
+    void enabledWithoutCredentialsFailsFast() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> new PrometheusScrapeAuthWebFilter(true, "", ""))
+                .isInstanceOf(IllegalStateException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> new PrometheusScrapeAuthWebFilter(true, "scrape", null))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

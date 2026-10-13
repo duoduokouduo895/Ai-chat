@@ -1,5 +1,6 @@
 package org.example.ai_agent.auth.security;
 
+import org.example.ai_agent.auth.entity.AdminUser;
 import org.example.ai_agent.auth.repository.AdminUserRepository;
 import org.example.ai_agent.auth.repository.UserRepository;
 import org.example.ai_agent.auth.service.TicketService;
@@ -164,7 +165,7 @@ public class SecurityConfig {
         return adminUserRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new BadCredentialsException("Authenticated admin does not exist")))
                 .flatMap(admin -> {
-                    if (!"ACTIVE".equalsIgnoreCase(admin.getStatus())) {
+                    if (!AdminUser.STATUS_ACTIVE.equalsIgnoreCase(admin.getStatus())) {
                         return Mono.error(new BadCredentialsException("Admin account is disabled"));
                     }
                     Long resolvedAdminId = admin.getAdminId() != null ? admin.getAdminId() : adminId;

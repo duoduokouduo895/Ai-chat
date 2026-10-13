@@ -28,9 +28,12 @@ public class PrometheusScrapeAuthWebFilter implements WebFilter {
     private final byte[] expectedPasswordBytes;
 
     public PrometheusScrapeAuthWebFilter(boolean authEnabled, String username, String password) {
-        this.authEnabled = authEnabled
-                && username != null && !username.isBlank()
-                && password != null && !password.isBlank();
+        if (authEnabled && (username == null || username.isBlank() || password == null || password.isBlank())) {
+            throw new IllegalStateException(
+                    "app.security.actuator.prometheus-auth-enabled=true requires non-blank "
+                            + "prometheus-username and prometheus-password");
+        }
+        this.authEnabled = authEnabled;
         this.expectedUsername = username == null ? "" : username;
         this.expectedPasswordBytes = password == null
                 ? new byte[0]
