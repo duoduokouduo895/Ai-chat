@@ -4,12 +4,12 @@ on:
   push:
     branches: [main, "architecture/**"]
     paths:
-      - "ai-chat-*/**"
+      - "src/**"
       - "pom.xml"
       - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
-      - "ai-chat-*/**"
+      - "src/**"
       - "pom.xml"
       - ".github/workflows/backend-ci.yml"
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
           java-version: "21"
           cache: maven
       # MySQL integration tests skip themselves here: AI_CHAT_MYSQL_IT_ENABLED is unset.
-      - run: mvn -B -ntp -pl ai-chat-app -am test
+      - run: mvn -B -ntp test
 
   mysql-integration:
     name: MySQL integration tests
@@ -78,7 +78,7 @@ jobs:
           exit 1
 
       - name: Compile once
-        run: mvn -B -ntp -pl ai-chat-app -am test-compile
+        run: mvn -B -ntp test-compile
 
       # Each class migrates its own schema from a known version (e.g. V6 -> V7 upgrade
       # probes), so every class gets a fresh database named ai_chat_it_<class>.
@@ -90,7 +90,7 @@ jobs:
           AI_CHAT_MYSQL_IT_USERNAME: root
           AI_CHAT_MYSQL_IT_PASSWORD: ${{ env.MYSQL_ROOT_PASSWORD }}
         run: |
-          classes=$(grep -rl 'AI_CHAT_MYSQL_IT_ENABLED' ai-chat-app/src/test/java \
+          classes=$(grep -rl 'AI_CHAT_MYSQL_IT_ENABLED' src/test/java \
             | xargs -n1 basename | sed 's/\.java$//' | sort)
           test -n "$classes" || { echo "No MySQL integration test classes found"; exit 1; }
           failed=""
@@ -99,7 +99,7 @@ jobs:
             docker exec mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e \
               "CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             echo "::group::$class ($database)"
-            if ! AI_CHAT_MYSQL_IT_DATABASE="$database" mvn -B -ntp -pl ai-chat-app -am test \
+            if ! AI_CHAT_MYSQL_IT_DATABASE="$database" mvn -B -ntp test \
                 -Dtest="$class" -Dsurefire.failIfNoSpecifiedTests=false; then
               failed="$failed $class"
             fi
@@ -115,5 +115,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mysql-integration-surefire-reports
-          path: ai-chat-app/target/surefire-reports/
+          path: target/surefire-reports/
           retention-days: 7

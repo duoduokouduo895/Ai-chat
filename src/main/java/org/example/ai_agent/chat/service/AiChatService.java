@@ -1,0 +1,10 @@
+package org.example.ai_agent.chat.service;
+
+import org.example.ai_agent.chat.dto.ChatRequest;
+import reactor.core.publisher.Flux;
+
+import org.springframework.http.codec.ServerSentEvent;
+
+public interface AiChatService {
+    Flux<ServerSentEvent<String>> chat(ChatRequest chatRequest);
+}

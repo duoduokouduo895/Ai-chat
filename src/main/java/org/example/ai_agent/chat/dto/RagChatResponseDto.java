@@ -1,0 +1,43 @@
+package org.example.ai_agent.chat.dto;
+
+import lombok.Data;
+import org.example.ai_agent.knowledge.dto.KnowledgeSearchResultDto;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * RAG对话响应DTO
+ * 
+ * @author AI Agent
+ * @version 1.0
+ * @since 2025
+ */
+@Data
+public class RagChatResponseDto {
+    
+    /**
+     * AI生成的回答
+     */
+    private String answer;
+    
+    /**
+     * 参考的文档来源
+     */
+    private List<KnowledgeSearchResultDto.KnowledgeSearchMatch> sources;
+    
+    /**
+     * 对话ID
+     */
+    private Long conversationId;
+    
+    /**
+     * 响应时间
+     */
+    private LocalDateTime responseTime;
+    
+    /**
+     * 处理耗时(毫秒)
+     */
+    private Long processingTime;
+}

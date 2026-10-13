@@ -7,7 +7,7 @@ function Invoke-ItMonitoredMaven {
     $itInfo.CreateNoWindow = $true
     $itInfo.RedirectStandardOutput = $true
     $itInfo.RedirectStandardError = $true
-    foreach ($itArgument in @('/d', '/c', "mvn -q -pl ai-chat-app -am -Dtest=$TestClass -Dsurefire.failIfNoSpecifiedTests=false test")) {
+    foreach ($itArgument in @('/d', '/c', "mvn -q -Dtest=$TestClass -Dsurefire.failIfNoSpecifiedTests=false test")) {
         [void]$itInfo.ArgumentList.Add($itArgument)
     }
     $itProcess = [System.Diagnostics.Process]::new()

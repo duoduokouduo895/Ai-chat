@@ -30,14 +30,7 @@ $paths = @(
     'compose.cloud.yaml',
     'deploy',
     'pom.xml',
-    'ai-chat-kernel',
-    'ai-chat-identity',
-    'ai-chat-conversation',
-    'ai-chat-knowledge',
-    'ai-chat-search',
-    'ai-chat-adapters',
-    'ai-chat-web',
-    'ai-chat-app',
+    'src',
     'versions.env'
 )
 

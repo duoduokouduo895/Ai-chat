@@ -9,7 +9,7 @@ param(
 . (Join-Path $PSScriptRoot "common.ps1")
 
 $baseUrl = Get-PerfBaseUrl
-$jmeterHome = if ($env:JMETER_HOME) { $env:JMETER_HOME } else { "E:\Jmeter\apache-jmeter-5.6.3" }
+$jmeterHome = if ($env:JMETER_HOME) { $env:JMETER_HOME } else { "E:\Dev\JMeter\apache-jmeter-5.6.3" }
 $jmeter = Join-Path $jmeterHome "bin\jmeter.bat"
 $jmx = Join-Path $PSScriptRoot "..\jmeter\ai-chat.jmx"
 $csvPointer = Join-Path $PSScriptRoot "..\local\latest-users-csv.txt"
