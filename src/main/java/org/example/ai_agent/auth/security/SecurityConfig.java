@@ -43,13 +43,19 @@ public class SecurityConfig {
     private final TicketService ticketService;
     private final ReactiveStringRedisTemplate redisTemplate;
     private final List<String> corsAllowedOrigins;
+    private final boolean prometheusAuthEnabled;
+    private final String prometheusUsername;
+    private final String prometheusPassword;
 
     public SecurityConfig(JwtUtil jwtUtil,
                           UserRepository userRepository,
                           AdminUserRepository adminUserRepository,
                           TicketService ticketService,
                           ReactiveStringRedisTemplate redisTemplate,
-                          @Value("${app.security.cors.allowed-origins}") String corsAllowedOrigins) {
+                          @Value("${app.security.cors.allowed-origins}") String corsAllowedOrigins,
+                          @Value("${app.security.actuator.prometheus-auth-enabled:false}") boolean prometheusAuthEnabled,
+                          @Value("${app.security.actuator.prometheus-username:}") String prometheusUsername,
+                          @Value("${app.security.actuator.prometheus-password:}") String prometheusPassword) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
         this.adminUserRepository = adminUserRepository;
@@ -59,12 +65,17 @@ public class SecurityConfig {
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .collect(Collectors.toList());
+        this.prometheusAuthEnabled = prometheusAuthEnabled;
+        this.prometheusUsername = prometheusUsername;
+        this.prometheusPassword = prometheusPassword;
     }
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         AuthenticationWebFilter authFilter = new AuthenticationWebFilter(combinedAuthenticationManager());
         authFilter.setServerAuthenticationConverter(combinedAuthenticationConverter());
+        PrometheusScrapeAuthWebFilter prometheusScrapeAuthWebFilter = new PrometheusScrapeAuthWebFilter(
+                prometheusAuthEnabled, prometheusUsername, prometheusPassword);
 
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
@@ -87,6 +98,7 @@ public class SecurityConfig {
                         .pathMatchers("/api/diagnostic/**", "/actuator/**").hasRole("ADMIN")
                         .anyExchange().authenticated()
                 )
+                .addFilterBefore(prometheusScrapeAuthWebFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .addFilterAt(authFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .addFilterBefore(new org.example.ai_agent.auth.security.TokenRefreshFilter(
                         jwtUtil, redisTemplate, userRepository), SecurityWebFiltersOrder.AUTHENTICATION)
@@ -110,8 +122,8 @@ public class SecurityConfig {
                         .flatMap(hasKey -> {
                             if (hasKey) {
                                 if ("ADMIN".equals(claims.principalType())) {
-                                    return Mono.just(createAdminAuthenticationToken(
-                                            claims.username(), claims.adminId(), token));
+                                    return authenticateActiveAdmin(
+                                            claims.username(), claims.adminId(), token);
                                 }
 
                                 return authenticateActiveUser(
@@ -148,10 +160,17 @@ public class SecurityConfig {
                                 guest)));
     }
 
-    private Mono<Authentication> loadAuthenticatedAdmin(String username, String credentials) {
+    private Mono<Authentication> authenticateActiveAdmin(String username, Long adminId, String credentials) {
         return adminUserRepository.findByUsername(username)
                 .switchIfEmpty(Mono.error(new BadCredentialsException("Authenticated admin does not exist")))
-                .map(admin -> createAdminAuthenticationToken(admin.getUsername(), admin.getAdminId(), credentials));
+                .flatMap(admin -> {
+                    if (!"ACTIVE".equalsIgnoreCase(admin.getStatus())) {
+                        return Mono.error(new BadCredentialsException("Admin account is disabled"));
+                    }
+                    Long resolvedAdminId = admin.getAdminId() != null ? admin.getAdminId() : adminId;
+                    return Mono.just(createAdminAuthenticationToken(
+                            admin.getUsername(), resolvedAdminId, credentials));
+                });
     }
 
     private Authentication createAuthenticatedToken(String username, Long userId, String credentials, boolean guest) {
